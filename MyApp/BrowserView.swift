@@ -28,7 +28,10 @@ struct BrowserView: View {
                     onDone: closeSwitcher
                 )
                 .ignoresSafeArea(.keyboard)
-                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                // It animates its own entrance (the page shrinking into a
+                // card), so appear instantly; on the way out, cross-fade
+                // from the zoom picture to the live page.
+                .transition(.asymmetric(insertion: .identity, removal: .opacity))
             }
 
             // Always in the view tree, just invisible when closed. A text
@@ -99,12 +102,12 @@ struct BrowserView: View {
         Task {
             // Refresh the current page's picture first, so its card is current.
             await store.selectedTab?.captureSnapshot()
-            withAnimation(.spring(duration: 0.4, bounce: 0.1)) { isSwitching = true }
+            isSwitching = true
         }
     }
 
     private func closeSwitcher() {
-        withAnimation(.spring(duration: 0.35, bounce: 0.1)) { isSwitching = false }
+        withAnimation(.easeOut(duration: 0.2)) { isSwitching = false }
     }
 
     private func closeTab(_ tab: Tab) {
