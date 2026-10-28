@@ -28,7 +28,7 @@ struct BottomBar: View {
         VStack(spacing: 0) {
             ProgressLine(progress: tab.progress, isVisible: tab.isLoading)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 HStack {
                     TabSwitcherButton(count: tabCount, action: onShowTabs)
 
@@ -40,9 +40,11 @@ struct BottomBar: View {
                 }
 
                 siteCapsule
+                    // Clear the screen's rounded bottom corners.
+                    .padding(.horizontal, 24)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 6)
+            .padding(.horizontal, 20)
+            .padding(.top, 2)
             .padding(.bottom, 0)
         }
         // The blurred strip extends down under the home indicator.
@@ -281,7 +283,7 @@ struct BottomBar: View {
             }
         }
         .padding(.horizontal, 6)
-        .frame(height: 28)
+        .frame(height: 24)
         .background(.thinMaterial, in: .capsule)
     }
 
@@ -292,7 +294,7 @@ struct BottomBar: View {
             } label: {
                 Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
                     .font(.footnote.weight(.semibold))
-                    .frame(width: 28, height: 28)
+                    .frame(width: 24, height: 24)
                     .contentShape(.rect)
             }
             .disabled(tab.isBlank)
@@ -362,7 +364,7 @@ private struct CapsuleIcon: View {
         Image(systemName: systemName)
             .font(.footnote.weight(.semibold))
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: 28, height: 28)
+            .frame(width: 24, height: 24)
             .contentShape(.rect)
     }
 }

@@ -85,18 +85,6 @@ struct BrowserView: View {
                 onDismiss: closeSearch
             )
         }
-        // Build stamp, to confirm a new build is the one running.
-        // Pinned to the physical bottom edge of the screen; the offset
-        // cancels the text's empty space below the letters.
-        .overlay(alignment: .bottom) {
-            Text(BuildStamp.text)
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .offset(y: 0)
-                .allowsHitTesting(false)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .ignoresSafeArea()
-        }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
             if scenePhase != .active { store.save() }
@@ -172,9 +160,8 @@ struct BrowserView: View {
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
                         onShowTabs: openSwitcher
                     )
-                    // Use the upper part of the home-indicator inset for the
-                    // compact address strip; keep 14pt clear at the physical edge.
-                    .padding(.bottom, -max(0, geometry.safeAreaInsets.bottom - 14))
+                    // Put the address strip just above the physical bottom edge.
+                    .padding(.bottom, -max(0, geometry.safeAreaInsets.bottom - 3))
                     // Report the bar's height so the page can make room.
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
                     .opacity(1 - barMix)
