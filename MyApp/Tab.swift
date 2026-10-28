@@ -26,6 +26,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// True until something has been loaded: a brand-new, empty tab.
     private(set) var isBlank = true
 
+    /// A picture of the page, shown on this tab's card in the switcher.
+    private(set) var snapshot: UIImage?
+
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
 
@@ -65,6 +68,14 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         }
     }
 
+    /// "apple.com" for the bar and cards; falls back to the page title.
+    var displayName: String {
+        if let host = (url ?? loadError?.failedURL)?.host() {
+            return host.replacing("www.", with: "", maxReplacements: 1)
+        }
+        return title ?? "New Tab"
+    }
+
     private func syncFromWebView() {
         url = webView.url
         title = webView.title
@@ -99,7 +110,38 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         webView.stopLoading()
     }
 
+    /// Takes a small picture of what the web view is showing right now.
+    /// Call this *before* the web view is hidden: a hidden view may render blank.
+    func captureSnapshot() async {
+        guard !isBlank else { return }
+        let configuration = WKSnapshotConfiguration()
+        // Cards are small, so a modest width keeps memory low.
+        configuration.snapshotWidth = 400
+        if let image = try? await webView.takeSnapshot(configuration: configuration) {
+            snapshot = image
+        }
+    }
+
+    /// Called when the tab is closed, so the page stops loading and playing.
+    func teardown() {
+        webView.stopLoading()
+        webView.navigationDelegate = nil
+        observations = []
+    }
+
     // MARK: - WKNavigationDelegate
+
+    /// A page finished loading: refresh the card picture. (The leaving-the-tab
+    /// snapshot can be taken mid-load, which would leave a half-empty card.)
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task {
+            // Give the page a moment to paint its final layout.
+            try? await Task.sleep(for: .milliseconds(400))
+            if !webView.isHidden || snapshot == nil {
+                await captureSnapshot()
+            }
+        }
+    }
 
     /// Called once the first bytes of a new page arrive, i.e. the old page is
     /// about to be replaced. A good moment to drop any old error.

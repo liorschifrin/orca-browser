@@ -3,13 +3,14 @@ import SwiftUI
 /// The floating bar at the bottom of the screen.
 ///
 ///     [ site name ................ reload ]
-///     [ (switcher) ]  [   +   ]  [  back  ]
+///     [ tabs ]  [      +      ]  [  back  ]
 ///
-/// The bottom-left slot is reserved for the tab switcher (a later milestone).
 /// Everything is within thumb reach on purpose.
 struct BottomBar: View {
     let tab: Tab
+    let tabCount: Int
     let onNewTab: () -> Void
+    let onShowTabs: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,11 +20,10 @@ struct BottomBar: View {
                 siteCapsule
 
                 HStack {
-                    // Placeholder so the + stays centered until the switcher exists.
-                    Color.clear.frame(width: 44, height: 44)
+                    TabSwitcherButton(count: tabCount, action: onShowTabs)
 
                     Spacer()
-                    newTabButton
+                    NewTabButton(action: onNewTab)
                     Spacer()
 
                     BarButton(systemName: "chevron.left", label: "Back") {
@@ -40,27 +40,9 @@ struct BottomBar: View {
         .background(.bar)
     }
 
-    // MARK: - Pieces
-
-    private var newTabButton: some View {
-        Button {
-            // .soft is a gentler, rounder tap than .light; intensity is 0...1.
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
-            onNewTab()
-        } label: {
-            Image(systemName: "plus")
-                .font(.title2.weight(.semibold))
-                .frame(width: 160, height: 48)
-                .background(.thinMaterial, in: .capsule)
-                .contentShape(.capsule)
-        }
-        .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel("New Tab")
-    }
-
     private var siteCapsule: some View {
         HStack {
-            Text(displayName)
+            Text(tab.displayName)
                 .font(.subheadline.weight(.medium))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
@@ -82,13 +64,48 @@ struct BottomBar: View {
         .frame(height: 36)
         .background(.thinMaterial, in: .capsule)
     }
+}
 
-    /// "www.apple.com" -> "apple.com". Falls back to the title, then a hint.
-    private var displayName: String {
-        if let host = (tab.url ?? tab.loadError?.failedURL)?.host() {
-            return host.replacing("www.", with: "", maxReplacements: 1)
+/// The big center pill. Also used on the tab switcher screen.
+struct NewTabButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            // .soft is a gentler, rounder tap than .light; intensity is 0...1.
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+            action()
+        } label: {
+            Image(systemName: "plus")
+                .font(.title2.weight(.semibold))
+                .frame(width: 160, height: 48)
+                .background(.thinMaterial, in: .capsule)
+                .contentShape(.capsule)
         }
-        return tab.title ?? "New Tab"
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel("New Tab")
+    }
+}
+
+/// Bottom-left button: a rounded square showing how many tabs are open.
+struct TabSwitcherButton: View {
+    let count: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+            action()
+        } label: {
+            Text("\(count)")
+                .font(.subheadline.weight(.bold))
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .frame(width: 44, height: 44)
+                .background(.thinMaterial, in: .rect(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel("Tabs, \(count) open")
     }
 }
 
