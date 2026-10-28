@@ -7,10 +7,14 @@ import SwiftUI
 /// That keeps the text field "warm" so the keyboard can appear right away.
 struct SearchOverlay: View {
     let isPresented: Bool
+    /// Text the field starts with each time the overlay opens.
+    var initialText = ""
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
 
     @State private var text = ""
+    @State private var clipboard = ""
+    @State private var lastClipboardCount = -1
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
     @FocusState private var isFocused: Bool
@@ -23,7 +27,12 @@ struct SearchOverlay: View {
                 .ignoresSafeArea()
                 .onTapGesture(perform: dismiss)
 
-            field
+            VStack(spacing: 10) {
+                if !clipboardText.isEmpty && clipboardText != text {
+                    clipboardChip
+                }
+                field
+            }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .offset(y: isPresented ? 0 : 24)
@@ -41,16 +50,56 @@ struct SearchOverlay: View {
         )
         .onAppear {
             // Presented at launch: grab the keyboard right away.
-            if isPresented { isFocused = true }
+            if isPresented {
+                readClipboard()
+                text = initialText
+                isFocused = true
+            }
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
-                text = ""
+                readClipboard()
+                text = initialText
                 isFocused = true
             } else {
                 isFocused = false
             }
         }
+    }
+
+    private var clipboardText: String {
+        clipboard.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Only touches the clipboard when it holds text, so iOS doesn't show
+    /// its paste prompt for images and the like.
+    /// Reads only when something new was copied: each read of text copied on
+    /// another device makes iOS show its "Pasted from…" banner.
+    private func readClipboard() {
+        let count = UIPasteboard.general.changeCount
+        guard count != lastClipboardCount else { return }
+        lastClipboardCount = count
+        clipboard = UIPasteboard.general.hasStrings ? (UIPasteboard.general.string ?? "") : ""
+    }
+
+    /// Shows what was copied; tapping goes straight to it.
+    private var clipboardChip: some View {
+        Button {
+            onSubmit(clipboardText)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.on.clipboard")
+                Text(clipboardText)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(.regularMaterial, in: .capsule)
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel("Go to copied text: \(clipboardText)")
     }
 
     private var field: some View {

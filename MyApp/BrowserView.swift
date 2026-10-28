@@ -8,6 +8,9 @@ struct BrowserView: View {
     @State private var barHeight: CGFloat = 0
     // Search starts open only when there's no page to go back to (a blank tab).
     @State private var isSearching: Bool
+    // Set when search was opened by tapping the address: the URL to show,
+    // and the submitted text then replaces the current page.
+    @State private var editingURL: URL?
     @State private var isSwitching = false
     /// A new value for every time the switcher opens, so SwiftUI never reuses
     /// a switcher that was mid-exit (it would still think it was "leaving").
@@ -65,15 +68,34 @@ struct BrowserView: View {
             // one that has to be built first adds a noticeable delay.
             SearchOverlay(
                 isPresented: isSearching,
+                initialText: editingURL?.absoluteString ?? "",
                 onSubmit: { input in
+                    let replacing = editingURL != nil
                     closeSearch()
                     Task {
-                        await store.open(input)
+                        if replacing, let tab = store.selectedTab,
+                           let url = Destination.url(for: input) {
+                            tab.load(url)
+                        } else {
+                            await store.open(input)
+                        }
                         closeSwitcher()
                     }
                 },
                 onDismiss: closeSearch
             )
+        }
+        // Build stamp, to confirm a new build is the one running.
+        // Pinned to the physical bottom edge of the screen; the offset
+        // cancels the text's empty space below the letters.
+        .overlay(alignment: .bottom) {
+            Text(BuildStamp.text)
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .offset(y: 0)
+                .allowsHitTesting(false)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .ignoresSafeArea()
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
@@ -145,7 +167,8 @@ struct BrowserView: View {
                 BottomBar(
                     tab: tab,
                     tabCount: store.tabs.count,
-                    onNewTab: openSearch,
+                    onNewTab: { openSearch() },
+                    onEditAddress: { openSearch(editing: store.selectedTab?.url) },
                     onShowTabs: openSwitcher
                 )
                 // Report the bar's height so the page can make room.
@@ -157,7 +180,7 @@ struct BrowserView: View {
             if isSwitching {
                 SwitcherBar(
                     onDone: { doneTrigger += 1 },
-                    onNewTab: openSearch,
+                    onNewTab: { openSearch() },
                     onSettings: { isShowingSettings = true }
                 )
                 .opacity(barMix)
@@ -172,7 +195,8 @@ struct BrowserView: View {
 
     // MARK: - Actions
 
-    private func openSearch() {
+    private func openSearch(editing url: URL? = nil) {
+        editingURL = url
         withAnimation(.easeOut(duration: 0.2)) { isSearching = true }
     }
 

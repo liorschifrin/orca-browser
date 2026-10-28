@@ -28,6 +28,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     private(set) var progress: Double = 0
     private(set) var isLoading = false
     private(set) var canGoBack = false
+    private(set) var canGoForward = false
 
     /// True until something has been loaded: a brand-new, empty tab.
     private(set) var isBlank = true
@@ -120,6 +121,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
             view.observe(\.estimatedProgress) { [weak self] view, _ in self?.sync(from: view) },
             view.observe(\.isLoading) { [weak self] view, _ in self?.sync(from: view) },
             view.observe(\.canGoBack) { [weak self] view, _ in self?.sync(from: view) },
+            view.observe(\.canGoForward) { [weak self] view, _ in self?.sync(from: view) },
             view.observe(\.url) { [weak self] view, _ in self?.sync(from: view) },
             view.observe(\.title) { [weak self] view, _ in self?.sync(from: view) },
             // Scrolling makes the picture out of date; refresh it once the
@@ -199,6 +201,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         }
         isLoading = view.isLoading
         canGoBack = view.canGoBack
+        canGoForward = view.canGoForward
     }
 
     private func pageScrolled() {
@@ -218,6 +221,20 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         loadError = nil
         activate()
         webView?.load(URLRequest(url: url))
+    }
+
+    /// The tab's whole history, oldest first, and where the current page is in it.
+    var history: (items: [WKBackForwardListItem], current: Int) {
+        guard let list = webView?.backForwardList else { return ([], 0) }
+        var items = list.backList
+        let current = items.count
+        if let item = list.currentItem { items.append(item) }
+        items += list.forwardList
+        return (items, current)
+    }
+
+    func go(to item: WKBackForwardListItem) {
+        webView?.go(to: item)
     }
 
     func goBack() {
