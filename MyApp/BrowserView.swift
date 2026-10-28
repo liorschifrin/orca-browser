@@ -104,12 +104,12 @@ struct BrowserView: View {
             ForEach(store.tabs.filter(\.isLoaded)) { tab in
                 WebViewHost(
                     webView: tab.webView!,
-                    bottomInset: barHeight,
                     isActive: tab.id == store.selectedTabID
                 )
-                // Use the full screen, including under the status bar
-                // and home indicator.
-                .ignoresSafeArea()
+                // Sit between the status bar and the floating bar, so nothing
+                // on the page (header buttons, the end of an inner scrolling
+                // panel like comments) is hidden behind them.
+                .padding(.bottom, barHeight)
             }
 
             if let tab = store.selectedTab {
@@ -121,7 +121,7 @@ struct BrowserView: View {
                         .scaledToFill()
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .clipped()
-                        .ignoresSafeArea()
+                        .padding(.bottom, barHeight)
                         .allowsHitTesting(false)
                         .transition(.opacity.animation(.easeOut(duration: 0.2)))
                 }

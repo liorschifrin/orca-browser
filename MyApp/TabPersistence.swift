@@ -80,12 +80,19 @@ enum TabPersistence {
         let tabs = session.tabs.map { saved in
             Tab(
                 restoring: saved,
-                snapshot: UIImage(contentsOfFile: file(saved.id, "jpg").path(percentEncoded: false)),
-                favicon: UIImage(contentsOfFile: file(saved.id, "png").path(percentEncoded: false)),
+                snapshot: image(file(saved.id, "jpg")),
+                favicon: image(file(saved.id, "png")),
                 interactionState: try? Data(contentsOf: file(saved.id, "state"))
             )
         }
         return (tabs, session.selectedID)
+    }
+
+    /// Reads the whole file up front. `UIImage(contentsOfFile:)` memory-maps it
+    /// instead, which breaks ("mmapped file changed") when a later save
+    /// replaces the file while the picture is still in use.
+    private static func image(_ url: URL) -> UIImage? {
+        (try? Data(contentsOf: url)).flatMap(UIImage.init(data:))
     }
 
     /// Deletes files belonging to tabs that no longer exist.

@@ -12,8 +12,6 @@ import WebKit
 /// scroll position and page state can't be lost when switching tabs.
 struct WebViewHost: UIViewRepresentable {
     let webView: WKWebView
-    /// Height of the floating bar covering the bottom of the page.
-    let bottomInset: CGFloat
     let isActive: Bool
 
     func makeUIView(context: Context) -> WKWebView {
@@ -25,13 +23,5 @@ struct WebViewHost: UIViewRepresentable {
     func updateUIView(_ uiView: WKWebView, context: Context) {
         // Hidden views take no touches and cost almost nothing to render.
         uiView.isHidden = !isActive
-
-        // The page extends *under* the bar, so we add scrollable space at the
-        // bottom equal to the bar's height. Otherwise the last lines of every
-        // page would be stuck behind it. (UIKit adds the home-indicator area
-        // on top of this automatically.)
-        let scrollView = uiView.scrollView
-        scrollView.contentInset.bottom = bottomInset
-        scrollView.verticalScrollIndicatorInsets.bottom = bottomInset
     }
 }
