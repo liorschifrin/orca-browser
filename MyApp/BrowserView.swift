@@ -113,6 +113,10 @@ struct BrowserView: View {
                 .allowsHitTesting(barMix > 0.5)
             }
         }
+        // A ZStack is only as big as its contents, and its parent centers it.
+        // Without this, the bar sits mid-screen whenever the switcher bar
+        // (which happens to fill the screen) isn't there to stretch it.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
     // MARK: - Actions
