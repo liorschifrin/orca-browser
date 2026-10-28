@@ -43,7 +43,7 @@ struct BottomBar: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 6)
-            .padding(.bottom, 2)
+            .padding(.bottom, 0)
         }
         // The blurred strip extends down under the home indicator.
         .background(.bar)
@@ -264,7 +264,7 @@ struct BottomBar: View {
 
             Text(tab.displayName)
                 .allowsHitTesting(false)
-                .font(.subheadline.weight(.medium))
+                .font(.caption.weight(.medium))
                 .lineLimit(1)
                 // Keeps the name clear of the buttons on either side.
                 .padding(.horizontal, 72)
@@ -281,7 +281,7 @@ struct BottomBar: View {
             }
         }
         .padding(.horizontal, 6)
-        .frame(height: 36)
+        .frame(height: 28)
         .background(.thinMaterial, in: .capsule)
     }
 
@@ -292,7 +292,7 @@ struct BottomBar: View {
             } label: {
                 Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
                     .font(.footnote.weight(.semibold))
-                    .frame(width: 32, height: 32)
+                    .frame(width: 28, height: 28)
                     .contentShape(.rect)
             }
             .disabled(tab.isBlank)
@@ -362,7 +362,7 @@ private struct CapsuleIcon: View {
         Image(systemName: systemName)
             .font(.footnote.weight(.semibold))
             .contentTransition(.symbolEffect(.replace))
-            .frame(width: 32, height: 32)
+            .frame(width: 28, height: 28)
             .contentShape(.rect)
     }
 }

@@ -162,35 +162,38 @@ struct BrowserView: View {
     /// Both bottom bars, stacked above the page and the switcher, fading
     /// into one another as the switcher opens and closes.
     private var bars: some View {
-        ZStack(alignment: .bottom) {
-            if let tab = store.selectedTab {
-                BottomBar(
-                    tab: tab,
-                    tabCount: store.tabs.count,
-                    onNewTab: { openSearch() },
-                    onEditAddress: { openSearch(editing: store.selectedTab?.url) },
-                    onShowTabs: openSwitcher
-                )
-                // Report the bar's height so the page can make room.
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
-                .opacity(1 - barMix)
-                .allowsHitTesting(!isSwitching || isExitingSwitcher)
-            }
+        GeometryReader { geometry in
+            ZStack(alignment: .bottom) {
+                if let tab = store.selectedTab {
+                    BottomBar(
+                        tab: tab,
+                        tabCount: store.tabs.count,
+                        onNewTab: { openSearch() },
+                        onEditAddress: { openSearch(editing: store.selectedTab?.url) },
+                        onShowTabs: openSwitcher
+                    )
+                    // Use the upper part of the home-indicator inset for the
+                    // compact address strip; keep 14pt clear at the physical edge.
+                    .padding(.bottom, -max(0, geometry.safeAreaInsets.bottom - 14))
+                    // Report the bar's height so the page can make room.
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+                    .opacity(1 - barMix)
+                    .allowsHitTesting(!isSwitching || isExitingSwitcher)
+                }
 
-            if isSwitching {
-                SwitcherBar(
-                    onDone: { doneTrigger += 1 },
-                    onNewTab: { openSearch() },
-                    onSettings: { isShowingSettings = true }
-                )
-                .opacity(barMix)
-                .allowsHitTesting(barMix > 0.5)
+                if isSwitching {
+                    SwitcherBar(
+                        onDone: { doneTrigger += 1 },
+                        onNewTab: { openSearch() },
+                        onSettings: { isShowingSettings = true }
+                    )
+                    .opacity(barMix)
+                    .allowsHitTesting(barMix > 0.5)
+                }
             }
+            // Anchor both bars to the bottom of the available screen.
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
-        // A ZStack is only as big as its contents, and its parent centers it.
-        // Without this, the bar sits mid-screen whenever the switcher bar
-        // (which happens to fill the screen) isn't there to stretch it.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
     // MARK: - Actions
