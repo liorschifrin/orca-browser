@@ -81,12 +81,6 @@ struct BrowserView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             store.unloadBackgroundTabs()
         }
-        #if DEBUG
-        .overlay(alignment: .topLeading) {
-            RefreshRateBadge()
-                .padding(.leading, 12)
-        }
-        #endif
     }
 
     /// Every tab's web view, then error/start states. (The bars sit above.)
