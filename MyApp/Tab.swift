@@ -181,6 +181,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         if view.title != nil || !isRestoring { title = view.title }
         progress = view.estimatedProgress
         if view.isLoading && !isLoading { snapshotIsStale = true }
+        // Half loaded means something is painted: drop the stand-in picture.
+        if isRestoring && view.estimatedProgress >= 0.5 {
+            Task {
+                try? await Task.sleep(for: .milliseconds(200))
+                isRestoring = false
+            }
+        }
         isLoading = view.isLoading
         canGoBack = view.canGoBack
     }
@@ -304,11 +311,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         loadError = nil
         snapshotIsStale = true
-        // The page is on screen now (give it a beat to paint).
-        Task {
-            try? await Task.sleep(for: .milliseconds(200))
-            isRestoring = false
-        }
+
     }
 
     /// Failure before anything arrived (offline, bad host, ...).

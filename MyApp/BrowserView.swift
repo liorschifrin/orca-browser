@@ -4,10 +4,10 @@ import SwiftUI
 /// bar floats on top of it, and the tab switcher and search overlay float
 /// on top of both.
 struct BrowserView: View {
-    @State private var store = BrowserStore()
+    @State private var store: BrowserStore
     @State private var barHeight: CGFloat = 0
-    // Start with search open: launching the app means "I want to go somewhere".
-    @State private var isSearching = true
+    // Search starts open only when there's no page to go back to (a blank tab).
+    @State private var isSearching: Bool
     @State private var isSwitching = false
     /// A new value for every time the switcher opens, so SwiftUI never reuses
     /// a switcher that was mid-exit (it would still think it was "leaving").
@@ -21,6 +21,12 @@ struct BrowserView: View {
     @State private var barMix: Double = 0
     @State private var doneTrigger = 0
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        let store = BrowserStore()
+        _store = State(initialValue: store)
+        _isSearching = State(initialValue: store.selectedTab?.isBlank ?? true)
+    }
 
     var body: some View {
         ZStack {
