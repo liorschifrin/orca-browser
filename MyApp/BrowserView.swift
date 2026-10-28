@@ -156,6 +156,7 @@ struct BrowserView: View {
                     BottomBar(
                         tab: tab,
                         tabCount: store.tabs.count,
+                        plusButtonWidth: geometry.size.width * 0.19,
                         onNewTab: { openSearch() },
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
                         onShowTabs: openSwitcher

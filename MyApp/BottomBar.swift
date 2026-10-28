@@ -10,10 +10,12 @@ import WebKit
 struct BottomBar: View {
     let tab: Tab
     let tabCount: Int
+    let plusButtonWidth: CGFloat
     let onNewTab: () -> Void
     let onEditAddress: () -> Void
     let onShowTabs: () -> Void
 
+    @State private var backButtonFrame = CGRect.zero
     @State private var showHistory = false
     @State private var isBackPressed = false
     @State private var highlighted: Int?
@@ -33,10 +35,13 @@ struct BottomBar: View {
                     TabSwitcherButton(count: tabCount, action: onShowTabs)
 
                     Spacer()
-                    NewTabButton(action: onNewTab)
+                    NewTabButton(width: plusButtonWidth, height: 44, action: onNewTab)
                     Spacer()
 
                     backButton
+                        .onGeometryChange(for: CGRect.self) {
+                            $0.frame(in: .named("browserToolbar"))
+                        } action: { backButtonFrame = $0 }
                 }
 
                 siteCapsule
@@ -49,6 +54,19 @@ struct BottomBar: View {
         }
         // The blurred strip extends down under the home indicator.
         .background(.bar)
+        .contentShape(.rect)
+        .coordinateSpace(name: "browserToolbar")
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20, coordinateSpace: .named("browserToolbar"))
+                .onEnded { value in
+                    // A drag that starts at Back belongs to its history menu,
+                    // even if the finger later moves outside the button.
+                    guard !backButtonFrame.insetBy(dx: -8, dy: -8).contains(value.startLocation),
+                          value.translation.height < -30,
+                          -value.translation.height > abs(value.translation.width) else { return }
+                    onShowTabs()
+                }
+        )
     }
 
     private static let historyRowHeight: CGFloat = 40
