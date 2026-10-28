@@ -27,6 +27,8 @@ struct TabSwitcher: View {
     let onSelect: (Tab) -> Void
     let onClose: (Tab) -> Void
     let onDone: () -> Void
+    /// Called the moment the exit animation starts.
+    let onLeaveStart: () -> Void
 
     // MARK: Motion
 
@@ -74,7 +76,8 @@ struct TabSwitcher: View {
         doneTrigger: Int,
         onSelect: @escaping (Tab) -> Void,
         onClose: @escaping (Tab) -> Void,
-        onDone: @escaping () -> Void
+        onDone: @escaping () -> Void,
+        onLeaveStart: @escaping () -> Void
     ) {
         self.store = store
         _barMix = barMix
@@ -82,6 +85,7 @@ struct TabSwitcher: View {
         self.onSelect = onSelect
         self.onClose = onClose
         self.onDone = onDone
+        self.onLeaveStart = onLeaveStart
 
         let ordered = store.tabsByRecency
         _tabs = State(initialValue: ordered)
@@ -245,6 +249,7 @@ struct TabSwitcher: View {
             return
         }
         leavingID = tab.id
+        onLeaveStart()
         withAnimation(.spring(duration: Self.exitDuration, bounce: 0)) {
             leaving = true
             barMix = 0

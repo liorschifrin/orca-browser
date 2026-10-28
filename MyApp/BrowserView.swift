@@ -9,6 +9,14 @@ struct BrowserView: View {
     // Start with search open: launching the app means "I want to go somewhere".
     @State private var isSearching = true
     @State private var isSwitching = false
+    /// A new value for every time the switcher opens, so SwiftUI never reuses
+    /// a switcher that was mid-exit (it would still think it was "leaving").
+    @State private var switcherID = UUID()
+    @State private var isPreparingSwitcher = false
+    /// The switcher is animating away (a card was picked).
+    @State private var isExitingSwitcher = false
+    /// The tabs button was tapped during that exit: open it again afterwards.
+    @State private var reopenAfterExit = false
     /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
     @State private var barMix: Double = 0
     @State private var doneTrigger = 0
@@ -29,9 +37,11 @@ struct BrowserView: View {
                         closeSwitcher()
                     },
                     onClose: closeTab,
-                    onDone: closeSwitcher
+                    onDone: closeSwitcher,
+                    onLeaveStart: { isExitingSwitcher = true }
                 )
                 .ignoresSafeArea(.keyboard)
+                .id(switcherID)
                 // It animates its own entrance, so appear instantly; on the
                 // way out, cross-fade from the card to the live page.
                 .transition(.asymmetric(insertion: .identity, removal: .opacity))
@@ -56,6 +66,12 @@ struct BrowserView: View {
                 onDismiss: closeSearch
             )
         }
+        #if DEBUG
+        .overlay(alignment: .topLeading) {
+            RefreshRateBadge()
+                .padding(.leading, 12)
+        }
+        #endif
     }
 
     /// Every tab's web view, then error/start states. (The bars sit above.)
@@ -100,7 +116,7 @@ struct BrowserView: View {
                 // Report the bar's height so the page can make room.
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
                 .opacity(1 - barMix)
-                .allowsHitTesting(!isSwitching)
+                .allowsHitTesting(!isSwitching || isExitingSwitcher)
             }
 
             if isSwitching {
@@ -130,10 +146,20 @@ struct BrowserView: View {
     }
 
     private func openSwitcher() {
+        // Tapped while the switcher is flying away: reopen once it's gone.
+        if isExitingSwitcher {
+            reopenAfterExit = true
+            return
+        }
+        // Ignore taps while one is already on its way (or open).
+        guard !isPreparingSwitcher, !isSwitching else { return }
+        isPreparingSwitcher = true
         Task {
             // Refresh the current page's picture first, so its card is current.
             await store.selectedTab?.captureSnapshot()
+            switcherID = UUID()
             isSwitching = true
+            isPreparingSwitcher = false
         }
     }
 
@@ -141,6 +167,11 @@ struct BrowserView: View {
         withAnimation(.easeOut(duration: 0.15)) {
             isSwitching = false
             barMix = 0
+        }
+        isExitingSwitcher = false
+        if reopenAfterExit {
+            reopenAfterExit = false
+            openSwitcher()
         }
     }
 
