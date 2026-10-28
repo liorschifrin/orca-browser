@@ -26,6 +26,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// True until something has been loaded: a brand-new, empty tab.
     private(set) var isBlank = true
 
+    /// Higher = used more recently. Set by the store; the switcher sorts by it.
+    var recency = 0
+
     /// A picture of the page, shown on this tab's card in the switcher.
     private(set) var snapshot: UIImage?
 

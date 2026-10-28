@@ -6,8 +6,19 @@ final class BrowserStore {
     var tabs: [Tab]
     var selectedTabID: Tab.ID
 
+    /// Counts up every time a tab becomes the current one. Each tab remembers
+    /// the value it got, which gives us "most recently used" ordering.
+    private var recencyClock = 0
+
     var selectedTab: Tab? {
         tabs.first { $0.id == selectedTabID }
+    }
+
+    /// Oldest-used first, current tab last. This is the switcher's order:
+    /// the current tab is always rightmost, and the tab you were on before it
+    /// sits immediately to its left.
+    var tabsByRecency: [Tab] {
+        tabs.sorted { $0.recency < $1.recency }
     }
 
     init() {
@@ -15,6 +26,12 @@ final class BrowserStore {
         let first = Tab()
         tabs = [first]
         selectedTabID = first.id
+        markUsed(first)
+    }
+
+    private func markUsed(_ tab: Tab) {
+        recencyClock += 1
+        tab.recency = recencyClock
     }
 
     /// Opens whatever the user typed (a URL or a search) in a new tab.
@@ -31,11 +48,13 @@ final class BrowserStore {
             let tab = Tab(url: url)
             tabs.append(tab)
             selectedTabID = tab.id
+            markUsed(tab)
         }
     }
 
     func select(_ tab: Tab) {
         selectedTabID = tab.id
+        markUsed(tab)
     }
 
     /// Closes a tab. Returns true if that was the last one and a fresh blank
@@ -52,11 +71,12 @@ final class BrowserStore {
             let blank = Tab()
             tabs = [blank]
             selectedTabID = blank.id
+            markUsed(blank)
             return true
         }
-        if wasSelected {
-            // Land on the neighbor that slid into the closed tab's place.
-            selectedTabID = tabs[min(index, tabs.count - 1)].id
+        if wasSelected, let previous = tabs.max(by: { $0.recency < $1.recency }) {
+            // Fall back to the tab you were on before this one.
+            selectedTabID = previous.id
         }
         return false
     }
