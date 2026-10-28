@@ -3,8 +3,8 @@ import WebKit
 
 /// The floating bar at the bottom of the screen.
 ///
-///     [ site name ................ reload ]
 ///     [ tabs ]  [      +      ]  [  back  ]
+///     [ site name ................ reload ]
 ///
 /// Everything is within thumb reach on purpose.
 struct BottomBar: View {
@@ -28,9 +28,7 @@ struct BottomBar: View {
         VStack(spacing: 0) {
             ProgressLine(progress: tab.progress, isVisible: tab.isLoading)
 
-            VStack(spacing: 10) {
-                siteCapsule
-
+            VStack(spacing: 4) {
                 HStack {
                     TabSwitcherButton(count: tabCount, action: onShowTabs)
 
@@ -40,10 +38,12 @@ struct BottomBar: View {
 
                     backButton
                 }
+
+                siteCapsule
             }
             .padding(.horizontal, 16)
-            .padding(.top, 10)
-            .padding(.bottom, 8)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
         }
         // The blurred strip extends down under the home indicator.
         .background(.bar)
