@@ -1,42 +1,36 @@
 import SwiftUI
 
-/// The floating bar at the bottom of the screen: back button, plus a capsule
-/// showing the site and a reload/stop button. (The + and tab switcher join it
-/// in later milestones.)
+/// The floating bar at the bottom of the screen.
+///
+///     [ site name ................ reload ]
+///     [ (switcher) ]  [   +   ]  [  back  ]
+///
+/// The bottom-left slot is reserved for the tab switcher (a later milestone).
+/// Everything is within thumb reach on purpose.
 struct BottomBar: View {
     let tab: Tab
+    let onNewTab: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             ProgressLine(progress: tab.progress, isVisible: tab.isLoading)
 
-            HStack(spacing: 12) {
-                BarButton(systemName: "chevron.left", label: "Back") {
-                    tab.goBack()
-                }
-                .disabled(!tab.canGoBack)
+            VStack(spacing: 10) {
+                siteCapsule
 
-                // The site capsule.
                 HStack {
-                    Text(displayName)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
+                    // Placeholder so the + stays centered until the switcher exists.
+                    Color.clear.frame(width: 44, height: 44)
 
-                    Button {
-                        tab.isLoading ? tab.stopLoading() : tab.reload()
-                    } label: {
-                        Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
-                            .font(.subheadline.weight(.semibold))
-                            .frame(width: 32, height: 32)
-                            .contentShape(.rect)
+                    Spacer()
+                    newTabButton
+                    Spacer()
+
+                    BarButton(systemName: "chevron.left", label: "Back") {
+                        tab.goBack()
                     }
-                    .accessibilityLabel(tab.isLoading ? "Stop" : "Reload")
+                    .disabled(!tab.canGoBack)
                 }
-                .padding(.leading, 16)
-                .padding(.trailing, 6)
-                .frame(height: 44)
-                .background(.thinMaterial, in: .capsule)
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
@@ -44,6 +38,48 @@ struct BottomBar: View {
         }
         // The blurred strip extends down under the home indicator.
         .background(.bar)
+    }
+
+    // MARK: - Pieces
+
+    private var newTabButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            onNewTab()
+        } label: {
+            Image(systemName: "plus")
+                .font(.title2.weight(.semibold))
+                .frame(width: 160, height: 48)
+                .background(.thinMaterial, in: .capsule)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityLabel("New Tab")
+    }
+
+    private var siteCapsule: some View {
+        HStack {
+            Text(displayName)
+                .font(.subheadline.weight(.medium))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+                // Balances the reload button so the text is truly centered.
+                .padding(.leading, 32)
+
+            Button {
+                tab.isLoading ? tab.stopLoading() : tab.reload()
+            } label: {
+                Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise")
+                    .font(.footnote.weight(.semibold))
+                    .frame(width: 32, height: 32)
+                    .contentShape(.rect)
+            }
+            .disabled(tab.isBlank)
+            .accessibilityLabel(tab.isLoading ? "Stop" : "Reload")
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 36)
+        .background(.thinMaterial, in: .capsule)
     }
 
     /// "www.apple.com" -> "apple.com". Falls back to the title, then a hint.
@@ -68,7 +104,17 @@ struct BarButton: View {
                 .frame(width: 44, height: 44)
                 .background(.thinMaterial, in: .circle)
         }
+        .buttonStyle(PressableButtonStyle())
         .accessibilityLabel(label)
+    }
+}
+
+/// Shrinks slightly while pressed, so taps feel physical.
+struct PressableButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(duration: 0.2), value: configuration.isPressed)
     }
 }
 

@@ -11,9 +11,24 @@ final class BrowserStore {
     }
 
     init() {
-        // Temporary for M1: start with one hard-coded page.
-        let first = Tab(url: URL(string: "https://www.google.com"))
+        // The app always has at least one tab; it starts out blank.
+        let first = Tab()
         tabs = [first]
         selectedTabID = first.id
+    }
+
+    /// Opens whatever the user typed (a URL or a search) in a new tab.
+    /// If the current tab is still blank, it's reused instead, so we don't
+    /// leave an empty tab behind.
+    func open(_ input: String) {
+        guard let url = Destination.url(for: input) else { return }
+
+        if let current = selectedTab, current.isBlank {
+            current.load(url)
+        } else {
+            let tab = Tab(url: url)
+            tabs.append(tab)
+            selectedTabID = tab.id
+        }
     }
 }

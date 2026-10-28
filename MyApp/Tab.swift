@@ -23,6 +23,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     private(set) var isLoading = false
     private(set) var canGoBack = false
 
+    /// True until something has been loaded: a brand-new, empty tab.
+    private(set) var isBlank = true
+
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
 
@@ -73,6 +76,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     // MARK: - Actions
 
     func load(_ url: URL) {
+        isBlank = false
         loadError = nil
         webView.load(URLRequest(url: url))
     }
