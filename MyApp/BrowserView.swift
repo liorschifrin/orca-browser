@@ -14,16 +14,17 @@ struct BrowserView: View {
                 // The keyboard must not push the page or bar around.
                 .ignoresSafeArea(.keyboard)
 
-            if isSearching {
-                SearchOverlay(
-                    onSubmit: { input in
-                        store.open(input)
-                        closeSearch()
-                    },
-                    onDismiss: closeSearch
-                )
-                .transition(.opacity)
-            }
+            // Always in the view tree, just invisible when closed. A text
+            // field that already exists can take the keyboard instantly;
+            // one that has to be built first adds a noticeable delay.
+            SearchOverlay(
+                isPresented: isSearching,
+                onSubmit: { input in
+                    store.open(input)
+                    closeSearch()
+                },
+                onDismiss: closeSearch
+            )
         }
     }
 
@@ -32,6 +33,10 @@ struct BrowserView: View {
         ZStack(alignment: .bottom) {
             if let tab = store.selectedTab {
                 WebViewHost(webView: tab.webView, bottomInset: barHeight)
+                    // Without this, SwiftUI reuses the previous host view when
+                    // the selected tab changes and keeps showing the old page.
+                    // A different id = a different view = a fresh host.
+                    .id(tab.id)
                     // Use the full screen, including under the status bar
                     // and home indicator.
                     .ignoresSafeArea()

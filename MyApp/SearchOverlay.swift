@@ -2,12 +2,15 @@ import SwiftUI
 
 /// The "type a search or address" sheet: a blurred backdrop with the text
 /// field at the bottom, riding just above the keyboard (easy for one thumb).
+///
+/// This view stays in the hierarchy permanently and just fades in and out.
+/// That keeps the text field "warm" so the keyboard can appear right away.
 struct SearchOverlay: View {
+    let isPresented: Bool
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
 
     @State private var text = ""
-    @State private var appeared = false
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
     @FocusState private var isFocused: Bool
@@ -23,9 +26,12 @@ struct SearchOverlay: View {
             field
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
-                .offset(y: appeared ? 0 : 24)
-                .opacity(appeared ? 1 : 0)
+                .offset(y: isPresented ? 0 : 24)
         }
+        .opacity(isPresented ? 1 : 0)
+        // While invisible, it must not steal taps or show up for VoiceOver.
+        .allowsHitTesting(isPresented)
+        .accessibilityHidden(!isPresented)
         // Swiping down also dismisses.
         .gesture(
             DragGesture(minimumDistance: 20)
@@ -34,11 +40,15 @@ struct SearchOverlay: View {
                 }
         )
         .onAppear {
-            // Ask for the keyboard immediately, in the same moment the
-            // overlay appears, so the two animate up together.
-            isFocused = true
-            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
-                appeared = true
+            // Presented at launch: grab the keyboard right away.
+            if isPresented { isFocused = true }
+        }
+        .onChange(of: isPresented) { _, nowPresented in
+            if nowPresented {
+                text = ""
+                isFocused = true
+            } else {
+                isFocused = false
             }
         }
     }
