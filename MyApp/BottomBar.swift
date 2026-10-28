@@ -44,7 +44,8 @@ struct BottomBar: View {
 
     private var newTabButton: some View {
         Button {
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            // .soft is a gentler, rounder tap than .light; intensity is 0...1.
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
             onNewTab()
         } label: {
             Image(systemName: "plus")
