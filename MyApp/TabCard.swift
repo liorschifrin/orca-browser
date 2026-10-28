@@ -1,20 +1,20 @@
 import SwiftUI
 
-/// One tab in the switcher: a picture of the page with a title above it.
+/// One tab in the switcher: a picture of the page, with the site's icon above
+/// it (and, for the focused card only, the page title beside the icon).
 /// Swipe it up to close it, like closing an app in the iOS app switcher.
 ///
 /// The card knows nothing about where it sits in the deck; `StackEffect`
-/// positions it from outside. The card's own box is exactly the thumbnail,
-/// and the header floats above that box.
+/// positions, scales and tilts it from outside. The card's own box is exactly
+/// the thumbnail, and the header floats above that box.
 struct TabCard: View {
     let tab: Tab
     let size: CGSize
+    /// How far the favicon's center sits in from the card's left edge.
+    let faviconInset: CGFloat
     /// 1 when this card is the focused one, fading to 0 as it moves away.
     /// Controls the title and close button, which only the focused card shows.
     let focus: Double
-    /// True while this card's picture is being drawn by the zoom animation
-    /// instead, so we don't draw it twice.
-    let thumbnailHidden: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
 
@@ -24,19 +24,23 @@ struct TabCard: View {
     /// a drag that begins sideways (browsing) never turns into a close.
     @State private var isVerticalDrag: Bool?
 
-    static let cornerRadius: CGFloat = 24
+    /// Chosen by the deck, which makes the corners square while a card fills
+    /// the screen.
+    @Environment(\.cardCornerRadius) private var cornerRadius
+
+    /// Gap between the card's top edge and the center of the favicon.
+    private let headerGap: CGFloat = 18
+    private let faviconSize: CGFloat = 18
     /// Past this much upward travel, letting go closes the tab.
     private let closeDistance: CGFloat = 120
 
     var body: some View {
         thumbnail
-            .opacity(thumbnailHidden ? 0 : 1)
             .overlay(alignment: .topTrailing) { closeButton }
             .overlay(alignment: .top) {
                 header
                     // Sit just above the card instead of inside it.
-                    .offset(y: -36)
-                    .opacity(focus)
+                    .offset(y: -(headerGap + faviconSize / 2))
             }
             .offset(y: dragOffset)
             // Fade and shrink a little as it rises, so it's clear it's going away.
@@ -69,9 +73,9 @@ struct TabCard: View {
                     placeholder
                 }
             }
-            .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
+            .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.quaternary, lineWidth: 1)
             }
             .shadow(color: .black.opacity(0.3), radius: 16, y: 4)
@@ -88,19 +92,38 @@ struct TabCard: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// A letter badge (we don't fetch site icons) plus the page title.
+    /// The site's icon, always shown, plus the page title beside it that fades
+    /// in only on the focused card.
     private var header: some View {
         HStack(spacing: 8) {
-            Text(String(tab.displayName.first ?? "•").uppercased())
-                .font(.caption2.weight(.bold))
-                .frame(width: 20, height: 20)
-                .background(.quaternary, in: .circle)
+            favicon
+                .frame(width: faviconSize, height: faviconSize)
 
             Text(tab.title?.isEmpty == false ? tab.title! : tab.displayName)
-                .font(.subheadline.weight(.semibold))
+                .font(.system(size: 13, weight: .semibold))
                 .lineLimit(1)
+                .opacity(focus)
         }
-        .frame(width: size.width)
+        // Puts the icon's *center* `faviconInset` from the card's left edge.
+        .padding(.leading, faviconInset - faviconSize / 2)
+        // Anything longer than the card is cut off with an ellipsis.
+        .frame(width: size.width, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var favicon: some View {
+        if let icon = tab.favicon {
+            Image(uiImage: icon)
+                .resizable()
+                .scaledToFit()
+                .clipShape(.rect(cornerRadius: 5, style: .continuous))
+        } else {
+            // No icon (yet): a letter badge in its place.
+            Text(String(tab.displayName.first ?? "•").uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(.quaternary, in: .circle)
+        }
     }
 
     private var closeButton: some View {

@@ -68,6 +68,8 @@ struct BottomBar: View {
 
 /// The big center pill. Also used on the tab switcher screen.
 struct NewTabButton: View {
+    var width: CGFloat = 160
+    var height: CGFloat = 48
     let action: () -> Void
 
     var body: some View {
@@ -78,7 +80,7 @@ struct NewTabButton: View {
         } label: {
             Image(systemName: "plus")
                 .font(.title2.weight(.semibold))
-                .frame(width: 160, height: 48)
+                .frame(width: width, height: height)
                 .background(.thinMaterial, in: .capsule)
                 .contentShape(.capsule)
         }

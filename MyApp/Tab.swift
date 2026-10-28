@@ -32,6 +32,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// A picture of the page, shown on this tab's card in the switcher.
     private(set) var snapshot: UIImage?
 
+    /// The site's icon, shown above its card in the switcher. nil until found
+    /// (or if the site's icon is a format iOS can't decode, e.g. SVG).
+    private(set) var favicon: UIImage?
+    @ObservationIgnored private var faviconURL: URL?
+
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
 
@@ -76,7 +81,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         if let host = (url ?? loadError?.failedURL)?.host() {
             return host.replacing("www.", with: "", maxReplacements: 1)
         }
-        return title ?? "New Tab"
+        if let title, !title.isEmpty { return title }
+        return "New Tab"
     }
 
     private func syncFromWebView() {
@@ -125,6 +131,33 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         }
     }
 
+    /// Finds the page's icon and downloads it. The page itself says where the
+    /// icon is (a <link> tag); if it doesn't, the conventional /favicon.ico is
+    /// tried. Only the site's own server is contacted.
+    private func loadFavicon() async {
+        guard let pageURL = webView.url, pageURL.scheme?.hasPrefix("http") == true else { return }
+
+        let script = """
+        (function () {
+          var selectors = ['link[rel="apple-touch-icon"]', 'link[rel~="icon"]'];
+          for (var i = 0; i < selectors.length; i++) {
+            var link = document.querySelector(selectors[i]);
+            if (link && link.href) { return link.href; }
+          }
+          return null;
+        })()
+        """
+        let declared = (try? await webView.evaluateJavaScript(script)) as? String
+        let iconURL = declared.flatMap { URL(string: $0) }
+            ?? URL(string: "/favicon.ico", relativeTo: pageURL)?.absoluteURL
+        guard let iconURL, iconURL != faviconURL else { return }
+
+        guard let (data, _) = try? await URLSession.shared.data(from: iconURL),
+              let image = UIImage(data: data) else { return }
+        faviconURL = iconURL
+        favicon = image
+    }
+
     /// Called when the tab is closed, so the page stops loading and playing.
     func teardown() {
         webView.stopLoading()
@@ -137,6 +170,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// A page finished loading: refresh the card picture. (The leaving-the-tab
     /// snapshot can be taken mid-load, which would leave a half-empty card.)
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        Task { await loadFavicon() }
         Task {
             // Give the page a moment to paint its final layout.
             try? await Task.sleep(for: .milliseconds(400))

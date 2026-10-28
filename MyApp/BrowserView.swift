@@ -9,6 +9,9 @@ struct BrowserView: View {
     // Start with search open: launching the app means "I want to go somewhere".
     @State private var isSearching = true
     @State private var isSwitching = false
+    /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
+    @State private var barMix: Double = 0
+    @State private var doneTrigger = 0
 
     var body: some View {
         ZStack {
@@ -19,20 +22,24 @@ struct BrowserView: View {
             if isSwitching {
                 TabSwitcher(
                     store: store,
+                    barMix: $barMix,
+                    doneTrigger: doneTrigger,
                     onSelect: { tab in
                         store.select(tab)
                         closeSwitcher()
                     },
                     onClose: closeTab,
-                    onNewTab: openSearch,
                     onDone: closeSwitcher
                 )
                 .ignoresSafeArea(.keyboard)
-                // It animates its own entrance (the page shrinking into a
-                // card), so appear instantly; on the way out, cross-fade
-                // from the zoom picture to the live page.
+                // It animates its own entrance, so appear instantly; on the
+                // way out, cross-fade from the card to the live page.
                 .transition(.asymmetric(insertion: .identity, removal: .opacity))
             }
+
+            bars
+                // Same rule as the page: the keyboard doesn't push the bar up.
+                .ignoresSafeArea(.keyboard)
 
             // Always in the view tree, just invisible when closed. A text
             // field that already exists can take the keyboard instantly;
@@ -51,7 +58,7 @@ struct BrowserView: View {
         }
     }
 
-    /// Every tab's web view, then error/start states, then the bottom bar.
+    /// Every tab's web view, then error/start states. (The bars sit above.)
     private var page: some View {
         ZStack(alignment: .bottom) {
             // All tabs stay mounted; only the selected one is visible.
@@ -75,7 +82,15 @@ struct BrowserView: View {
                     ErrorView(error: error, retry: tab.reload)
                         .padding(.bottom, barHeight)
                 }
+            }
+        }
+    }
 
+    /// Both bottom bars, stacked above the page and the switcher, fading
+    /// into one another as the switcher opens and closes.
+    private var bars: some View {
+        ZStack(alignment: .bottom) {
+            if let tab = store.selectedTab {
                 BottomBar(
                     tab: tab,
                     tabCount: store.tabs.count,
@@ -84,6 +99,18 @@ struct BrowserView: View {
                 )
                 // Report the bar's height so the page can make room.
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { barHeight = $0 }
+                .opacity(1 - barMix)
+                .allowsHitTesting(!isSwitching)
+            }
+
+            if isSwitching {
+                SwitcherBar(
+                    onDone: { doneTrigger += 1 },
+                    onNewTab: openSearch,
+                    onSettings: {}
+                )
+                .opacity(barMix)
+                .allowsHitTesting(barMix > 0.5)
             }
         }
     }
@@ -107,7 +134,10 @@ struct BrowserView: View {
     }
 
     private func closeSwitcher() {
-        withAnimation(.easeOut(duration: 0.2)) { isSwitching = false }
+        withAnimation(.easeOut(duration: 0.15)) {
+            isSwitching = false
+            barMix = 0
+        }
     }
 
     private func closeTab(_ tab: Tab) {

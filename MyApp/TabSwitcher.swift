@@ -2,24 +2,52 @@ import SwiftUI
 
 /// Full-screen overview of open tabs, laid out as a deck (see `StackMetrics`).
 ///
-/// Order is by recency: the current tab is the rightmost card and the tab you
-/// were on before it sits immediately to its left, and so on. So the deck
-/// always opens on its last card, and there is never anything to its right.
+/// Order is by recency, oldest-used on the left and the current tab rightmost.
+/// The deck opens focused on the *previous* tab, so the current tab sits one
+/// card to its right, partly cropped by the screen edge.
 ///
-/// Opening and leaving are one continuous motion. The page shrinks into its
-/// card, and tapping a card makes it grow back to full screen. That motion is
-/// drawn by a "hero" picture that travels between the card's rectangle and the
-/// full-screen rectangle; the live page is only revealed at the very end.
+/// Opening and leaving are choreographed with springs, one per group of cards:
+///
+///  - **Opening.** The current page doesn't shrink in place: it slides and
+///    scales from full screen to its slot. Every older card starts as a tiny,
+///    tilted card by the tabs button, then grows and flies out to its slot,
+///    each a beat behind the one in front of it.
+///  - **Leaving.** The chosen card swells to full screen over the others,
+///    which stay where they are. It's quick and doesn't bounce.
+///
+/// The springs are critically damped (no overshoot) with speeds taken from
+/// measuring a reference recording; see the constants below.
 struct TabSwitcher: View {
     let store: BrowserStore
+    /// 0 = the browser's bottom bar is showing, 1 = the switcher's. Owned by
+    /// `BrowserView`, which draws both bars, so they can cross-fade.
+    @Binding var barMix: Double
+    /// Incremented by the bar's left button; means "go back to the current tab".
+    let doneTrigger: Int
     let onSelect: (Tab) -> Void
     let onClose: (Tab) -> Void
-    let onNewTab: () -> Void
     let onDone: () -> Void
+
+    // MARK: Motion
+
+    // A critically damped spring with angular speed w settles in roughly
+    // 2*pi/w seconds, which is what SwiftUI's `duration` means when bounce is 0.
+    /// The current page: w = 29 rad/s.
+    private static let pageDuration = 2 * Double.pi / 29
+    /// Older cards: w = 22 rad/s, a little slower than the page.
+    private static let cardDuration = 2 * Double.pi / 22
+    /// Leaving: w = 24 rad/s.
+    private static let exitDuration = 2 * Double.pi / 24
+    /// The first older card starts this long after the page does...
+    private static let firstCardDelay = 0.02
+    /// ...and each one further back trails the one before by this much.
+    private static let cardStagger = 0.025
+
+    // MARK: State
 
     /// The tabs shown, oldest-used first. A copy taken when we open, so that
     /// picking a tab (which changes its recency) doesn't reshuffle the deck
-    /// while it's fading out.
+    /// while it's animating away.
     @State private var tabs: [Tab]
 
     /// Which card is focused, as a continuous number: 2.0 is exactly the third
@@ -29,33 +57,37 @@ struct TabSwitcher: View {
     /// Whether the current drag is sideways. Decided once at the start.
     @State private var isHorizontalDrag: Bool?
 
-    /// The tab being zoomed (nil when idle), and whether the zoom picture is
-    /// currently at full-screen size (true) or at its card's size (false).
-    @State private var heroID: Tab.ID?
-    @State private var heroExpanded = true
-    /// Fades everything except the hero: backdrop, cards, controls.
-    @State private var chrome: Double = 0
+    /// The tab that was current when we opened.
+    private let currentID: Tab.ID
+    /// False for the first instant (everything in its starting pose), then
+    /// true; flipping it is what sets the opening animation going.
+    @State private var opened = false
+    /// The card being opened full-screen, and whether it's on its way yet.
+    @State private var leavingID: Tab.ID?
+    @State private var leaving = false
+    /// Opacity of the background behind the cards.
+    @State private var backdrop: Double = 0
 
     init(
         store: BrowserStore,
+        barMix: Binding<Double>,
+        doneTrigger: Int,
         onSelect: @escaping (Tab) -> Void,
         onClose: @escaping (Tab) -> Void,
-        onNewTab: @escaping () -> Void,
         onDone: @escaping () -> Void
     ) {
         self.store = store
+        _barMix = barMix
+        self.doneTrigger = doneTrigger
         self.onSelect = onSelect
         self.onClose = onClose
-        self.onNewTab = onNewTab
         self.onDone = onDone
 
         let ordered = store.tabsByRecency
         _tabs = State(initialValue: ordered)
-        // The current tab is last, so start focused on the last card.
-        _position = State(initialValue: CGFloat(ordered.count - 1))
-        // Start with the current tab's picture covering the screen, so the
-        // page doesn't visibly change as we appear.
-        _heroID = State(initialValue: store.selectedTabID)
+        currentID = store.selectedTabID
+        // Focus the previous tab; the current one (last) then sits at +1.
+        _position = State(initialValue: CGFloat(max(0, ordered.count - 2)))
     }
 
     var body: some View {
@@ -64,46 +96,88 @@ struct TabSwitcher: View {
 
             ZStack {
                 Color(.systemGroupedBackground)
-                    .opacity(chrome)
+                    .opacity(backdrop)
 
-                VStack(spacing: 0) {
-                    deck(metrics)
-                    controls
-                }
-                .opacity(chrome)
-                .allowsHitTesting(heroID == nil)
-
-                hero(metrics)
+                deck(metrics)
+                    .allowsHitTesting(opened && leavingID == nil)
             }
         }
         .ignoresSafeArea()
-        .task { await zoomOut() }
+        .task { await open() }
+        .onChange(of: doneTrigger) {
+            if let current = store.selectedTab {
+                leave(to: current) { onDone() }
+            } else {
+                onDone()
+            }
+        }
     }
 
     // MARK: - The deck
 
+    /// Changes whenever opening or leaving starts. Attached to each card's
+    /// `.animation(_:value:)` so that those moments, and only those, get that
+    /// card's own spring.
+    private struct MotionKey: Equatable {
+        var opened: Bool
+        var leaving: Bool
+    }
+
     private func deck(_ metrics: StackMetrics) -> some View {
-        ZStack(alignment: .topLeading) {
+        let currentIndex = tabs.firstIndex { $0.id == currentID } ?? tabs.count - 1
+
+        return ZStack(alignment: .topLeading) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                 let relative = CGFloat(index) - position
+                let isCurrent = tab.id == currentID
+                let isLeaving = tab.id == leavingID
+                // 0 for the card just behind the current one, 1 for the next...
+                let age = max(0, currentIndex - index - 1)
 
                 TabCard(
                     tab: tab,
                     size: metrics.cardSize,
+                    faviconInset: metrics.faviconInset,
                     focus: max(0, 1 - abs(relative) * 1.5),
-                    thumbnailHidden: tab.id == heroID,
-                    onSelect: { zoomIn(to: tab) { onSelect(tab) } },
+                    onSelect: { leave(to: tab) { onSelect(tab) } },
                     onClose: { closeCard(tab) }
                 )
-                .modifier(StackEffect(relative: relative, metrics: metrics))
-                // Newer cards (further right) lie on top of older ones.
-                .zIndex(Double(index))
+                .modifier(StackEffect(
+                    relative: relative,
+                    // Older cards start tiny by the tabs button...
+                    entrance: (isCurrent || opened) ? 1 : 0,
+                    // ...the current page starts full screen. A card being
+                    // opened ends full screen.
+                    expand: isLeaving ? (leaving ? 1 : 0) : (isCurrent && !opened ? 1 : 0),
+                    // Neighbors lean opposite ways, like cards tossed on a table.
+                    startTilt: age.isMultiple(of: 2) ? 8 : -10,
+                    metrics: metrics
+                ))
+                .animation(
+                    motion(isCurrent: isCurrent, isLeaving: isLeaving, age: age),
+                    value: MotionKey(opened: opened, leaving: leaving)
+                )
+                // Newer cards (further right) lie on top of older ones; the
+                // card being opened lies on top of everything.
+                .zIndex(isLeaving ? 1000 : Double(index))
                 .transition(.opacity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .contentShape(.rect)
         .simultaneousGesture(pagingGesture(metrics))
+    }
+
+    /// Which spring a card gets when opening or leaving starts.
+    private func motion(isCurrent: Bool, isLeaving: Bool, age: Int) -> Animation? {
+        if isLeaving {
+            return .spring(duration: Self.exitDuration, bounce: 0)
+        }
+        if isCurrent {
+            return .spring(duration: Self.pageDuration, bounce: 0)
+        }
+        let delay = Self.firstCardDelay + Self.cardStagger * Double(min(age, 6))
+        return .spring(duration: Self.cardDuration, bounce: 0).delay(delay)
     }
 
     /// Dragging sideways moves the deck. Letting go snaps to the nearest card,
@@ -147,93 +221,37 @@ struct TabSwitcher: View {
         return value
     }
 
-    // MARK: - Controls
+    // MARK: - Opening and leaving
 
-    /// Mirrors the browser's bottom bar so it feels like the same place.
-    private var controls: some View {
-        HStack {
-            Text(tabs.count == 1 ? "1 Tab" : "\(tabs.count) Tabs")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            NewTabButton(action: onNewTab)
-
-            Button("Done") {
-                if let current = store.selectedTab {
-                    zoomIn(to: current) { onDone() }
-                } else {
-                    onDone()
-                }
-            }
-            .font(.body.weight(.semibold))
-            .frame(maxWidth: .infinity, alignment: .trailing)
-        }
-        .padding(.horizontal, 20)
-        .padding(.top, 10)
-        // The switcher ignores safe areas, so keep clear of the home indicator.
-        .padding(.bottom, 34)
-        .frame(maxWidth: .infinity)
-        .background(.bar)
-    }
-
-    // MARK: - Zoom animation
-
-    /// The traveling picture that does the zoom.
-    @ViewBuilder
-    private func hero(_ metrics: StackMetrics) -> some View {
-        if let heroID, let index = tabs.firstIndex(where: { $0.id == heroID }) {
-            let tab = tabs[index]
-            let fullScreen = CGRect(origin: .zero, size: metrics.screen)
-            let cardRect = metrics.rect(forRelative: CGFloat(index) - position)
-            let rect = heroExpanded ? fullScreen : cardRect
-
-            Group {
-                if let image = tab.snapshot {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: rect.width, height: rect.height, alignment: .top)
-                } else {
-                    Color(.systemBackground)
-                        .frame(width: rect.width, height: rect.height)
-                }
-            }
-            .clipShape(.rect(cornerRadius: heroExpanded ? 0 : TabCard.cornerRadius, style: .continuous))
-            .position(x: rect.midX, y: rect.midY)
-            .allowsHitTesting(false)
+    private func open() async {
+        // Hold the starting pose for a few frames. The first draw of the deck
+        // (decoding pictures, drawing shadows) is slow; doing it here, while
+        // nothing is moving, keeps that cost out of the animation itself.
+        try? await Task.sleep(for: .milliseconds(16))
+        withAnimation(.spring(duration: Self.pageDuration, bounce: 0)) {
+            opened = true
+            backdrop = 1
+            barMix = 1
         }
     }
 
-    /// Opening: the full-screen page shrinks down into its card.
-    private func zoomOut() async {
-        // Let the deck lay out once before animating.
-        try? await Task.sleep(for: .milliseconds(60))
-        withAnimation(.spring(duration: 0.45, bounce: 0.05)) {
-            heroExpanded = false
-            chrome = 1
-        } completion: {
-            heroID = nil
+    /// Swells `tab`'s card to full screen, then calls `finish`, which should
+    /// remove the switcher (revealing the real page underneath).
+    private func leave(to tab: Tab, then finish: @escaping () -> Void) {
+        guard leavingID == nil else { return }
+
+        guard tabs.contains(where: { $0.id == tab.id }) else {
+            finish()
+            return
         }
-    }
-
-    /// Leaving: a card grows to full screen, then we hand over to the live page.
-    private func zoomIn(to tab: Tab, then finish: @escaping () -> Void) {
-        guard heroID == nil else { return }
-
-        // First show the hero sitting exactly on its card...
-        heroExpanded = false
-        heroID = tab.id
-
-        // ...and on the next turn of the run loop, animate it outward. (If we
-        // did both at once, SwiftUI would never draw the starting position.)
-        DispatchQueue.main.async {
-            withAnimation(.spring(duration: 0.4, bounce: 0)) {
-                heroExpanded = true
-                chrome = 0
-            } completion: {
-                finish()
-            }
+        leavingID = tab.id
+        withAnimation(.spring(duration: Self.exitDuration, bounce: 0)) {
+            leaving = true
+            barMix = 0
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(Self.exitDuration))
+            finish()
         }
     }
 
@@ -253,5 +271,34 @@ struct TabSwitcher: View {
             let newFocus = index < focused ? focused - 1 : min(focused, tabs.count - 1)
             position = CGFloat(newFocus)
         }
+    }
+}
+
+/// The switcher's bottom bar: a "done" button on the left, a centered capsule
+/// "+" and a settings button on the right. Drawn by `BrowserView` (not by
+/// `TabSwitcher`) so it can sit above the cards and cross-fade with the
+/// browser's own bar.
+struct SwitcherBar: View {
+    let onDone: () -> Void
+    let onNewTab: () -> Void
+    let onSettings: () -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack {
+                BarButton(systemName: "display", label: "Back to page", action: onDone)
+
+                Spacer()
+                NewTabButton(width: geometry.size.width * 0.19, height: 44, action: onNewTab)
+                Spacer()
+
+                BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
+            }
+            .padding(.horizontal, 16)
+            .frame(width: geometry.size.width)
+            // The button row is centered 95% of the way down the screen.
+            .position(x: geometry.size.width / 2, y: geometry.size.height * 0.95)
+        }
+        .ignoresSafeArea()
     }
 }
