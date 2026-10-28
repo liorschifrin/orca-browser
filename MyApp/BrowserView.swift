@@ -20,6 +20,7 @@ struct BrowserView: View {
     /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
     @State private var barMix: Double = 0
     @State private var doneTrigger = 0
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         ZStack {
@@ -66,6 +67,20 @@ struct BrowserView: View {
                 onDismiss: closeSearch
             )
         }
+        // Save when leaving the app: iOS may close it without further notice.
+        .onChange(of: scenePhase) {
+            if scenePhase != .active { store.save() }
+        }
+        // Every so often, unload tabs that have sat unused for a while.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                store.enforceMemoryPolicy()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            store.unloadBackgroundTabs()
+        }
         #if DEBUG
         .overlay(alignment: .topLeading) {
             RefreshRateBadge()
@@ -78,9 +93,9 @@ struct BrowserView: View {
     private var page: some View {
         ZStack(alignment: .bottom) {
             // All tabs stay mounted; only the selected one is visible.
-            ForEach(store.tabs) { tab in
+            ForEach(store.tabs.filter(\.isLoaded)) { tab in
                 WebViewHost(
-                    webView: tab.webView,
+                    webView: tab.webView!,
                     bottomInset: barHeight,
                     isActive: tab.id == store.selectedTabID
                 )
@@ -90,6 +105,18 @@ struct BrowserView: View {
             }
 
             if let tab = store.selectedTab {
+                // A tab that was unloaded takes a moment to come back; show its
+                // card picture meanwhile instead of a white page.
+                if tab.isRestoring, let image = tab.snapshot {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .clipped()
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .transition(.opacity.animation(.easeOut(duration: 0.2)))
+                }
                 // Stop these above the bar so its buttons stay usable.
                 if tab.isBlank {
                     StartView()
@@ -156,7 +183,11 @@ struct BrowserView: View {
         isPreparingSwitcher = true
         Task {
             // Refresh the current page's picture first, so its card is current.
-            await store.selectedTab?.captureSnapshot()
+            // (Skipped when the picture is already current, which is the
+            // usual case: it's refreshed shortly after every scroll or load.)
+            if let tab = store.selectedTab, tab.needsSnapshot {
+                await tab.captureSnapshot()
+            }
             switcherID = UUID()
             isSwitching = true
             isPreparingSwitcher = false

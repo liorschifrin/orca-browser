@@ -1,11 +1,15 @@
 import SwiftUI
 import WebKit
 
-/// One browser tab. It owns its own WKWebView for its entire life.
+/// One browser tab.
 ///
-/// Keeping the web view alive (instead of recreating it) is what makes tab
-/// switching "free": scroll position, form input and history all live inside
-/// the web view, so we never have to save or restore them ourselves.
+/// A tab is a *record* (address, title, picture of the page) that may or may
+/// not have a live WKWebView attached. While a web view is attached it keeps
+/// scroll position, form input and history, so switching to the tab is
+/// instant. To save memory the store unloads tabs you haven't used lately:
+/// the web view is thrown away, but the record stays, along with a
+/// "interaction state" blob (back/forward list and scroll position) so that
+/// reloading the tab later puts you back where you were.
 ///
 /// The web view is the source of truth for what the page is doing, but SwiftUI
 /// can't watch a WKWebView directly. So the Tab *mirrors* the interesting
@@ -13,8 +17,10 @@ import WebKit
 /// properties and redraw automatically thanks to @Observable.
 @Observable
 final class Tab: NSObject, Identifiable, WKNavigationDelegate {
-    let id = UUID()
-    let webView: WKWebView
+    let id: UUID
+    /// nil while the tab is unloaded.
+    private(set) var webView: WKWebView?
+    var isLoaded: Bool { webView != nil }
 
     // Mirrored from the web view.
     private(set) var url: URL?
@@ -30,50 +36,134 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     var recency = 0
 
     /// A picture of the page, shown on this tab's card in the switcher.
-    private(set) var snapshot: UIImage?
+    private(set) var snapshot: UIImage? {
+        didSet { snapshotRevision += 1 }
+    }
 
     /// The site's icon, shown above its card in the switcher. nil until found
     /// (or if the site's icon is a format iOS can't decode, e.g. SVG).
-    private(set) var favicon: UIImage?
+    private(set) var favicon: UIImage? {
+        didSet { faviconRevision += 1 }
+    }
     @ObservationIgnored private var faviconURL: URL?
 
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
+
+    /// True from the moment a web view is re-created for an unloaded tab until
+    /// its page shows up. The browser covers the gap with the card's picture.
+    private(set) var isRestoring = false
 
     struct LoadError {
         let message: String
         let failedURL: URL?
     }
 
+    /// Back/forward list and scroll position, kept while the web view is gone.
+    @ObservationIgnored private var savedInteractionState: Data?
+    /// Last time the user was looking at this tab; drives idle unloading.
+    @ObservationIgnored var lastViewed = Date.now
+    /// Bumped whenever the picture changes, so saving can skip unchanged ones.
+    @ObservationIgnored private(set) var snapshotRevision = 0
+    @ObservationIgnored private(set) var faviconRevision = 0
+    /// True when the page has changed since the picture was taken.
+    @ObservationIgnored private var snapshotIsStale = true
+    @ObservationIgnored private var scrollSnapshotTask: Task<Void, Never>?
+    /// Told when something worth saving to disk has changed.
+    @ObservationIgnored var onChange: (() -> Void)?
+
     /// KVO (key-value observing) subscriptions. They stop when released.
     /// Not part of the observable state, so views shouldn't track them.
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
 
+    /// A new tab with a live web view, loading `url` if given.
     init(url: URL? = nil) {
+        id = UUID()
+        super.init()
+
+        _ = makeWebView()
+        if let url {
+            load(url)
+        }
+    }
+
+    /// A tab brought back from disk. It has no web view until `activate()`.
+    init(restoring saved: SavedTab, snapshot: UIImage?, favicon: UIImage?, interactionState: Data?) {
+        id = saved.id
+        super.init()
+
+        url = saved.url
+        title = saved.title
+        recency = saved.recency
+        isBlank = false
+        self.snapshot = snapshot
+        self.favicon = favicon
+        savedInteractionState = interactionState
+        snapshotIsStale = false
+    }
+
+    private func makeWebView() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
 
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        let view = WKWebView(frame: .zero, configuration: configuration)
         // Swiping from the left edge goes back, like Safari.
-        webView.allowsBackForwardNavigationGestures = true
-
-        super.init()
-
-        webView.navigationDelegate = self
+        view.allowsBackForwardNavigationGestures = true
+        view.navigationDelegate = self
 
         // Whenever any of these web view properties change, re-copy them all.
         observations = [
-            webView.observe(\.estimatedProgress) { [weak self] _, _ in self?.syncFromWebView() },
-            webView.observe(\.isLoading) { [weak self] _, _ in self?.syncFromWebView() },
-            webView.observe(\.canGoBack) { [weak self] _, _ in self?.syncFromWebView() },
-            webView.observe(\.url) { [weak self] _, _ in self?.syncFromWebView() },
-            webView.observe(\.title) { [weak self] _, _ in self?.syncFromWebView() },
+            view.observe(\.estimatedProgress) { [weak self] view, _ in self?.sync(from: view) },
+            view.observe(\.isLoading) { [weak self] view, _ in self?.sync(from: view) },
+            view.observe(\.canGoBack) { [weak self] view, _ in self?.sync(from: view) },
+            view.observe(\.url) { [weak self] view, _ in self?.sync(from: view) },
+            view.observe(\.title) { [weak self] view, _ in self?.sync(from: view) },
+            // Scrolling makes the picture out of date; refresh it once the
+            // finger has been off for a moment, so opening the switcher
+            // doesn't have to wait for a new picture.
+            view.scrollView.observe(\.contentOffset) { [weak self] _, _ in self?.pageScrolled() },
         ]
+        webView = view
+        return view
+    }
 
-        if let url {
-            load(url)
+    // MARK: - Loading and unloading
+
+    /// Makes sure the tab has a web view, re-creating one (and returning to
+    /// where you were) if it was unloaded.
+    func activate() {
+        guard webView == nil else { return }
+        let view = makeWebView()
+        isRestoring = true
+
+        if let savedInteractionState {
+            view.interactionState = savedInteractionState
         }
+        // No usable saved state (or it didn't take): just load the address.
+        if view.backForwardList.currentItem == nil, let url {
+            view.load(URLRequest(url: url))
+        }
+    }
+
+    /// Throws the web view away to free memory, keeping everything needed to
+    /// bring the page back. Blank tabs have nothing worth saving, so they stay.
+    func unload() {
+        guard let view = webView, !isBlank else { return }
+
+        savedInteractionState = view.interactionState as? Data
+        url = view.url ?? url
+        title = view.title ?? title
+        detach(view)
+        webView = nil
+        isLoading = false
+        progress = 0
+        isRestoring = false
+    }
+
+    /// The state to write to disk: current if loaded, else what we kept.
+    var interactionStateForSaving: Data? {
+        (webView?.interactionState as? Data) ?? savedInteractionState
     }
 
     /// "apple.com" for the bar and cards; falls back to the page title.
@@ -85,12 +175,24 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         return "New Tab"
     }
 
-    private func syncFromWebView() {
-        url = webView.url
-        title = webView.title
-        progress = webView.estimatedProgress
-        isLoading = webView.isLoading
-        canGoBack = webView.canGoBack
+    private func sync(from view: WKWebView) {
+        // A re-created web view has no address until its page starts arriving.
+        if let current = view.url { url = current }
+        if view.title != nil || !isRestoring { title = view.title }
+        progress = view.estimatedProgress
+        if view.isLoading && !isLoading { snapshotIsStale = true }
+        isLoading = view.isLoading
+        canGoBack = view.canGoBack
+    }
+
+    private func pageScrolled() {
+        snapshotIsStale = true
+        scrollSnapshotTask?.cancel()
+        scrollSnapshotTask = Task {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled, let view = webView, !view.isHidden else { return }
+            await captureSnapshot()
+        }
     }
 
     // MARK: - Actions
@@ -98,11 +200,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     func load(_ url: URL) {
         isBlank = false
         loadError = nil
-        webView.load(URLRequest(url: url))
+        activate()
+        webView?.load(URLRequest(url: url))
     }
 
     func goBack() {
-        webView.goBack()
+        webView?.goBack()
     }
 
     func reload() {
@@ -111,23 +214,30 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         if let failedURL = loadError?.failedURL {
             load(failedURL)
         } else {
-            webView.reload()
+            webView?.reload()
         }
     }
 
     func stopLoading() {
-        webView.stopLoading()
+        webView?.stopLoading()
+    }
+
+    /// True if the card's picture should be refreshed before showing it.
+    var needsSnapshot: Bool {
+        !isBlank && isLoaded && (snapshot == nil || snapshotIsStale)
     }
 
     /// Takes a small picture of what the web view is showing right now.
     /// Call this *before* the web view is hidden: a hidden view may render blank.
     func captureSnapshot() async {
-        guard !isBlank else { return }
+        guard !isBlank, let view = webView else { return }
         let configuration = WKSnapshotConfiguration()
         // Cards are small, so a modest width keeps memory low.
         configuration.snapshotWidth = 400
-        if let image = try? await webView.takeSnapshot(configuration: configuration) {
+        if let image = try? await view.takeSnapshot(configuration: configuration) {
             snapshot = image
+            snapshotIsStale = false
+            onChange?()
         }
     }
 
@@ -135,7 +245,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// icon is (a <link> tag); if it doesn't, the conventional /favicon.ico is
     /// tried. Only the site's own server is contacted.
     private func loadFavicon() async {
-        guard let pageURL = webView.url, pageURL.scheme?.hasPrefix("http") == true else { return }
+        guard let pageURL = webView?.url, pageURL.scheme?.hasPrefix("http") == true else { return }
 
         let script = """
         (function () {
@@ -147,7 +257,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
           return null;
         })()
         """
-        let declared = (try? await webView.evaluateJavaScript(script)) as? String
+        let declared = (try? await webView?.evaluateJavaScript(script)) as? String
         let iconURL = declared.flatMap { URL(string: $0) }
             ?? URL(string: "/favicon.ico", relativeTo: pageURL)?.absoluteURL
         guard let iconURL, iconURL != faviconURL else { return }
@@ -160,9 +270,16 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     /// Called when the tab is closed, so the page stops loading and playing.
     func teardown() {
-        webView.stopLoading()
-        webView.navigationDelegate = nil
+        scrollSnapshotTask?.cancel()
+        if let view = webView { detach(view) }
+        webView = nil
+    }
+
+    private func detach(_ view: WKWebView) {
+        scrollSnapshotTask?.cancel()
         observations = []
+        view.stopLoading()
+        view.navigationDelegate = nil
     }
 
     // MARK: - WKNavigationDelegate
@@ -170,6 +287,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// A page finished loading: refresh the card picture. (The leaving-the-tab
     /// snapshot can be taken mid-load, which would leave a half-empty card.)
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        isRestoring = false
         Task { await loadFavicon() }
         Task {
             // Give the page a moment to paint its final layout.
@@ -177,6 +295,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
             if !webView.isHidden || snapshot == nil {
                 await captureSnapshot()
             }
+            onChange?()
         }
     }
 
@@ -184,6 +303,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// about to be replaced. A good moment to drop any old error.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         loadError = nil
+        snapshotIsStale = true
+        // The page is on screen now (give it a beat to paint).
+        Task {
+            try? await Task.sleep(for: .milliseconds(200))
+            isRestoring = false
+        }
     }
 
     /// Failure before anything arrived (offline, bad host, ...).
@@ -198,6 +323,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     private func report(_ error: Error) {
         let nsError = error as NSError
+        isRestoring = false
 
         // Not real failures: the user (or a link tap) cancelled a load, or the
         // page turned into a download. Showing an error would be noise.
