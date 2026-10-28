@@ -20,6 +20,8 @@ struct BrowserView: View {
     /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
     @State private var barMix: Double = 0
     @State private var doneTrigger = 0
+    @State private var isShowingSettings = false
+    private let settings = AppSettings.shared
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -76,6 +78,12 @@ struct BrowserView: View {
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
             if scenePhase != .active { store.save() }
+        }
+        .onChange(of: settings.hideShorts) {
+            store.applyShortsSetting(settings.hideShorts)
+        }
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsView(settings: settings, onDone: { isShowingSettings = false })
         }
         // Every so often, unload tabs that have sat unused for a while.
         .task {
@@ -150,7 +158,7 @@ struct BrowserView: View {
                 SwitcherBar(
                     onDone: { doneTrigger += 1 },
                     onNewTab: openSearch,
-                    onSettings: {}
+                    onSettings: { isShowingSettings = true }
                 )
                 .opacity(barMix)
                 .allowsHitTesting(barMix > 0.5)

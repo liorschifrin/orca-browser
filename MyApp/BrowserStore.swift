@@ -121,6 +121,14 @@ final class BrowserStore {
         scheduleSave()
     }
 
+    /// Applies the Shorts setting to every tab that has a live web view.
+    /// Tabs that load later pick it up when their web view is created.
+    func applyShortsSetting(_ enabled: Bool) {
+        for tab in tabs where tab.isLoaded {
+            tab.setHidesShorts(enabled)
+        }
+    }
+
     func select(_ tab: Tab) {
         selectedTab?.lastViewed = .now
         // Bring the page back if it had been unloaded.

@@ -106,6 +106,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
+        configuration.userContentController.addUserScript(
+            ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
+        )
 
         let view = WKWebView(frame: .zero, configuration: configuration)
         // Swiping from the left edge goes back, like Safari.
@@ -304,6 +307,25 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
             }
             onChange?()
         }
+    }
+
+    /// Turns youtube.com/shorts/ID addresses into the normal watch page while
+    /// Shorts are hidden.
+    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if AppSettings.shared.hideShorts,
+           action.targetFrame?.isMainFrame ?? true,
+           let url = action.request.url,
+           let watchURL = ShortsFilter.watchURL(forShorts: url) {
+            decisionHandler(.cancel)
+            load(watchURL)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    /// Applies the Shorts setting to a page that is already open.
+    func setHidesShorts(_ enabled: Bool) {
+        webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
     }
 
     /// Called once the first bytes of a new page arrive, i.e. the old page is
