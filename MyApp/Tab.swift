@@ -178,6 +178,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         return "New Tab"
     }
 
+    /// True while the tab is showing a YouTube page.
+    var isYouTube: Bool {
+        guard let host = url?.host()?.lowercased() else { return false }
+        return host == "youtube.com" || host.hasSuffix(".youtube.com") || host == "youtu.be"
+    }
+
     private func sync(from view: WKWebView) {
         // A re-created web view has no address until its page starts arriving.
         if let current = view.url { url = current }
