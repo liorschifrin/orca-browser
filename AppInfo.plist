@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Hold the microphone to dictate a Google search. With OpenAI selected, the recording is sent to OpenAI for transcription when you release.</string>
 	<!-- Lets animations run at up to 120 Hz on ProMotion iPhones. Without this,
 	     iPhones cap an app's own animations at 60 Hz. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>

@@ -40,7 +40,7 @@ enum Destination {
         return host.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
 
-    private static func searchURL(for query: String) -> URL? {
+    static func searchURL(for query: String) -> URL? {
         var components = URLComponents(string: "https://www.google.com/search")
         // URLComponents handles percent-encoding of spaces, &, etc. for us.
         components?.queryItems = [URLQueryItem(name: "q", value: query)]

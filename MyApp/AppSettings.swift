@@ -9,6 +9,11 @@ final class AppSettings {
     static let shared = AppSettings()
 
     private static let hideShortsKey = "hideShorts"
+    private static let voiceSearchProviderKey = "voiceSearchProvider"
+
+    var voiceSearchProvider: VoiceSearchProvider {
+        didSet { UserDefaults.standard.set(voiceSearchProvider.rawValue, forKey: Self.voiceSearchProviderKey) }
+    }
 
     /// Hides YouTube Shorts in every tab. Off by default.
     var hideShorts: Bool {
@@ -17,5 +22,8 @@ final class AppSettings {
 
     private init() {
         hideShorts = UserDefaults.standard.bool(forKey: Self.hideShortsKey)
+        voiceSearchProvider = VoiceSearchProvider(
+            rawValue: UserDefaults.standard.string(forKey: Self.voiceSearchProviderKey) ?? ""
+        ) ?? .apple
     }
 }

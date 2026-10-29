@@ -4,6 +4,9 @@ import SwiftUI
 struct SettingsView: View {
     @Bindable var settings: AppSettings
     let onDone: () -> Void
+    @State private var apiKey = ""
+    @State private var hasAPIKey = VoiceSearchCredentials.apiKey != nil
+    @State private var credentialError: String?
 
     var body: some View {
         NavigationStack {
@@ -13,6 +16,39 @@ struct SettingsView: View {
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
                 }
+                Section {
+                    Picker("Speech recognition", selection: $settings.voiceSearchProvider) {
+                        ForEach(VoiceSearchProvider.allCases) { provider in
+                            Text(provider.title).tag(provider)
+                        }
+                    }
+                    if settings.voiceSearchProvider == .openAI {
+                        SecureField(hasAPIKey ? "Replace API key" : "OpenAI API key", text: $apiKey)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .onSubmit(saveAPIKey)
+                        Button("Save API key", action: saveAPIKey)
+                            .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if hasAPIKey {
+                            Label("API key saved in Keychain", systemImage: "checkmark.shield")
+                            Button("Remove API key", role: .destructive) {
+                                do {
+                                    try VoiceSearchCredentials.remove()
+                                    hasAPIKey = false
+                                    apiKey = ""
+                                } catch {
+                                    credentialError = error.localizedDescription
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Voice search")
+                } footer: {
+                    Text(settings.voiceSearchProvider == .apple
+                         ? "Hold the microphone in the search bar, then release to search Google. Speech is processed on device in your preferred iPhone language. A speech model may download on first use."
+                         : "Recordings are sent to OpenAI only when you release the microphone. Uses gpt-transcribe and your own API billing. Your key stays in this device's Keychain. Local recordings are deleted after transcription or cancellation.")
+                }
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -21,7 +57,25 @@ struct SettingsView: View {
                     Button("Done", action: onDone)
                 }
             }
+            .alert("API key", isPresented: Binding(
+                get: { credentialError != nil },
+                set: { if !$0 { credentialError = nil } }
+            )) {
+                Button("OK", role: .cancel) { credentialError = nil }
+            } message: {
+                Text(credentialError ?? "")
+            }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+    }
+
+    private func saveAPIKey() {
+        do {
+            try VoiceSearchCredentials.save(apiKey)
+            hasAPIKey = true
+            apiKey = ""
+        } catch {
+            credentialError = error.localizedDescription
+        }
     }
 }
