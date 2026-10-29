@@ -279,7 +279,7 @@ struct TabSwitcher: View {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         let focused = Int(position.rounded())
 
-        withAnimation(.spring(duration: 0.4, bounce: 0.1)) {
+        withAnimation(.spring(duration: 0.22, bounce: 0)) {
             tabs.remove(at: index)
             onClose(tab)
 

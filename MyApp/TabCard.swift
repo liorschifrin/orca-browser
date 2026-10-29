@@ -173,7 +173,7 @@ struct TabCard: View {
                 let flick = value.predictedEndTranslation.height
                 if dragOffset < -closeDistance || flick < -400 {
                     UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
-                    withAnimation(.easeOut(duration: 0.2)) {
+                    withAnimation(.easeOut(duration: 0.12)) {
                         dragOffset = -700
                     } completion: {
                         onClose()

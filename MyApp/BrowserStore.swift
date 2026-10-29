@@ -44,6 +44,7 @@ final class BrowserStore {
             let first = Tab()
             tabs = [first]
             selectedTabID = first.id
+            watch([first])
             markUsed(first)
         }
     }
@@ -118,6 +119,23 @@ final class BrowserStore {
             markUsed(tab)
             enforceMemoryPolicy()
         }
+        scheduleSave()
+    }
+
+    /// Adopt the preview's actual tab and web view, preserving page state.
+    func adoptPreview(_ tab: Tab, inBackground: Bool) {
+        guard !tabs.contains(where: { $0.id == tab.id }) else { return }
+        watch([tab])
+        tabs.append(tab)
+        markUsed(tab)
+        if inBackground {
+            // Keep the visible page last in the switcher's recency order.
+            if let current = selectedTab { markUsed(current) }
+        } else {
+            selectedTab?.lastViewed = .now
+            selectedTabID = tab.id
+        }
+        enforceMemoryPolicy()
         scheduleSave()
     }
 

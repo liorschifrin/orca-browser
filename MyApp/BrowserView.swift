@@ -5,6 +5,14 @@ import SwiftUI
 /// on top of both.
 struct BrowserView: View {
     @State private var store: BrowserStore
+    @State private var previewLink: PreviewLink?
+
+    private struct PreviewLink: Identifiable {
+        let id = UUID()
+        let url: URL
+        let source: Tab
+    }
+
     @State private var barHeight: CGFloat = 0
     // Search starts open only when there's no page to go back to (a blank tab).
     @State private var isSearching: Bool
@@ -84,10 +92,31 @@ struct BrowserView: View {
                 },
                 onDismiss: closeSearch
             )
+
+            if let link = previewLink {
+                LinkPreview(
+                    url: link.url,
+                    onOpenNewTab: { tab in
+                        previewLink = nil
+                        store.adoptPreview(tab, inBackground: false)
+                    },
+                    onOpenBackground: { tab in
+                        previewLink = nil
+                        store.adoptPreview(tab, inBackground: true)
+                    },
+                    onOpen: { url in
+                        previewLink = nil
+                        link.source.load(url)
+                    },
+                    onDismiss: { previewLink = nil }
+                )
+                .id(link.id)
+            }
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
-            if scenePhase != .active { store.save() }
+            if scenePhase == .active { ClipboardCache.shared.refresh() }
+            else { store.save() }
         }
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)
@@ -97,10 +126,14 @@ struct BrowserView: View {
         }
         // Every so often, unload tabs that have sat unused for a while.
         .task {
+            ClipboardCache.shared.refresh()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 store.enforceMemoryPolicy()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
+            ClipboardCache.shared.refresh()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             store.unloadBackgroundTabs()
@@ -114,7 +147,11 @@ struct BrowserView: View {
             ForEach(store.tabs.filter(\.isLoaded)) { tab in
                 WebViewHost(
                     webView: tab.webView!,
-                    isActive: tab.id == store.selectedTabID
+                    isActive: tab.id == store.selectedTabID,
+                    onPreviewLink: { url in
+                        guard previewLink == nil, tab.id == store.selectedTabID else { return }
+                        previewLink = PreviewLink(url: url, source: tab)
+                    }
                 )
                 // Sit between the status bar and the floating bar, so nothing
                 // on the page (header buttons, the end of an inner scrolling
@@ -239,10 +276,9 @@ struct BrowserView: View {
     }
 
     private func closeTab(_ tab: Tab) {
-        var replacedWithBlank = false
-        withAnimation(.spring(duration: 0.35, bounce: 0.1)) {
-            replacedWithBlank = store.close(tab)
-        }
+        // The switcher owns the close/reflow animation for both its local
+        // card list and the store; avoid a second, longer nested spring.
+        let replacedWithBlank = store.close(tab)
         // Closed the very last tab: go back to the "start fresh" state.
         if replacedWithBlank {
             closeSwitcher()

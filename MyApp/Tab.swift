@@ -107,6 +107,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
+        configuration.userContentController.addUserScript(LinkPress.userScript)
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
         )
@@ -115,6 +116,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         // Swiping from the left edge goes back, like Safari.
         view.allowsBackForwardNavigationGestures = true
         view.navigationDelegate = self
+        view.allowsLinkPreview = false
 
         // Whenever any of these web view properties change, re-copy them all.
         observations = [

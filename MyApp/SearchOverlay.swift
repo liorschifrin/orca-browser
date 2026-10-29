@@ -13,8 +13,7 @@ struct SearchOverlay: View {
     let onDismiss: () -> Void
 
     @State private var text = ""
-    @State private var clipboard = ""
-    @State private var lastClipboardCount = -1
+    private let clipboardCache = ClipboardCache.shared
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
     @FocusState private var isFocused: Bool
@@ -51,16 +50,16 @@ struct SearchOverlay: View {
         .onAppear {
             // Presented at launch: grab the keyboard right away.
             if isPresented {
-                readClipboard()
                 text = initialText
                 isFocused = true
+                clipboardCache.refresh()
             }
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
-                readClipboard()
                 text = initialText
                 isFocused = true
+                clipboardCache.refresh()
             } else {
                 isFocused = false
             }
@@ -68,18 +67,7 @@ struct SearchOverlay: View {
     }
 
     private var clipboardText: String {
-        clipboard.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// Only touches the clipboard when it holds text, so iOS doesn't show
-    /// its paste prompt for images and the like.
-    /// Reads only when something new was copied: each read of text copied on
-    /// another device makes iOS show its "Pasted from…" banner.
-    private func readClipboard() {
-        let count = UIPasteboard.general.changeCount
-        guard count != lastClipboardCount else { return }
-        lastClipboardCount = count
-        clipboard = UIPasteboard.general.hasStrings ? (UIPasteboard.general.string ?? "") : ""
+        clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Shows what was copied; tapping goes straight to it.
