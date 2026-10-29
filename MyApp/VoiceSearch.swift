@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Speech
+import SwiftUI
 
 enum VoiceSearchProvider: String, CaseIterable, Identifiable {
     case apple
@@ -64,6 +65,11 @@ final class VoiceSearch {
         state = .preparing
         let identifier = UUID()
         sessionID = identifier
+        // Already allowed: start in this very call, with no async hop.
+        if AVAudioApplication.shared.recordPermission == .granted {
+            startRecording(identifier)
+            return
+        }
         operation = Task {
             let granted = await AVAudioApplication.requestRecordPermission()
             guard !Task.isCancelled, sessionID == identifier, isHolding else { return }
@@ -71,41 +77,45 @@ final class VoiceSearch {
                 fail("Microphone access is off. Enable it for Browser in iPhone Settings.")
                 return
             }
-            do {
-                let audioSession = AVAudioSession.sharedInstance()
-                previousAudioConfiguration = AudioConfiguration(
-                    category: audioSession.category,
-                    mode: audioSession.mode,
-                    options: audioSession.categoryOptions
-                )
-                try audioSession.setCategory(.record, mode: .measurement)
-                try audioSession.setActive(true)
-                let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("voice-search-\(identifier).m4a")
-                recordingURL = url
-                let capture = try AVAudioRecorder(url: url, settings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: 44_100,
-                    AVNumberOfChannelsKey: 1,
-                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-                ])
-                recorder = capture
-                guard capture.record() else {
-                    fail("The microphone couldn't start. Please try again.")
-                    return
-                }
-                state = .recording
-                operation = nil
-                recordingLimit = Task {
-                    do {
-                        try await Task.sleep(for: .seconds(30))
-                        guard sessionID == identifier else { return }
-                        fail("Voice searches are limited to 30 seconds. Hold the microphone to try again.")
-                    } catch {}
-                }
-            } catch {
-                fail("Couldn't start recording. Check your microphone and try again.")
+            startRecording(identifier)
+        }
+    }
+
+    private func startRecording(_ identifier: UUID) {
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            previousAudioConfiguration = AudioConfiguration(
+                category: audioSession.category,
+                mode: audioSession.mode,
+                options: audioSession.categoryOptions
+            )
+            try audioSession.setCategory(.record, mode: .measurement)
+            try audioSession.setActive(true)
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("voice-search-\(identifier).m4a")
+            recordingURL = url
+            let capture = try AVAudioRecorder(url: url, settings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 44_100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ])
+            recorder = capture
+            guard capture.record() else {
+                fail("The microphone couldn't start. Please try again.")
+                return
             }
+            state = .recording
+            operation = nil
+            recordingLimit = Task {
+                do {
+                    try await Task.sleep(for: .seconds(30))
+                    guard sessionID == identifier else { return }
+                    fail("Voice searches are limited to 30 seconds. Hold the microphone to try again.")
+                } catch {}
+            }
+        } catch {
+            fail("Couldn't start recording. Check your microphone and try again.")
         }
     }
 
@@ -273,5 +283,38 @@ private enum OpenAITranscription {
         }
         struct Transcript: Decodable { let text: String }
         return try JSONDecoder().decode(Transcript.self, from: data).text
+    }
+}
+
+/// Cancels a voice search when the app leaves the foreground, the system
+/// takes the audio session, or the microphone is unplugged.
+private struct VoiceSearchLifecycle: ViewModifier {
+    let voiceSearch: VoiceSearch
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: scenePhase) {
+                if scenePhase != .active { voiceSearch.cancel() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.didBecomeInactiveNotification)) { notification in
+                if let context = notification.userInfo?[AVAudioSession.deactivationContextKey]
+                    as? AVAudioSession.DeactivationContext, context.source == .system {
+                    voiceSearch.cancel()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
+                if notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+                    == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
+                    voiceSearch.cancel()
+                }
+            }
+            .onDisappear { voiceSearch.cancel() }
+    }
+}
+
+extension View {
+    func cancelsVoiceSearchWhenInterrupted(_ voiceSearch: VoiceSearch) -> some View {
+        modifier(VoiceSearchLifecycle(voiceSearch: voiceSearch))
     }
 }

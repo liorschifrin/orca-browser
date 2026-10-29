@@ -1,4 +1,3 @@
-import AVFoundation
 import SwiftUI
 
 /// The "type a search or address" sheet: a blurred backdrop with the text
@@ -78,9 +77,6 @@ struct SearchOverlay: View {
                 isFocused = false
             }
         }
-        .onChange(of: scenePhase) {
-            if scenePhase != .active { voiceSearch.cancel() }
-        }
         .onChange(of: isFocused) { _, focused in
             if focused, selectInitialText, !text.isEmpty {
                 selection = TextSelection(range: text.startIndex..<text.endIndex)
@@ -88,19 +84,7 @@ struct SearchOverlay: View {
                 selection = nil
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.didBecomeInactiveNotification)) { notification in
-            if let context = notification.userInfo?[AVAudioSession.deactivationContextKey]
-                as? AVAudioSession.DeactivationContext, context.source == .system {
-                voiceSearch.cancel()
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.routeChangeNotification)) { notification in
-            if notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-                == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
-                voiceSearch.cancel()
-            }
-        }
-        .onDisappear { voiceSearch.cancel() }
+        .cancelsVoiceSearchWhenInterrupted(voiceSearch)
         .alert("Voice search", isPresented: Binding(
             get: { voiceSearch.errorMessage != nil },
             set: { if !$0 { voiceSearch.errorMessage = nil } }

@@ -198,7 +198,13 @@ struct BrowserView: View {
                         plusButtonWidth: geometry.size.width * 0.19,
                         onNewTab: { openSearch(prefillingSearchTerm: true) },
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
-                        onShowTabs: openSwitcher
+                        onShowTabs: openSwitcher,
+                        onVoiceSearch: { url in
+                            Task {
+                                await store.open(url.absoluteString)
+                                closeSwitcher()
+                            }
+                        }
                     )
                     // Put the address strip just above the physical bottom edge.
                     .padding(.bottom, -max(0, geometry.safeAreaInsets.bottom - 3))
