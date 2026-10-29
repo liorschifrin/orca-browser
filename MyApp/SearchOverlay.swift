@@ -10,10 +10,12 @@ struct SearchOverlay: View {
     let isPresented: Bool
     /// Text the field starts with each time the overlay opens.
     var initialText = ""
+    var selectInitialText = false
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
 
     @State private var text = ""
+    @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
     @State private var voiceSearch = VoiceSearch()
     @Environment(\.scenePhase) private var scenePhase
@@ -79,6 +81,13 @@ struct SearchOverlay: View {
         .onChange(of: scenePhase) {
             if scenePhase != .active { voiceSearch.cancel() }
         }
+        .onChange(of: isFocused) { _, focused in
+            if focused, selectInitialText, !text.isEmpty {
+                selection = TextSelection(range: text.startIndex..<text.endIndex)
+            } else if !focused {
+                selection = nil
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.didBecomeInactiveNotification)) { notification in
             if let context = notification.userInfo?[AVAudioSession.deactivationContextKey]
                 as? AVAudioSession.DeactivationContext, context.source == .system {
@@ -131,7 +140,7 @@ struct SearchOverlay: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            TextField("Search or enter address", text: $text)
+            TextField("Search or enter address", text: $text, selection: $selection)
                 .focused($isFocused)
                 .keyboardType(.webSearch)
                 .textInputAutocapitalization(.never)

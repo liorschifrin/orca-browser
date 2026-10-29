@@ -19,6 +19,7 @@ struct BrowserView: View {
     // Set when search was opened by tapping the address: the URL to show,
     // and the submitted text then replaces the current page.
     @State private var editingURL: URL?
+    @State private var searchInitialText = ""
     @State private var isSwitching = false
     /// A new value for every time the switcher opens, so SwiftUI never reuses
     /// a switcher that was mid-exit (it would still think it was "leaving").
@@ -76,7 +77,8 @@ struct BrowserView: View {
             // one that has to be built first adds a noticeable delay.
             SearchOverlay(
                 isPresented: isSearching,
-                initialText: editingURL?.absoluteString ?? "",
+                initialText: searchInitialText,
+                selectInitialText: editingURL == nil,
                 onSubmit: { input in
                     let replacing = editingURL != nil
                     closeSearch()
@@ -194,7 +196,7 @@ struct BrowserView: View {
                         tab: tab,
                         tabCount: store.tabs.count,
                         plusButtonWidth: geometry.size.width * 0.19,
-                        onNewTab: { openSearch() },
+                        onNewTab: { openSearch(prefillingSearchTerm: true) },
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
                         onShowTabs: openSwitcher
                     )
@@ -228,8 +230,13 @@ struct BrowserView: View {
 
     // MARK: - Actions
 
-    private func openSearch(editing url: URL? = nil) {
+    /// `prefillingSearchTerm`: after a Google search, start with that term
+    /// selected so typing replaces it (or a tap lets you edit it).
+    private func openSearch(editing url: URL? = nil, prefillingSearchTerm: Bool = false) {
         editingURL = url
+        searchInitialText = url?.absoluteString
+            ?? (prefillingSearchTerm ? Destination.searchQuery(from: store.selectedTab?.url) : nil)
+            ?? ""
         withAnimation(.easeOut(duration: 0.2)) { isSearching = true }
     }
 

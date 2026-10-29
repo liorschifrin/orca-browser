@@ -46,4 +46,17 @@ enum Destination {
         components?.queryItems = [URLQueryItem(name: "q", value: query)]
         return components?.url
     }
+
+    static func searchQuery(from url: URL?) -> String? {
+        guard let url,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let host = components.host?.lowercased(),
+              host == "google.com" || host == "www.google.com",
+              components.path == "/search" else { return nil }
+
+        var decodedComponents = components
+        decodedComponents.percentEncodedQuery = components.percentEncodedQuery?
+            .replacingOccurrences(of: "+", with: "%20")
+        return decodedComponents.queryItems?.first(where: { $0.name == "q" })?.value
+    }
 }
