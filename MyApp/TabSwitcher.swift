@@ -15,8 +15,7 @@ import SwiftUI
 ///  - **Leaving.** The chosen card swells to full screen over the others,
 ///    which stay where they are. It's quick and doesn't bounce.
 ///
-/// The springs are critically damped (no overshoot) with speeds taken from
-/// measuring a reference recording; see the constants below.
+/// The springs are critically damped (no overshoot); see the constants below.
 struct TabSwitcher: View {
     let store: BrowserStore
     /// 0 = the browser's bottom bar is showing, 1 = the switcher's. Owned by
@@ -34,16 +33,26 @@ struct TabSwitcher: View {
 
     // A critically damped spring with angular speed w settles in roughly
     // 2*pi/w seconds, which is what SwiftUI's `duration` means when bounce is 0.
-    /// The current page: w = 29 rad/s.
-    private static let pageDuration = 2 * Double.pi / 29
-    /// Older cards: w = 22 rad/s, a little slower than the page.
-    private static let cardDuration = 2 * Double.pi / 22
-    /// Leaving: w = 24 rad/s.
-    private static let exitDuration = 2 * Double.pi / 24
+    /// The current page.
+    private static let pageDuration = 0.23
+    /// Older cards, a little slower than the page.
+    private static let cardDuration = 0.27
+    /// Leaving.
+    private static let exitDuration = 0.2
     /// The first older card starts this long after the page does...
-    private static let firstCardDelay = 0.02
+    private static let firstCardDelay = 0.017
     /// ...and each one further back trails the one before by this much.
-    private static let cardStagger = 0.025
+    private static let cardStagger = 0.017
+
+    /// The status bar height. This view ignores the safe area, so it can't ask
+    /// its own geometry; the window knows.
+    private static var windowTopInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.top ?? 0
+    }
 
     // MARK: State
 
@@ -96,7 +105,7 @@ struct TabSwitcher: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let metrics = StackMetrics(screen: geometry.size)
+            let metrics = StackMetrics(screen: geometry.size, topInset: Self.windowTopInset)
 
             ZStack {
                 Color(.systemGroupedBackground)
@@ -142,6 +151,7 @@ struct TabSwitcher: View {
                     tab: tab,
                     size: metrics.cardSize,
                     faviconInset: metrics.faviconInset,
+                    contentTop: metrics.contentTop,
                     focus: max(0, 1 - abs(relative) * 1.5),
                     onSelect: { leave(to: tab) { onSelect(tab) } },
                     onClose: { closeCard(tab) }
@@ -231,10 +241,13 @@ struct TabSwitcher: View {
         // Hold the starting pose for a few frames. The first draw of the deck
         // (decoding pictures, drawing shadows) is slow; doing it here, while
         // nothing is moving, keeps that cost out of the animation itself.
-        try? await Task.sleep(for: .milliseconds(16))
+        try? await Task.sleep(for: .milliseconds(8))
+        // The current page's card starts exactly covering the live page, so
+        // the backdrop can be solid from the start. Fading it in instead
+        // lets the live page show through as a ghost behind the cards.
+        backdrop = 1
         withAnimation(.spring(duration: Self.pageDuration, bounce: 0)) {
             opened = true
-            backdrop = 1
             barMix = 1
         }
     }
@@ -283,27 +296,32 @@ struct TabSwitcher: View {
 /// "+" and a settings button on the right. Drawn by `BrowserView` (not by
 /// `TabSwitcher`) so it can sit above the cards and cross-fade with the
 /// browser's own bar.
+///
+/// It is laid out like `BottomBar`: same height, same side padding, and the
+/// button row at the same distance from the top, so the buttons stay put
+/// while the two bars cross-fade. `BrowserView` anchors it the same way too.
 struct SwitcherBar: View {
+    /// The browser bar's measured height.
+    let height: CGFloat
+    let plusButtonWidth: CGFloat
     let onDone: () -> Void
     let onNewTab: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
-        GeometryReader { geometry in
-            HStack {
-                BarButton(systemName: "display", label: "Back to page", action: onDone)
+        HStack {
+            BarButton(systemName: "display", label: "Back to page", action: onDone)
 
-                Spacer()
-                NewTabButton(width: geometry.size.width * 0.19, height: 44, action: onNewTab)
-                Spacer()
+            Spacer()
+            NewTabButton(width: plusButtonWidth, height: 44, action: onNewTab)
+            Spacer()
 
-                BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
-            }
-            .padding(.horizontal, 16)
-            .frame(width: geometry.size.width)
-            // The button row is centered 95% of the way down the screen.
-            .position(x: geometry.size.width / 2, y: geometry.size.height * 0.95)
+            BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
         }
-        .ignoresSafeArea()
+        .padding(.horizontal, 20)
+        // The browser bar has a 2pt progress line, then 2pt of padding, above
+        // its button row.
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: height, alignment: .top)
     }
 }

@@ -171,10 +171,15 @@ struct BrowserView: View {
 
                 if isSwitching {
                     SwitcherBar(
+                        height: barHeight,
+                        plusButtonWidth: geometry.size.width * 0.19,
                         onDone: { doneTrigger += 1 },
                         onNewTab: { openSearch() },
                         onSettings: { isShowingSettings = true }
                     )
+                    // `barHeight` was measured after the browser bar's negative
+                    // bottom padding, so this lands the button row exactly
+                    // where the browser bar's is. No padding of its own.
                     .opacity(barMix)
                     .allowsHitTesting(barMix > 0.5)
                 }
@@ -205,11 +210,15 @@ struct BrowserView: View {
         guard !isPreparingSwitcher, !isSwitching else { return }
         isPreparingSwitcher = true
         Task {
-            // Refresh the current page's picture first, so its card is current.
-            // (Skipped when the picture is already current, which is the
-            // usual case: it's refreshed shortly after every scroll or load.)
+            // Only wait for a picture when there is none at all. Otherwise the
+            // one we have (refreshed after every scroll or load) is shown now,
+            // and a newer one swaps in if it's still being taken.
             if let tab = store.selectedTab, tab.needsSnapshot {
-                await tab.captureSnapshot()
+                if tab.snapshot == nil {
+                    await tab.captureSnapshot()
+                } else {
+                    Task { await tab.captureSnapshot() }
+                }
             }
             switcherID = UUID()
             isSwitching = true

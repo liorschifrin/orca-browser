@@ -54,8 +54,11 @@ struct BottomBar: View {
         }
         // The blurred strip extends down under the home indicator.
         .background(.bar)
-        .contentShape(.rect)
+        // No `.contentShape(.rect)` here: it would limit touches to the bar's
+        // own rectangle, and the history list floats above it.
         .coordinateSpace(name: "browserToolbar")
+        // Off while the history list is open, so the swipe can't compete with
+        // (or cancel) the touches that pick an entry from it.
         .simultaneousGesture(
             DragGesture(minimumDistance: 20, coordinateSpace: .named("browserToolbar"))
                 .onEnded { value in
@@ -65,7 +68,8 @@ struct BottomBar: View {
                           value.translation.height < -30,
                           -value.translation.height > abs(value.translation.width) else { return }
                     onShowTabs()
-                }
+                },
+            including: showHistory ? .subviews : .all
         )
     }
 

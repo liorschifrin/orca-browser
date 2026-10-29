@@ -14,6 +14,8 @@ import SwiftUI
 ///    over the focused card from the edge.
 struct StackMetrics {
     let screen: CGSize
+    /// Height of the status bar / notch area. The live page starts below it.
+    var topInset: CGFloat = 0
 
     // How much of the screen a card takes up, as a fraction of its width.
     private let cardWidthFraction: CGFloat = 0.65
@@ -31,6 +33,10 @@ struct StackMetrics {
     /// Where the focused card's top-left corner sits.
     private var originX: CGFloat { (screen.width - cardWidth) / 2 }
     private var originY: CGFloat { screen.height / 2 - cardHeight / 2 - 10 }
+
+    /// Where the page picture starts inside a card, so a full-screen card puts
+    /// the page exactly where the live page is (below the status bar).
+    var contentTop: CGFloat { topInset * cardWidth / screen.width }
 
     /// How far a finger must travel to move the deck by one card.
     var pagePixels: CGFloat { screen.width * 0.5 }

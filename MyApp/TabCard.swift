@@ -12,6 +12,8 @@ struct TabCard: View {
     let size: CGSize
     /// How far the favicon's center sits in from the card's left edge.
     let faviconInset: CGFloat
+    /// How far down the card the page picture starts (the status bar's share).
+    let contentTop: CGFloat
     /// 1 when this card is the focused one, fading to 0 as it moves away.
     /// Controls the title and close button, which only the focused card shows.
     let focus: Double
@@ -60,23 +62,32 @@ struct TabCard: View {
     // MARK: - Pieces
 
     private var thumbnail: some View {
-        Color(.secondarySystemBackground)
+        // With a picture, the card is the screen in miniature: the picture is
+        // exactly as wide as the card and sits at its top, which is where the
+        // live page sits on screen (the area under the bar stays empty). So a
+        // card blown up to full screen lines up with the page behind it, and
+        // swapping one for the other is invisible.
+        Color(.systemBackground)
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .top) {
                 if let image = tab.snapshot {
-                    // Fill the card and crop from the bottom, so you see the
-                    // top of the page.
                     Image(uiImage: image)
                         .resizable()
-                        .scaledToFill()
+                        .scaledToFit()
+                        .frame(width: size.width)
+                        .padding(.top, contentTop)
                 } else {
                     placeholder
+                        .background(Color(.secondarySystemBackground))
                 }
             }
             .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
+                // Gone once the corners are square, so a full-screen card has
+                // no outline.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(.quaternary, lineWidth: 1)
+                    .opacity(min(1, cornerRadius / StackMetrics.cornerRadius))
             }
             .shadow(color: .black.opacity(0.3), radius: 16, y: 4)
     }
