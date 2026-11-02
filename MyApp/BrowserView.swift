@@ -33,6 +33,7 @@ struct BrowserView: View {
     @State private var switcherReloadTrigger = 0
     @State private var isShowingSettings = false
     @State private var isShowingHistory = false
+    @State private var isShowingArchive = false
     /// Tabs were added while History was open; the switcher catches up when it closes.
     @State private var switcherNeedsReload = false
     /// What's typed into a page's text prompt.
@@ -162,6 +163,18 @@ struct BrowserView: View {
         .onChange(of: settings.blockTrackers) { ContentBlocker.shared.settingsChanged() }
         .onChange(of: settings.autoArchiveTabs) { archiveInactiveTabs() }
         .onChange(of: settings.autoArchiveDays) { archiveInactiveTabs() }
+        .sheet(isPresented: $isShowingArchive, onDismiss: {
+            switcherReloadTrigger += 1
+        }) {
+            ArchiveView(
+                store: store,
+                onOpen: {
+                    isShowingArchive = false
+                    closeSwitcher()
+                },
+                onDone: { isShowingArchive = false }
+            )
+        }
         .sheet(item: $siteMenu) { target in
             SiteMenu(target: target)
         }
@@ -237,9 +250,9 @@ struct BrowserView: View {
     }
 
     private func archiveInactiveTabs() {
-        let previousCount = store.closedTabCount
+        let previousCount = store.archivedTabs.count
         store.archiveInactiveTabs()
-        if isSwitching, store.closedTabCount != previousCount {
+        if isSwitching, store.archivedTabs.count != previousCount {
             switcherReloadTrigger += 1
         }
     }
@@ -346,6 +359,7 @@ struct BrowserView: View {
                         plusButtonWidth: geometry.size.width * 0.19,
                         onDone: { doneTrigger += 1 },
                         onNewTab: { openSearch() },
+                        onArchive: { isShowingArchive = true },
                         onHistory: { isShowingHistory = true },
                         onSettings: { isShowingSettings = true }
                     )

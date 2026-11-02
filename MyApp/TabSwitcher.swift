@@ -379,12 +379,14 @@ struct SwitcherBar: View {
     let plusButtonWidth: CGFloat
     let onDone: () -> Void
     let onNewTab: () -> Void
+    let onArchive: () -> Void
     let onHistory: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             BarButton(systemName: "display", label: "Back to page", action: onDone)
+            BarButton(systemName: "archivebox", label: "Archive", action: onArchive)
 
             Spacer()
 

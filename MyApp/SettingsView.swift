@@ -20,7 +20,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Tabs")
                 } footer: {
-                    Text("Archives tabs you haven’t opened for the selected number of days. Your current tab stays open. Use Restore closed tabs in the tab switcher to bring archived tabs back.")
+                    Text("Archives tabs you haven’t opened for the selected number of days. Your current tab stays open. Find and reopen auto-archived tabs using the Archive button in the tab switcher.")
                 }
                 Section {
                     Toggle("Block ads", isOn: $settings.blockAds)

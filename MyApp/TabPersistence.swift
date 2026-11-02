@@ -262,8 +262,8 @@ enum TabPersistence {
 
     /// Moves `tabs` out to the closed folder, after any already there. Throws,
     /// before any file moves, if the list can't be written.
-    static func stashClosed(_ tabs: [Tab], selectedID: Tab.ID, archiving: [Tab]? = nil) throws {
-        let closing = (archiving ?? tabs).filter { !$0.isBlank }
+    static func stashClosed(_ tabs: [Tab], selectedID: Tab.ID) throws {
+        let closing = tabs.filter { !$0.isBlank }
         // Bring the live files up to date, then move them rather than
         // encoding every picture again.
         save(tabs: tabs, selectedID: selectedID)
@@ -299,6 +299,51 @@ enum TabPersistence {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: closedDirectory.path(percentEncoded: false))) ?? []
         for name in names {
             try? FileManager.default.removeItem(at: closedDirectory.appending(path: name))
+        }
+    }
+
+    static func archive(_ archiving: [Tab], among tabs: [Tab], selectedID: Tab.ID, now: Date) throws -> [ArchivedTab] {
+        let ids = Set(archiving.map(\.id))
+        let entries = try TabArchive.shared.load().filter { !ids.contains($0.id) }
+            + archiving.map { ArchivedTab(tab: savedTab($0), archivedAt: now) }
+        let (source, destination) = (directory, TabArchive.shared.directory)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        save(tabs: tabs, selectedID: selectedID)
+        try queue.sync { try copyFiles(of: ids, from: source, to: destination) }
+        try TabArchive.shared.save(entries)
+        return entries
+    }
+
+    static func restoreArchived(_ entry: ArchivedTab) throws -> Tab {
+        let (source, destination) = (TabArchive.shared.directory, directory)
+        try queue.sync { try copyFiles(of: [entry.id], from: source, to: destination) }
+        return restoredTab(entry.tab)
+    }
+
+    static func removeArchived(_ id: UUID) throws -> [ArchivedTab] {
+        let entries = try TabArchive.shared.load().filter { $0.id != id }
+        queue.sync {}
+        try TabArchive.shared.save(entries)
+        let directory = TabArchive.shared.directory
+        queue.async {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? []
+            for name in names where name.hasPrefix(id.uuidString + ".") {
+                try? FileManager.default.removeItem(at: directory.appending(path: name))
+            }
+        }
+        return entries
+    }
+
+    nonisolated private static func copyFiles(of ids: Set<UUID>, from source: URL, to destination: URL) throws {
+        let names = try FileManager.default.contentsOfDirectory(atPath: source.path(percentEncoded: false))
+        for name in names {
+            let stem = String(name.split(separator: ".", maxSplits: 1).first ?? "")
+            guard let id = UUID(uuidString: stem), ids.contains(id) else { continue }
+            let target = destination.appending(path: name)
+            if FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) {
+                try FileManager.default.removeItem(at: target)
+            }
+            try FileManager.default.copyItem(at: source.appending(path: name), to: target)
         }
     }
 

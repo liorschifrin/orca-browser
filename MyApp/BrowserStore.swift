@@ -7,6 +7,7 @@ final class BrowserStore {
     var selectedTabID: Tab.ID
     /// How many tabs "Close All" has put away. They live on disk only.
     private(set) var closedTabCount = 0
+    private(set) var archivedTabs: [ArchivedTab] = []
 
     /// Counts up every time a tab becomes the current one. Each tab remembers
     /// the value it got, which gives us "most recently used" ordering.
@@ -36,6 +37,7 @@ final class BrowserStore {
 
     init() {
         closedTabCount = TabPersistence.closedTabCount()
+        archivedTabs = (try? TabArchive.shared.load()) ?? []
         if let saved = TabPersistence.load() {
             tabs = saved.tabs
             recencyClock = saved.tabs.map(\.recency).max() ?? 0
@@ -128,14 +130,37 @@ final class BrowserStore {
             Self.shouldAutoArchive($0, selectedID: selectedTabID, days: settings.autoArchiveDays, now: now)
         }
         guard !closing.isEmpty,
-              (try? TabPersistence.stashClosed(tabs, selectedID: selectedTabID, archiving: closing)) != nil
+              let entries = try? TabPersistence.archive(closing, among: tabs, selectedID: selectedTabID, now: now)
         else { return }
 
         let ids = Set(closing.map(\.id))
         tabs.removeAll { ids.contains($0.id) }
         for tab in closing { tab.teardown() }
-        closedTabCount += closing.count
+        archivedTabs = entries
         save()
+    }
+
+    func restoreArchived(_ entry: ArchivedTab, inBackground: Bool) throws {
+        if let existing = tabs.first(where: { $0.id == entry.id }) {
+            if !inBackground { select(existing) }
+        } else {
+            let tab = try TabPersistence.restoreArchived(entry)
+            tab.lastOpenedAt = .now
+            watch([tab])
+            tabs.append(tab)
+            markUsed(tab)
+            if inBackground {
+                if let current = selectedTab { markUsed(current) }
+            } else {
+                select(tab)
+            }
+        }
+        save()
+        archivedTabs = try TabPersistence.removeArchived(entry.id)
+    }
+
+    func deleteArchived(_ entry: ArchivedTab) throws {
+        archivedTabs = try TabPersistence.removeArchived(entry.id)
     }
 
     static func shouldAutoArchive(_ tab: Tab, selectedID: Tab.ID, days: Int, now: Date) -> Bool {
