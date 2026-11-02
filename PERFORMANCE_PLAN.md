@@ -1,5 +1,9 @@
 # Performance and cleanup plan
 
+**Status (2026-11-02): all items below are done**, one commit each on the
+`t3/34c27860` branch. Measured with 142 tabs in the simulator: switcher open
+went from 1,615 MB to 116 MB; launch from 153 MB to 73 MB.
+
 Follow-up work from the codebase review. The first round of fixes (saving off
 the main thread, progress line, switcher card redraws/shadows/culling,
 target=_blank links, script-handler crash guard, language detection off main)
