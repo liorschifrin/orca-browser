@@ -7,7 +7,8 @@ struct SavedTab: Codable {
     var url: URL?
     var title: String?
     var recency: Int
-    var peek: SavedPeek?
+    var searchText: String? = nil
+    var peek: SavedPeek? = nil
 }
 
 struct SavedPeek: Codable {
@@ -58,6 +59,7 @@ enum TabPersistence {
             tabs: saved.map { tab in
                 SavedTab(
                     id: tab.id, url: tab.url, title: tab.title, recency: tab.recency,
+                    searchText: tab.searchText,
                     peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) }
                 )
             },

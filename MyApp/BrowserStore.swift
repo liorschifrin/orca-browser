@@ -108,11 +108,11 @@ final class BrowserStore {
         guard let url = Destination.url(for: input) else { return }
 
         if let current = selectedTab, current.isBlank {
-            current.load(url)
+            current.load(url, input: input)
         } else {
             // Photograph the page we're leaving, for its card in the switcher.
             await selectedTab?.captureSnapshot()
-            let tab = Tab(url: url)
+            let tab = Tab(url: url, input: input)
             watch([tab])
             selectedTab?.lastViewed = .now
             tabs.append(tab)
