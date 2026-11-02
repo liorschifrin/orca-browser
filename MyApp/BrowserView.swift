@@ -331,18 +331,8 @@ struct BrowserView: View {
                     SwitcherBar(
                         height: barHeight,
                         plusButtonWidth: geometry.size.width * 0.19,
-                        canCloseAll: store.tabs.contains { !$0.isBlank },
-                        closedCount: store.closedTabCount,
                         onDone: { doneTrigger += 1 },
                         onNewTab: { openSearch() },
-                        onCloseAll: {
-                            store.closeAll()
-                            switcherReloadTrigger += 1
-                        },
-                        onRestore: {
-                            store.restoreClosed()
-                            switcherReloadTrigger += 1
-                        },
                         onHistory: { isShowingHistory = true },
                         onSettings: { isShowingSettings = true }
                     )
