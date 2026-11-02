@@ -126,6 +126,17 @@ final class BrowserStore {
         scheduleSave()
     }
 
+    /// Opens `url` in a new tab behind the current one, which stays showing.
+    func openInBackground(_ url: URL) {
+        let tab = Tab(url: url)
+        watch([tab])
+        tabs.append(tab)
+        markUsed(tab)
+        if let current = selectedTab { markUsed(current) }
+        enforceMemoryPolicy()
+        scheduleSave()
+    }
+
     /// Adopt the preview's actual tab and web view, preserving page state.
     func adoptPreview(_ tab: Tab, inBackground: Bool) {
         guard !tabs.contains(where: { $0.id == tab.id }) else { return }
@@ -148,6 +159,13 @@ final class BrowserStore {
     func applyShortsSetting(_ enabled: Bool) {
         for tab in tabs where tab.isLoaded {
             tab.setHidesShorts(enabled)
+        }
+    }
+
+    /// Applies the Reddit pop-up setting to every tab that has a live web view.
+    func applyRedditPromptSetting(_ enabled: Bool) {
+        for tab in tabs where tab.isLoaded {
+            tab.setBlocksRedditPrompt(enabled)
         }
     }
 

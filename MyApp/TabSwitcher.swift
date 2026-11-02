@@ -345,6 +345,7 @@ struct SwitcherBar: View {
     let onNewTab: () -> Void
     let onCloseAll: () -> Void
     let onRestore: () -> Void
+    let onHistory: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
@@ -372,6 +373,7 @@ struct SwitcherBar: View {
                             .allowsHitTesting(false)
                     }
                 }
+            BarButton(systemName: "clock", label: "History", action: onHistory)
             BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
         }
         // Centered on the bar, whatever sits on either side of it.

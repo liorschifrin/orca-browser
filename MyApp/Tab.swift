@@ -32,6 +32,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     private(set) var canGoBack = false
     private(set) var canGoForward = false
 
+    @ObservationIgnored private var lastRecordedURL: URL?
+
     /// True until something has been loaded: a brand-new, empty tab.
     private(set) var isBlank = true
 
@@ -145,6 +147,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
         )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
+        configuration.userContentController.addUserScript(
+            RedditPrompt.userScript(enabled: AppSettings.shared.blockRedditPrompt)
+        )
 
         let view = WKWebView(frame: .zero, configuration: configuration)
         #if DEBUG
@@ -279,19 +284,36 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     private func sync(from view: WKWebView) {
         // A re-created web view has no address until its page starts arriving.
+        var urlChanged = false
         if let current = view.url, current != url {
             url = current
+            urlChanged = true
             if let query = Destination.searchQuery(from: current) {
                 searchText = query
             }
             onChange?()
         }
+        let previousTitle = title
         if view.title != nil || !isRestoring { title = view.title }
+        recordHistory(urlChanged: urlChanged, titleChanged: title != previousTitle)
         progress = view.estimatedProgress
         if view.isLoading && !isLoading { snapshotIsStale = true }
         isLoading = view.isLoading
         canGoBack = view.canGoBack
         canGoForward = view.canGoForward
+    }
+
+    /// Tells the history about a new address or a new title for this one.
+    /// A new address arrives with the *previous* page's title still showing,
+    /// so it's recorded without one; the real title follows.
+    private func recordHistory(urlChanged: Bool, titleChanged: Bool) {
+        guard !isRestoring, loadError == nil, let url else { return }
+        if urlChanged || lastRecordedURL != url {
+            lastRecordedURL = url
+            HistoryStore.shared.recordVisit(url, title: nil)
+        } else if titleChanged, let title {
+            HistoryStore.shared.updateTitle(title, for: url)
+        }
     }
 
     private func pageScrolled() {
@@ -395,6 +417,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
               let image = UIImage(data: data) else { return }
         faviconURL = iconURL
         favicon = image
+        HistoryStore.shared.saveIcon(image, for: pageURL)
     }
 
     /// Decides whether the page is in a language the user doesn't read.
@@ -490,6 +513,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     }
 
     /// Applies the Shorts setting to a page that is already open.
+    func setBlocksRedditPrompt(_ enabled: Bool) {
+        webView?.evaluateJavaScript(RedditPrompt.setScript(enabled: enabled))
+    }
+
     func setHidesShorts(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
     }

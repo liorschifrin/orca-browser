@@ -7,6 +7,7 @@ struct SettingsView: View {
     @State private var apiKey = ""
     @State private var hasAPIKey = VoiceSearchCredentials.apiKey != nil
     @State private var credentialError: String?
+    @State private var isConfirmingClearHistory = false
 
     var body: some View {
         NavigationStack {
@@ -20,9 +21,19 @@ struct SettingsView: View {
                     Text("Uses AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Changes apply to pages you open next.")
                 }
                 Section {
+                    Toggle("Block Reddit app pop-up", isOn: $settings.blockRedditPrompt)
+                } footer: {
+                    Text("Removes the \"Get the best of Reddit in the app\" pop-up that blocks the page on reddit.com.")
+                }
+                Section {
                     Toggle("Hide YouTube Shorts", isOn: $settings.hideShorts)
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
+                }
+                Section {
+                    Button("Clear History…", role: .destructive) { isConfirmingClearHistory = true }
+                } header: {
+                    Text("History")
                 }
                 Section {
                     Picker("Speech recognition", selection: $settings.voiceSearchProvider) {
@@ -57,6 +68,9 @@ struct SettingsView: View {
                          ? "Hold the microphone in the search bar, then release to search Google. Speech is processed on device in your preferred iPhone language. A speech model may download on first use."
                          : "Recordings are sent to OpenAI only when you release the microphone. Uses gpt-transcribe and your own API billing. Your key stays in this device's Keychain. Local recordings are deleted after transcription or cancellation.")
                 }
+            }
+            .confirmationDialog("Clear history", isPresented: $isConfirmingClearHistory, titleVisibility: .visible) {
+                ClearHistoryButtons()
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
