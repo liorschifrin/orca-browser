@@ -5,6 +5,8 @@ import SwiftUI
 final class BrowserStore {
     var tabs: [Tab]
     var selectedTabID: Tab.ID
+    /// How many tabs "Close All" has put away. They live on disk only.
+    private(set) var closedTabCount = 0
 
     /// Counts up every time a tab becomes the current one. Each tab remembers
     /// the value it got, which gives us "most recently used" ordering.
@@ -30,6 +32,7 @@ final class BrowserStore {
     @ObservationIgnored private var saveTask: Task<Void, Never>?
 
     init() {
+        closedTabCount = TabPersistence.closedTabCount()
         if let saved = TabPersistence.load() {
             tabs = saved.tabs
             recencyClock = saved.tabs.map(\.recency).max() ?? 0
@@ -170,11 +173,7 @@ final class BrowserStore {
         tab.teardown()
 
         if tabs.isEmpty {
-            let blank = Tab()
-            watch([blank])
-            tabs = [blank]
-            selectedTabID = blank.id
-            markUsed(blank)
+            replaceWithBlankTab()
             scheduleSave()
             return true
         }
@@ -186,5 +185,61 @@ final class BrowserStore {
         }
         scheduleSave()
         return false
+    }
+
+    private func replaceWithBlankTab() {
+        let blank = Tab()
+        watch([blank])
+        tabs = [blank]
+        selectedTabID = blank.id
+        markUsed(blank)
+    }
+
+    // MARK: - Closing and restoring everything
+
+    /// Puts every open tab away on disk and leaves a single blank tab. Once
+    /// the tabs are closed nothing of them stays in memory: their web views
+    /// are torn down and the tabs themselves released.
+    func closeAll() {
+        let closing = tabs.filter { !$0.isBlank }
+        guard !closing.isEmpty else { return }
+        // If they can't be written, they stay open rather than get lost.
+        guard (try? TabPersistence.stashClosed(tabs, selectedID: selectedTabID)) != nil else { return }
+
+        for tab in tabs { tab.teardown() }
+        replaceWithBlankTab()
+        closedTabCount += closing.count
+        save()
+    }
+
+    /// Brings back the tabs put away by `closeAll`, none of them loaded except
+    /// the current one. If only a blank tab is open they replace it and the
+    /// most recently used becomes current; otherwise they join the open tabs,
+    /// older than all of them, and the current tab stays put.
+    func restoreClosed() {
+        let restored = TabPersistence.unstashClosed()
+        guard !restored.isEmpty else { return }
+
+        let replacing = tabs.allSatisfy(\.isBlank)
+        if replacing {
+            for tab in tabs { tab.teardown() }
+        }
+        let kept = replacing ? [] : tabs
+
+        watch(restored)
+        for tab in restored + kept.sorted(by: { $0.recency < $1.recency }) {
+            markUsed(tab)
+        }
+        tabs = restored + kept
+        if replacing, let latest = restored.last {
+            latest.activate()
+            latest.peek?.tab.activate()
+            selectedTabID = latest.id
+        }
+        closedTabCount = 0
+        enforceMemoryPolicy()
+        // Only once they're saved again is it safe to forget the closed list.
+        save()
+        TabPersistence.clearClosed()
     }
 }

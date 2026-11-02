@@ -35,6 +35,7 @@ private struct SavedSession: Codable {
 ///     Tabs/<id>.png         the site's icon
 ///
 /// Blank tabs aren't saved; there's nothing in them to keep.
+/// Closed-all tabs go to a second folder, ClosedTabs, laid out the same way.
 @MainActor
 enum TabPersistence {
     private static var directory: URL = {
@@ -52,19 +53,29 @@ enum TabPersistence {
         directory.appending(path: "\(id.uuidString).\(ext)")
     }
 
+    private static func savedTab(_ tab: Tab) -> SavedTab {
+        SavedTab(
+            id: tab.id, url: tab.url, title: tab.title, recency: tab.recency,
+            searchText: tab.searchText,
+            peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) }
+        )
+    }
+
+    private static func restoredTab(_ saved: SavedTab) -> Tab {
+        Tab(
+            restoring: saved,
+            snapshot: image(file(saved.id, "jpg")),
+            favicon: image(file(saved.id, "png")),
+            interactionState: try? Data(contentsOf: file(saved.id, "state")),
+            peekInteractionState: try? Data(contentsOf: file(saved.id, "peek.state")),
+            peekSnapshot: image(file(saved.id, "peek.jpg"))
+        )
+    }
+
     static func save(tabs: [Tab], selectedID: Tab.ID) {
         let saved = tabs.filter { !$0.isBlank }
 
-        let session = SavedSession(
-            tabs: saved.map { tab in
-                SavedTab(
-                    id: tab.id, url: tab.url, title: tab.title, recency: tab.recency,
-                    searchText: tab.searchText,
-                    peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) }
-                )
-            },
-            selectedID: selectedID
-        )
+        let session = SavedSession(tabs: saved.map(savedTab), selectedID: selectedID)
         if let data = try? JSONEncoder().encode(session) {
             try? data.write(to: directory.appending(path: "session.json"), options: .atomic)
         }
@@ -110,17 +121,89 @@ enum TabPersistence {
               !session.tabs.isEmpty
         else { return nil }
 
-        let tabs = session.tabs.map { saved in
-            Tab(
-                restoring: saved,
-                snapshot: image(file(saved.id, "jpg")),
-                favicon: image(file(saved.id, "png")),
-                interactionState: try? Data(contentsOf: file(saved.id, "state")),
-                peekInteractionState: try? Data(contentsOf: file(saved.id, "peek.state")),
-                peekSnapshot: image(file(saved.id, "peek.jpg"))
-            )
+        return (session.tabs.map(restoredTab), session.selectedID)
+    }
+
+    // MARK: - Closed tabs
+
+    // "Close All" puts tabs here. It's the same set of files, in a folder of
+    // its own, with `session.json` holding just the list of tabs. Nothing about
+    // them stays in memory; the next launch finds them too.
+    private static var closedDirectory: URL = {
+        let base = URL.applicationSupportDirectory.appending(path: "ClosedTabs", directoryHint: .isDirectory)
+        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+    }()
+
+    private static var closedListFile: URL {
+        closedDirectory.appending(path: "session.json")
+    }
+
+    private static func closedTabs() -> [SavedTab] {
+        guard let data = try? Data(contentsOf: closedListFile) else { return [] }
+        return (try? JSONDecoder().decode([SavedTab].self, from: data)) ?? []
+    }
+
+    static func closedTabCount() -> Int {
+        closedTabs().count
+    }
+
+    /// Moves `tabs` out to the closed folder, after any already there. Throws,
+    /// before any file moves, if the list can't be written.
+    static func stashClosed(_ tabs: [Tab], selectedID: Tab.ID) throws {
+        let closing = tabs.filter { !$0.isBlank }
+        // Bring the live files up to date, then move them rather than
+        // encoding every picture again.
+        save(tabs: tabs, selectedID: selectedID)
+
+        let list = closedTabs() + closing.map(savedTab)
+        try JSONEncoder().encode(list).write(to: closedListFile, options: .atomic)
+
+        let ids = Set(closing.map(\.id))
+        moveFiles(of: ids, from: directory, to: closedDirectory)
+        for id in ids {
+            writtenSnapshots[id] = nil
+            writtenPeekSnapshots[id] = nil
+            writtenFavicons[id] = nil
         }
-        return (tabs, session.selectedID)
+    }
+
+    /// Brings the closed tabs back, oldest-used first (none loaded yet). Their
+    /// files move back to the live folder, but the closed list stays until the
+    /// caller has saved them there; then call `clearClosed()`.
+    static func unstashClosed() -> [Tab] {
+        let list = closedTabs()
+        moveFiles(of: Set(list.map(\.id)), from: closedDirectory, to: directory)
+
+        return list.sorted { $0.recency < $1.recency }.map { saved in
+            let tab = restoredTab(saved)
+            // The pictures were just read from the files that are now in place,
+            // so the next save needn't encode them again.
+            if tab.snapshot != nil { writtenSnapshots[tab.id] = tab.snapshotRevision }
+            if let peekTab = tab.peek?.tab, peekTab.snapshot != nil {
+                writtenPeekSnapshots[tab.id] = peekTab.snapshotRevision
+            }
+            if tab.favicon != nil { writtenFavicons[tab.id] = tab.faviconRevision }
+            return tab
+        }
+    }
+
+    static func clearClosed() {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: closedDirectory.path(percentEncoded: false))) ?? []
+        for name in names {
+            try? FileManager.default.removeItem(at: closedDirectory.appending(path: name))
+        }
+    }
+
+    private static func moveFiles(of ids: Set<UUID>, from source: URL, to destination: URL) {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: source.path(percentEncoded: false))) ?? []
+        for name in names {
+            let stem = String(name.split(separator: ".", maxSplits: 1).first ?? "")
+            guard let id = UUID(uuidString: stem), ids.contains(id) else { continue }
+            let target = destination.appending(path: name)
+            try? FileManager.default.removeItem(at: target)
+            try? FileManager.default.moveItem(at: source.appending(path: name), to: target)
+        }
     }
 
     /// Reads the whole file up front. `UIImage(contentsOfFile:)` memory-maps it

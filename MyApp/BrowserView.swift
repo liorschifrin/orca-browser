@@ -27,6 +27,7 @@ struct BrowserView: View {
     /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
     @State private var barMix: Double = 0
     @State private var doneTrigger = 0
+    @State private var switcherReloadTrigger = 0
     @State private var isShowingSettings = false
     @State private var siteMenu: SiteMenuTarget?
     private let settings = AppSettings.shared
@@ -50,6 +51,7 @@ struct BrowserView: View {
                     barHeight: barHeight,
                     barMix: $barMix,
                     doneTrigger: doneTrigger,
+                    reloadTrigger: switcherReloadTrigger,
                     onSelect: { tab in
                         store.select(tab)
                         closeSwitcher()
@@ -256,8 +258,18 @@ struct BrowserView: View {
                     SwitcherBar(
                         height: barHeight,
                         plusButtonWidth: geometry.size.width * 0.19,
+                        canCloseAll: store.tabs.contains { !$0.isBlank },
+                        closedCount: store.closedTabCount,
                         onDone: { doneTrigger += 1 },
                         onNewTab: { openSearch() },
+                        onCloseAll: {
+                            store.closeAll()
+                            switcherReloadTrigger += 1
+                        },
+                        onRestore: {
+                            store.restoreClosed()
+                            switcherReloadTrigger += 1
+                        },
                         onSettings: { isShowingSettings = true }
                     )
                     // `barHeight` was measured after the browser bar's negative
