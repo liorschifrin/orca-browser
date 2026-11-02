@@ -4,7 +4,7 @@ import WebKit
 /// The floating bar at the bottom of the screen.
 ///
 ///     [ tabs ]  [      +      ]  [ mic ][ back ]
-///     [ site name ................ reload ]
+///     [ site name .......... settings reload ]
 ///
 /// Everything is within thumb reach on purpose.
 struct BottomBar: View {
@@ -13,6 +13,8 @@ struct BottomBar: View {
     let plusButtonWidth: CGFloat
     let onNewTab: () -> Void
     let onEditAddress: () -> Void
+    /// Called when the site settings caret in the address bar is tapped.
+    let onSiteMenu: () -> Void
     let onShowTabs: () -> Void
     /// Called with the Google search address for a finished voice search.
     let onVoiceSearch: (URL) -> Void
@@ -42,6 +44,10 @@ struct BottomBar: View {
             VStack(spacing: 2) {
                 HStack(spacing: 12) {
                     TabSwitcherButton(count: tabCount, action: onShowTabs)
+
+                    #if DEBUG
+                    DebugStats()
+                    #endif
 
                     Spacer()
 
@@ -421,12 +427,26 @@ struct BottomBar: View {
                     }
                 }
                 Spacer()
+                // Only web pages have a site to configure.
+                if ContentBlocker.site(for: tab.url) != nil {
+                    siteSettingsButton
+                }
                 reloadButton
             }
         }
         .padding(.horizontal, 6)
         .frame(height: 24)
         .background(.thinMaterial, in: .capsule)
+    }
+
+    private var siteSettingsButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+            onSiteMenu()
+        } label: {
+            CapsuleIcon(systemName: "chevron.up")
+        }
+        .accessibilityLabel("Site Settings")
     }
 
     private var reloadButton: some View {
@@ -464,34 +484,41 @@ private struct CopyURLButton: View {
 /// Copies the address, then runs the "Add Video to Play" shortcut with it.
 /// Only shown on YouTube. iOS briefly switches to the Shortcuts app to run it,
 /// then Shortcuts hands control back through the app's arcbrowser:// address.
-private struct AddToPlayButton: View {
+enum AddToPlay {
     /// Must match the shortcut's name in the Shortcuts app exactly.
     static let shortcutName = "Add Video to Play"
 
+    @MainActor
+    static func run(with url: URL) {
+        UIPasteboard.general.url = url
+
+        var components = URLComponents()
+        components.scheme = "shortcuts"
+        components.host = "x-callback-url"
+        components.path = "/run-shortcut"
+        components.queryItems = [
+            URLQueryItem(name: "name", value: shortcutName),
+            URLQueryItem(name: "input", value: "text"),
+            URLQueryItem(name: "text", value: url.absoluteString),
+            // Shortcuts returns here when done (or cancelled).
+            URLQueryItem(name: "x-success", value: "arcbrowser://"),
+            URLQueryItem(name: "x-cancel", value: "arcbrowser://"),
+            URLQueryItem(name: "x-error", value: "arcbrowser://"),
+        ]
+        if let shortcutURL = components.url {
+            UIApplication.shared.open(shortcutURL)
+        }
+    }
+}
+
+private struct AddToPlayButton: View {
     let url: URL
     @State private var didRun = false
 
     var body: some View {
         Button {
-            UIPasteboard.general.url = url
             flash($didRun)
-
-            var components = URLComponents()
-            components.scheme = "shortcuts"
-            components.host = "x-callback-url"
-            components.path = "/run-shortcut"
-            components.queryItems = [
-                URLQueryItem(name: "name", value: Self.shortcutName),
-                URLQueryItem(name: "input", value: "text"),
-                URLQueryItem(name: "text", value: url.absoluteString),
-                // Shortcuts returns here when done (or cancelled).
-                URLQueryItem(name: "x-success", value: "arcbrowser://"),
-                URLQueryItem(name: "x-cancel", value: "arcbrowser://"),
-                URLQueryItem(name: "x-error", value: "arcbrowser://"),
-            ]
-            if let shortcutURL = components.url {
-                UIApplication.shared.open(shortcutURL)
-            }
+            AddToPlay.run(with: url)
         } label: {
             CapsuleIcon(systemName: didRun ? "checkmark" : "text.badge.plus")
         }

@@ -24,6 +24,9 @@ struct TabSwitcher: View {
     @Binding var barMix: Double
     /// Incremented by the bar's left button; means "go back to the current tab".
     let doneTrigger: Int
+    /// Incremented when the store's tabs were replaced wholesale (Close All,
+    /// Restore); means "show the tabs as they are now".
+    let reloadTrigger: Int
     let onSelect: (Tab) -> Void
     let onClose: (Tab) -> Void
     let onDone: () -> Void
@@ -77,7 +80,7 @@ struct TabSwitcher: View {
     @State private var isHorizontalDrag: Bool?
 
     /// The tab that was current when we opened.
-    private let currentID: Tab.ID
+    @State private var currentID: Tab.ID
     /// False for the first instant (everything in its starting pose), then
     /// true; flipping it is what sets the opening animation going.
     @State private var opened = false
@@ -92,6 +95,7 @@ struct TabSwitcher: View {
         barHeight: CGFloat,
         barMix: Binding<Double>,
         doneTrigger: Int,
+        reloadTrigger: Int,
         onSelect: @escaping (Tab) -> Void,
         onClose: @escaping (Tab) -> Void,
         onDone: @escaping () -> Void,
@@ -101,6 +105,7 @@ struct TabSwitcher: View {
         self.barHeight = barHeight
         _barMix = barMix
         self.doneTrigger = doneTrigger
+        self.reloadTrigger = reloadTrigger
         self.onSelect = onSelect
         self.onClose = onClose
         self.onDone = onDone
@@ -108,7 +113,7 @@ struct TabSwitcher: View {
 
         let ordered = store.tabsByRecency
         _tabs = State(initialValue: ordered)
-        currentID = store.selectedTabID
+        _currentID = State(initialValue: store.selectedTabID)
         // Focus the previous tab; the current one (last) then sits at +1.
         _position = State(initialValue: CGFloat(max(0, ordered.count - 2)))
     }
@@ -127,6 +132,7 @@ struct TabSwitcher: View {
         }
         .ignoresSafeArea()
         .task { await open() }
+        .onChange(of: reloadTrigger) { reload() }
         .onChange(of: doneTrigger) {
             if let current = store.selectedTab {
                 leave(to: current) { onDone() }
@@ -296,6 +302,16 @@ struct TabSwitcher: View {
 
     // MARK: - Closing a card
 
+    /// The store's tabs changed under us: show what it has now.
+    private func reload() {
+        guard leavingID == nil else { return }
+        withAnimation(.spring(duration: 0.4, bounce: 0)) {
+            tabs = store.tabsByRecency
+            currentID = store.selectedTabID
+            position = CGFloat(max(0, tabs.count - 2))
+        }
+    }
+
     private func closeCard(_ tab: Tab) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         let focused = Int(position.rounded())
@@ -313,8 +329,8 @@ struct TabSwitcher: View {
     }
 }
 
-/// The switcher's bottom bar: a "done" button on the left, a centered capsule
-/// "+" and a settings button on the right. Drawn by `BrowserView` (not by
+/// The switcher's bottom bar: a "done" button and "close all" on the left, a
+/// centered capsule "+", and "restore" and settings buttons on the right. Drawn by `BrowserView` (not by
 /// `TabSwitcher`) so it can sit above the cards and cross-fade with the
 /// browser's own bar.
 ///
@@ -325,20 +341,49 @@ struct SwitcherBar: View {
     /// The browser bar's measured height.
     let height: CGFloat
     let plusButtonWidth: CGFloat
+    /// False when there is nothing to close (only a blank tab is open).
+    let canCloseAll: Bool
+    /// How many tabs Close All has put away, waiting to be restored.
+    let closedCount: Int
     let onDone: () -> Void
     let onNewTab: () -> Void
+    let onCloseAll: () -> Void
+    let onRestore: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             BarButton(systemName: "display", label: "Back to page", action: onDone)
+            BarButton(systemName: "trash", label: "Close all tabs", action: onCloseAll)
+                .disabled(!canCloseAll)
+                .opacity(canCloseAll ? 1 : 0.3)
 
             Spacer()
-            NewTabButton(width: plusButtonWidth, height: 44, action: onNewTab)
-            Spacer()
 
+            BarButton(systemName: "arrow.uturn.backward", label: "Restore closed tabs", action: onRestore)
+                .disabled(closedCount == 0)
+                .opacity(closedCount == 0 ? 0.3 : 1)
+                .overlay(alignment: .topTrailing) {
+                    if closedCount > 0 {
+                        Text("\(closedCount)")
+                            .font(.caption2.weight(.bold))
+                            .monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor, in: .capsule)
+                            .offset(x: 6, y: -6)
+                            .allowsHitTesting(false)
+                    }
+                }
             BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
         }
+        // Centered on the bar, whatever sits on either side of it.
+        .overlay {
+            NewTabButton(width: plusButtonWidth, height: 44, action: onNewTab)
+        }
+        .animation(.easeOut(duration: 0.2), value: canCloseAll)
+        .animation(.easeOut(duration: 0.2), value: closedCount == 0)
         .padding(.horizontal, 20)
         // The browser bar has a 2pt progress line, then 2pt of padding, above
         // its button row.

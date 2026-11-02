@@ -50,6 +50,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     }
     @ObservationIgnored private var faviconURL: URL?
 
+    /// Requests blocked on the current page, by kind. Start again at each page.
+    private(set) var adsBlocked = 0
+    private(set) var trackersBlocked = 0
+
     /// True when the loaded page appears to be in a language the user doesn't
     /// read (see `Translation`). Cleared when the next page starts arriving.
     private(set) var isForeignLanguage = false
@@ -135,12 +139,18 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         let configuration = WKWebViewConfiguration()
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
+        ContentBlocker.shared.install(on: configuration.userContentController)
         configuration.userContentController.addUserScript(LinkPress.userScript)
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
         )
+        configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
 
         let view = WKWebView(frame: .zero, configuration: configuration)
+        #if DEBUG
+        // Lets Safari's Web Inspector on a Mac attach to pages in debug builds.
+        view.isInspectable = true
+        #endif
         // Swiping from the left edge goes back, like Safari.
         view.allowsBackForwardNavigationGestures = true
         view.navigationDelegate = self
@@ -172,6 +182,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         guard webView == nil else { return }
         let view = makeWebView()
         isRestoring = true
+        // Restoring a page may not report its address before its requests start.
+        if let url { ContentBlocker.shared.willNavigate(view.configuration.userContentController, to: url) }
         restoreNavigationFinished = false
         restoreFinishTask?.cancel()
         restoreFinishTask = nil
@@ -259,8 +271,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     }
 
     /// True while the tab is showing a YouTube page.
-    var isYouTube: Bool {
-        guard let host = url?.host()?.lowercased() else { return false }
+    var isYouTube: Bool { url.map(Self.isYouTube) ?? false }
+
+    static func isYouTube(_ url: URL) -> Bool {
+        guard let host = url.host()?.lowercased() else { return false }
         return host == "youtube.com" || host.hasSuffix(".youtube.com") || host == "youtu.be"
     }
 
@@ -450,15 +464,35 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     /// Turns youtube.com/shorts/ID addresses into the normal watch page while
     /// Shorts are hidden.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        let isMainFrame = action.targetFrame?.isMainFrame ?? true
         if AppSettings.shared.hideShorts,
-           action.targetFrame?.isMainFrame ?? true,
+           isMainFrame,
            let url = action.request.url,
            let watchURL = ShortsFilter.watchURL(forShorts: url) {
             decisionHandler(.cancel)
             load(watchURL)
             return
         }
+        // Before the page's requests go out, give it the right blocking lists:
+        // a site can have ad or tracker blocking switched off.
+        if isMainFrame, let url = action.request.url {
+            ContentBlocker.shared.willNavigate(webView.configuration.userContentController, to: url)
+        }
         decisionHandler(.allow)
+    }
+
+    /// WebKit tells its delegate whenever a blocking list acts on a request.
+    /// This callback isn't part of the public API, which has no way to count
+    /// what was blocked, so this is the only place that depends on it. If WebKit
+    /// ever drops it, blocking keeps working and the counts stay at zero.
+    @objc(_webView:contentRuleListWithIdentifier:performedAction:forURL:)
+    func webView(_ webView: WKWebView, contentRuleListWithIdentifier identifier: String, performedAction action: NSObject, forURL url: URL) {
+        guard (action.value(forKey: "blockedLoad") as? Bool) == true else { return }
+        switch ContentBlocker.shared.category(ofList: identifier) {
+        case .ads: adsBlocked += 1
+        case .trackers: trackersBlocked += 1
+        case nil: break
+        }
     }
 
     // MARK: - WKUIDelegate
@@ -482,6 +516,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         loadError = nil
         snapshotIsStale = true
+        adsBlocked = 0
+        trackersBlocked = 0
         isForeignLanguage = false
     }
 

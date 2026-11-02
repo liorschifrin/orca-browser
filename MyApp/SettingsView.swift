@@ -12,6 +12,14 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
+                    Toggle("Block ads", isOn: $settings.blockAds)
+                    Toggle("Block trackers", isOn: $settings.blockTrackers)
+                } header: {
+                    Text("Blocking")
+                } footer: {
+                    Text("Uses AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Changes apply to pages you open next.")
+                }
+                Section {
                     Toggle("Hide YouTube Shorts", isOn: $settings.hideShorts)
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
