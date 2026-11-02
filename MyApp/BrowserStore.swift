@@ -97,6 +97,9 @@ final class BrowserStore {
         for tab in tabs where tab.id != selectedTabID {
             tab.unload()
         }
+        CardThumbnails.shared.removeAll()
+        // Saving also lets go of the unloaded tabs' pictures.
+        save()
     }
 
     private func markUsed(_ tab: Tab) {

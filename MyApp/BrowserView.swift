@@ -317,19 +317,23 @@ struct BrowserView: View {
             // one we have (refreshed after every scroll or load) is shown now,
             // and a newer one swaps in if it's still being taken.
             if let tab = store.selectedTab, tab.needsSnapshot {
-                if tab.snapshot == nil {
+                if !tab.hasSnapshot {
                     await tab.captureSnapshot()
                 } else {
                     Task { await tab.captureSnapshot() }
                 }
             }
             if let peekTab = store.selectedTab?.peek?.tab, peekTab.needsSnapshot {
-                if peekTab.snapshot == nil {
+                if !peekTab.hasSnapshot {
                     await peekTab.captureSnapshot()
                 } else {
                     Task { await peekTab.captureSnapshot() }
                 }
             }
+            // The deck opens on the most recent tabs; have their thumbnails
+            // ready so their cards don't arrive empty.
+            let opening = store.tabsByRecency.suffix(TabSwitcher.cardsBehind + 2)
+            await CardThumbnails.shared.prefetch(opening + opening.compactMap(\.peek?.tab))
             switcherID = UUID()
             isSwitching = true
             isPreparingSwitcher = false

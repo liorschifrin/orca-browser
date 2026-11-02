@@ -38,10 +38,19 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     /// Higher = used more recently. Set by the store; the switcher sorts by it.
     var recency = 0
 
-    /// A picture of the page, shown on this tab's card in the switcher.
-    private(set) var snapshot: UIImage? {
-        didSet { snapshotRevision += 1 }
-    }
+    /// A picture of the page, shown on its card in the switcher and as a
+    /// stand-in while the tab reloads. Held in memory only while the tab is
+    /// live or about to show it; otherwise it's on disk, and cards use a
+    /// small thumbnail of it (see `CardThumbnails`).
+    private(set) var snapshot: UIImage?
+    /// True when there is a picture, in memory or on disk.
+    private(set) var hasSnapshot = false
+    /// Bumped whenever a new picture is taken, so saving can skip unchanged
+    /// ones and cards know to fetch a new thumbnail.
+    private(set) var snapshotRevision = 0
+    /// Where the picture and history are filed: under this tab's own id, or,
+    /// for a held link's page, under the tab it belongs to.
+    @ObservationIgnored var fileOwner: (id: UUID, isPeek: Bool)
 
     /// The site's icon, shown above its card in the switcher. nil until found
     /// (or if the site's icon is a format iOS can't decode, e.g. SVG).
@@ -85,12 +94,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     @ObservationIgnored private var savedInteractionState: Data?
     /// Last time the user was looking at this tab; drives idle unloading.
     @ObservationIgnored var lastViewed = Date.now
-    /// Bumped whenever the picture changes, so saving can skip unchanged ones.
-    @ObservationIgnored private(set) var snapshotRevision = 0
+    /// Bumped whenever the icon changes, so saving can skip unchanged ones.
     @ObservationIgnored private(set) var faviconRevision = 0
     /// True when the page has changed since the picture was taken.
     @ObservationIgnored private var snapshotIsStale = true
     @ObservationIgnored private var scrollSnapshotTask: Task<Void, Never>?
+    /// Counts pictures being taken, so a slow one can't replace a newer one.
+    @ObservationIgnored private var snapshotsStarted = 0
     /// Told when something worth saving to disk has changed.
     @ObservationIgnored var onChange: (() -> Void)?
 
@@ -101,6 +111,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     /// A new tab with a live web view, loading `url` if given.
     init(url: URL? = nil, input: String? = nil) {
         id = UUID()
+        fileOwner = (id, false)
         super.init()
 
         _ = makeWebView()
@@ -109,9 +120,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         }
     }
 
-    /// A tab brought back from disk. It has no web view until `activate()`.
-    init(restoring saved: SavedTab, snapshot: UIImage?, favicon: UIImage?, interactionState: Data?, peekInteractionState: Data? = nil, peekSnapshot: UIImage? = nil) {
+    /// A tab brought back from disk. It has no web view until `activate()`,
+    /// and its picture and history stay on disk until then.
+    init(restoring saved: SavedTab, owner: (id: UUID, isPeek: Bool)? = nil, hasSnapshot: Bool, favicon: UIImage?, peekHasSnapshot: Bool = false) {
         id = saved.id
+        fileOwner = owner ?? (saved.id, false)
         super.init()
 
         url = saved.url
@@ -120,15 +133,14 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         title = saved.title
         recency = saved.recency
         isBlank = false
-        self.snapshot = snapshot
+        self.hasSnapshot = hasSnapshot
         self.favicon = favicon
-        savedInteractionState = interactionState
         snapshotIsStale = false
         if let savedPeek = saved.peek {
             let peekTab = Tab(restoring: SavedTab(
                 id: UUID(), url: savedPeek.currentURL ?? savedPeek.url,
                 title: savedPeek.title, recency: 0, peek: nil
-            ), snapshot: peekSnapshot, favicon: nil, interactionState: peekInteractionState)
+            ), owner: (saved.id, true), hasSnapshot: peekHasSnapshot, favicon: nil)
             peekTab.onChange = { [weak self] in self?.onChange?() }
             peek = Peek(url: savedPeek.url, tab: peekTab)
             peekWasPresented = true
@@ -182,6 +194,14 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         guard webView == nil else { return }
         let view = makeWebView()
         isRestoring = true
+        // The picture covers the page until it's back, and the history
+        // puts it back where it was. Both wait on disk until now.
+        if snapshot == nil, hasSnapshot {
+            snapshot = TabPersistence.loadSnapshot(for: self)
+        }
+        if savedInteractionState == nil {
+            savedInteractionState = TabPersistence.loadInteractionState(for: self)
+        }
         // Restoring a page may not report its address before its requests start.
         if let url { ContentBlocker.shared.willNavigate(view.configuration.userContentController, to: url) }
         restoreNavigationFinished = false
@@ -216,6 +236,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         peek?.tab.unload()
     }
 
+    /// Lets go of the in-memory picture. Only for pictures already saved;
+    /// cards and `activate()` read it back from disk.
+    func releaseSnapshot() {
+        if snapshot != nil { snapshot = nil }
+    }
+
     /// Remove the saved picture only after the restored navigation has finished
     /// and its web view is actually showing behind that picture.
     func finishRestoringIfVisible() {
@@ -238,6 +264,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     func openPeek(_ url: URL) {
         guard peek == nil else { return }
         let peekTab = Tab()
+        peekTab.fileOwner = (id, true)
         peekTab.onChange = { [weak self] in self?.onChange?() }
         peek = Peek(url: url, tab: peekTab)
         peekWasPresented = false
@@ -255,6 +282,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     /// Transfers the loaded peek page into the tab list without reloading it.
     func takePeek() -> Tab? {
         guard let peek else { return nil }
+        // Its files move with it: bring the picture into memory before the
+        // ones filed under this tab are cleared away.
+        if peek.tab.snapshot == nil, peek.tab.hasSnapshot {
+            peek.tab.snapshot = TabPersistence.loadSnapshot(for: peek.tab)
+        }
+        peek.tab.fileOwner = (peek.tab.id, false)
         self.peek = nil
         peek.tab.onChange = nil
         onChange?()
@@ -356,20 +389,39 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
 
     /// True if the card's picture should be refreshed before showing it.
     var needsSnapshot: Bool {
-        !isBlank && isLoaded && (snapshot == nil || snapshotIsStale)
+        !isBlank && isLoaded && (!hasSnapshot || snapshotIsStale)
     }
 
-    /// Takes a small picture of what the web view is showing right now.
+    /// Takes a picture of what the web view is showing right now.
     /// Call this *before* the web view is hidden: a hidden view may render blank.
     func captureSnapshot() async {
         guard !isBlank, let view = webView else { return }
+        snapshotsStarted += 1
+        let number = snapshotsStarted
         let configuration = WKSnapshotConfiguration()
-        // Cards are small, so a modest width keeps memory low.
         configuration.snapshotWidth = 400
-        if let image = try? await view.takeSnapshot(configuration: configuration) {
-            snapshot = image
-            snapshotIsStale = false
-            onChange?()
+        guard let image = try? await view.takeSnapshot(configuration: configuration) else { return }
+        // WebKit renders at the screen's scale (3x on most iPhones). 2x is
+        // plenty for cards and the brief stand-in, at under half the memory.
+        let picture = await Task.detached(priority: .utility) {
+            Self.atTwiceScale(image)
+        }.value
+        // A newer picture was started meanwhile; it wins.
+        guard number == snapshotsStarted else { return }
+        snapshot = picture
+        hasSnapshot = true
+        snapshotRevision += 1
+        snapshotIsStale = false
+        onChange?()
+    }
+
+    nonisolated private static func atTwiceScale(_ image: UIImage) -> UIImage {
+        guard image.scale > 2 else { return image }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
         }
     }
 
@@ -454,7 +506,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         Task {
             // Give the page a moment to paint its final layout.
             try? await Task.sleep(for: .milliseconds(400))
-            if !webView.isHidden || snapshot == nil {
+            if !webView.isHidden || !hasSnapshot {
                 await captureSnapshot()
             }
             onChange?()

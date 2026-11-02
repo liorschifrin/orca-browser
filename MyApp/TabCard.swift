@@ -83,15 +83,17 @@ struct TabCard: View, Equatable {
         Color(.systemBackground)
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .top) {
-                if let image = tab.snapshot {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: size.width)
-                        .padding(.top, contentTop)
-                } else {
-                    placeholder
-                        .background(Color(.secondarySystemBackground))
+                TabPicture(tab: tab) { image in
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: size.width)
+                            .padding(.top, contentTop)
+                    } else if !tab.hasSnapshot {
+                        placeholder
+                            .background(Color(.secondarySystemBackground))
+                    }
                 }
             }
             .overlay {
@@ -136,12 +138,14 @@ struct TabCard: View, Equatable {
                 layout: layout,
                 page: ZStack {
                     Color(uiColor: .systemBackground)
-                    if let image = peek.tab.snapshot {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipped()
+                    TabPicture(tab: peek.tab) { image in
+                        if let image {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .clipped()
+                        }
                     }
                 },
                 onOpen: {}, onClose: {}, onAction: { _ in }

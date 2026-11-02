@@ -51,6 +51,9 @@ enum TabPersistence {
     /// History blobs already on disk, so unchanged ones aren't rewritten.
     private static var writtenStates: [UUID: Data] = [:]
     private static var writtenPeekStates: [UUID: Data] = [:]
+    /// Pictures handed to `queue` that aren't on disk yet. Readers check here
+    /// first, so they never get the file's older contents.
+    private static var unwrittenPictures: [URL: UIImage] = [:]
 
     /// Encoding pictures and writing files happens here, in order, so saving
     /// never holds up the main thread (and so never drops frames).
@@ -61,11 +64,20 @@ enum TabPersistence {
         case data(Data, URL)
         case jpeg(UIImage, URL)
         case png(UIImage, URL)
-        case remove(URL)
     }
 
     private static func file(_ id: UUID, _ ext: String) -> URL {
         directory.appending(path: "\(id.uuidString).\(ext)")
+    }
+
+    /// The picture file for a tab (a held link's page is filed under the tab
+    /// it belongs to).
+    static func snapshotFile(for tab: Tab) -> URL {
+        file(tab.fileOwner.id, tab.fileOwner.isPeek ? "peek.jpg" : "jpg")
+    }
+
+    private static func stateFile(for tab: Tab) -> URL {
+        file(tab.fileOwner.id, tab.fileOwner.isPeek ? "peek.state" : "state")
     }
 
     private static func savedTab(_ tab: Tab) -> SavedTab {
@@ -76,15 +88,44 @@ enum TabPersistence {
         )
     }
 
+    /// A tab from disk. Only what the tab list needs is read now; the picture
+    /// and history are read when the tab is shown.
     private static func restoredTab(_ saved: SavedTab) -> Tab {
-        Tab(
+        let fileManager = FileManager.default
+        let hasSnapshot = fileManager.fileExists(atPath: file(saved.id, "jpg").path(percentEncoded: false))
+        let peekHasSnapshot = fileManager.fileExists(atPath: file(saved.id, "peek.jpg").path(percentEncoded: false))
+        let tab = Tab(
             restoring: saved,
-            snapshot: image(file(saved.id, "jpg")),
+            hasSnapshot: hasSnapshot,
             favicon: image(file(saved.id, "png")),
-            interactionState: try? Data(contentsOf: file(saved.id, "state")),
-            peekInteractionState: try? Data(contentsOf: file(saved.id, "peek.state")),
-            peekSnapshot: image(file(saved.id, "peek.jpg"))
+            peekHasSnapshot: peekHasSnapshot
         )
+        // These files are already on disk, so the next save needn't write
+        // them again.
+        if hasSnapshot { writtenSnapshots[tab.id] = tab.snapshotRevision }
+        if let peekTab = tab.peek?.tab, peekHasSnapshot {
+            writtenPeekSnapshots[tab.id] = peekTab.snapshotRevision
+        }
+        if tab.favicon != nil { writtenFavicons[tab.id] = tab.faviconRevision }
+        return tab
+    }
+
+    /// A tab's picture, read back from disk (or from a save still under way).
+    static func loadSnapshot(for tab: Tab) -> UIImage? {
+        let url = snapshotFile(for: tab)
+        return unwrittenPictures[url] ?? image(url)
+    }
+
+    /// A tab's history, read back from disk.
+    static func loadInteractionState(for tab: Tab) -> Data? {
+        guard let state = try? Data(contentsOf: stateFile(for: tab)) else { return nil }
+        // It's on disk already; don't write it again unless it changes.
+        if tab.fileOwner.isPeek {
+            writtenPeekStates[tab.fileOwner.id] = state
+        } else {
+            writtenStates[tab.fileOwner.id] = state
+        }
+        return state
     }
 
     static func save(tabs: [Tab], selectedID: Tab.ID) {
@@ -101,24 +142,6 @@ enum TabPersistence {
                 writes.append(.data(state, file(tab.id, "state")))
                 writtenStates[tab.id] = state
             }
-            if let state = tab.peek?.tab.interactionStateForSaving {
-                if writtenPeekStates[tab.id] != state {
-                    writes.append(.data(state, file(tab.id, "peek.state")))
-                    writtenPeekStates[tab.id] = state
-                }
-            } else {
-                writes.append(.remove(file(tab.id, "peek.state")))
-                writtenPeekStates[tab.id] = nil
-            }
-            if let peekTab = tab.peek?.tab, let image = peekTab.snapshot {
-                if writtenPeekSnapshots[tab.id] != peekTab.snapshotRevision {
-                    writes.append(.jpeg(image, file(tab.id, "peek.jpg")))
-                    writtenPeekSnapshots[tab.id] = peekTab.snapshotRevision
-                }
-            } else {
-                writes.append(.remove(file(tab.id, "peek.jpg")))
-                writtenPeekSnapshots[tab.id] = nil
-            }
             if let image = tab.snapshot, writtenSnapshots[tab.id] != tab.snapshotRevision {
                 writes.append(.jpeg(image, file(tab.id, "jpg")))
                 writtenSnapshots[tab.id] = tab.snapshotRevision
@@ -127,14 +150,45 @@ enum TabPersistence {
                 writes.append(.png(icon, file(tab.id, "png")))
                 writtenFavicons[tab.id] = tab.faviconRevision
             }
+            if let peekTab = tab.peek?.tab {
+                if let state = peekTab.interactionStateForSaving, writtenPeekStates[tab.id] != state {
+                    writes.append(.data(state, file(tab.id, "peek.state")))
+                    writtenPeekStates[tab.id] = state
+                }
+                if let image = peekTab.snapshot, writtenPeekSnapshots[tab.id] != peekTab.snapshotRevision {
+                    writes.append(.jpeg(image, file(tab.id, "peek.jpg")))
+                    writtenPeekSnapshots[tab.id] = peekTab.snapshotRevision
+                }
+            } else {
+                // Its files are deleted below.
+                writtenPeekStates[tab.id] = nil
+                writtenPeekSnapshots[tab.id] = nil
+            }
+
+            // Pictures of tabs nobody is looking at needn't stay in memory
+            // once they're saved. (Each one is ~5 MB decoded.)
+            if !tab.isLoaded, tab.id != selectedID {
+                if writtenSnapshots[tab.id] == tab.snapshotRevision { tab.releaseSnapshot() }
+                if let peekTab = tab.peek?.tab, !peekTab.isLoaded,
+                   writtenPeekSnapshots[tab.id] == peekTab.snapshotRevision {
+                    peekTab.releaseSnapshot()
+                }
+            }
         }
         let keep = Set(saved.map(\.id))
+        let peeks = Set(saved.filter { $0.peek != nil }.map(\.id))
         // Forget closed tabs; their files are deleted below.
         writtenSnapshots = writtenSnapshots.filter { keep.contains($0.key) }
         writtenPeekSnapshots = writtenPeekSnapshots.filter { keep.contains($0.key) }
         writtenFavicons = writtenFavicons.filter { keep.contains($0.key) }
         writtenStates = writtenStates.filter { keep.contains($0.key) }
         writtenPeekStates = writtenPeekStates.filter { keep.contains($0.key) }
+
+        var pictures: [(URL, UIImage)] = []
+        for case .jpeg(let image, let url) in writes {
+            unwrittenPictures[url] = image
+            pictures.append((url, image))
+        }
 
         // iOS may suspend the app right after it leaves the foreground; ask
         // for a little time so the files get written.
@@ -143,8 +197,16 @@ enum TabPersistence {
         let directory = directory
         queue.async {
             perform(writes)
-            removeFiles(in: directory, except: keep)
-            DispatchQueue.main.async { application.endBackgroundTask(backgroundTask) }
+            removeFiles(in: directory, except: keep, peeks: peeks)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    // On disk now, unless a newer picture took its place.
+                    for (url, image) in pictures where unwrittenPictures[url] === image {
+                        unwrittenPictures[url] = nil
+                    }
+                    application.endBackgroundTask(backgroundTask)
+                }
+            }
         }
     }
 
@@ -157,8 +219,6 @@ enum TabPersistence {
                 try? image.jpegData(compressionQuality: 0.8)?.write(to: url, options: .atomic)
             case .png(let image, let url):
                 try? image.pngData()?.write(to: url, options: .atomic)
-            case .remove(let url):
-                try? FileManager.default.removeItem(at: url)
             }
         }
     }
@@ -210,12 +270,14 @@ enum TabPersistence {
         try JSONEncoder().encode(list).write(to: closedListFile, options: .atomic)
 
         let ids = Set(closing.map(\.id))
-        moveFiles(of: ids, from: directory, to: closedDirectory)
-        for id in ids {
-            writtenSnapshots[id] = nil
-            writtenPeekSnapshots[id] = nil
-            writtenFavicons[id] = nil
-        }
+        // On the save queue, so the files move only once they're written.
+        let (source, destination) = (directory, closedDirectory)
+        queue.async { moveFiles(of: ids, from: source, to: destination) }
+        writtenSnapshots = writtenSnapshots.filter { !ids.contains($0.key) }
+        writtenPeekSnapshots = writtenPeekSnapshots.filter { !ids.contains($0.key) }
+        writtenFavicons = writtenFavicons.filter { !ids.contains($0.key) }
+        writtenStates = writtenStates.filter { !ids.contains($0.key) }
+        writtenPeekStates = writtenPeekStates.filter { !ids.contains($0.key) }
     }
 
     /// Brings the closed tabs back, oldest-used first (none loaded yet). Their
@@ -223,19 +285,12 @@ enum TabPersistence {
     /// caller has saved them there; then call `clearClosed()`.
     static func unstashClosed() -> [Tab] {
         let list = closedTabs()
-        moveFiles(of: Set(list.map(\.id)), from: closedDirectory, to: directory)
+        let ids = Set(list.map(\.id))
+        let (source, destination) = (closedDirectory, directory)
+        // Waits for any save still writing them before moving them back.
+        queue.sync { moveFiles(of: ids, from: source, to: destination) }
 
-        return list.sorted { $0.recency < $1.recency }.map { saved in
-            let tab = restoredTab(saved)
-            // The pictures were just read from the files that are now in place,
-            // so the next save needn't encode them again.
-            if tab.snapshot != nil { writtenSnapshots[tab.id] = tab.snapshotRevision }
-            if let peekTab = tab.peek?.tab, peekTab.snapshot != nil {
-                writtenPeekSnapshots[tab.id] = peekTab.snapshotRevision
-            }
-            if tab.favicon != nil { writtenFavicons[tab.id] = tab.faviconRevision }
-            return tab
-        }
+        return list.sorted { $0.recency < $1.recency }.map(restoredTab)
     }
 
     static func clearClosed() {
@@ -245,7 +300,7 @@ enum TabPersistence {
         }
     }
 
-    private static func moveFiles(of ids: Set<UUID>, from source: URL, to destination: URL) {
+    nonisolated private static func moveFiles(of ids: Set<UUID>, from source: URL, to destination: URL) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: source.path(percentEncoded: false))) ?? []
         for name in names {
             let stem = String(name.split(separator: ".", maxSplits: 1).first ?? "")
@@ -259,16 +314,19 @@ enum TabPersistence {
     /// Reads the whole file up front. `UIImage(contentsOfFile:)` memory-maps it
     /// instead, which breaks ("mmapped file changed") when a later save
     /// replaces the file while the picture is still in use.
-    private static func image(_ url: URL) -> UIImage? {
+    nonisolated private static func image(_ url: URL) -> UIImage? {
         (try? Data(contentsOf: url)).flatMap(UIImage.init(data:))
     }
 
-    /// Deletes files belonging to tabs that no longer exist.
-    nonisolated private static func removeFiles(in directory: URL, except keep: Set<UUID>) {
+    /// Deletes files belonging to tabs that no longer exist, and held-link
+    /// files of tabs whose held link has closed.
+    nonisolated private static func removeFiles(in directory: URL, except keep: Set<UUID>, peeks: Set<UUID>) {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? []
         for name in names where name != "session.json" {
-            let stem = String(name.split(separator: ".", maxSplits: 1).first ?? "")
-            if let id = UUID(uuidString: stem), !keep.contains(id) {
+            let parts = name.split(separator: ".", maxSplits: 1)
+            guard let id = UUID(uuidString: String(parts.first ?? "")) else { continue }
+            let isPeekFile = parts.count > 1 && parts[1].hasPrefix("peek.")
+            if !keep.contains(id) || (isPeekFile && !peeks.contains(id)) {
                 try? FileManager.default.removeItem(at: directory.appending(path: name))
             }
         }

@@ -89,6 +89,14 @@ struct TabSwitcher: View {
     @State private var leaving = false
     /// Opacity of the background behind the cards.
     @State private var backdrop: Double = 0
+    /// Cards kept built while the deck animates away from them (see `shownRange`).
+    @State private var heldRange: ClosedRange<Int>?
+
+    /// Only cards this close to the focus are built at all. Those further
+    /// away are off screen, and building them would decode their pictures:
+    /// with a hundred tabs, more memory than the app is allowed.
+    static let cardsBehind = 8
+    static let cardsAhead = 3
 
     init(
         store: BrowserStore,
@@ -156,8 +164,13 @@ struct TabSwitcher: View {
         let currentIndex = tabs.firstIndex { $0.id == currentID } ?? tabs.count - 1
         let safeBottomInset = Self.windowBottomInset
 
+        let shown = shownRange(around: position)
+        let cards = Array(tabs.enumerated()).filter { index, tab in
+            shown.contains(index) || tab.id == currentID || tab.id == leavingID
+        }
+
         return ZStack(alignment: .topLeading) {
-            ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
+            ForEach(cards, id: \.element.id) { index, tab in
                 let relative = CGFloat(index) - position
                 let isCurrent = tab.id == currentID
                 let isLeaving = tab.id == leavingID
@@ -205,6 +218,31 @@ struct TabSwitcher: View {
         .simultaneousGesture(pagingGesture(metrics))
     }
 
+    /// Indices of the cards to build: those near `position`, plus any the
+    /// deck is still sliding past.
+    private func shownRange(around position: CGFloat) -> ClosedRange<Int> {
+        let center = Int(position.rounded())
+        var low = center - Self.cardsBehind
+        var high = center + Self.cardsAhead
+        if let heldRange {
+            low = min(low, heldRange.lowerBound)
+            high = max(high, heldRange.upperBound)
+        }
+        return max(0, low)...max(0, high)
+    }
+
+    /// Moves the deck with an animation, keeping the cards it starts among
+    /// built until it arrives, so none vanish mid-slide.
+    private func move(to target: CGFloat, with animation: Animation, also change: () -> Void = {}) {
+        heldRange = shownRange(around: position)
+        withAnimation(animation) {
+            position = target
+            change()
+        } completion: {
+            heldRange = nil
+        }
+    }
+
     /// Which spring a card gets when opening or leaving starts.
     private func motion(isCurrent: Bool, isLeaving: Bool, age: Int) -> Animation? {
         if isLeaving {
@@ -244,9 +282,7 @@ struct TabSwitcher: View {
                 let projected = start - value.predictedEndTranslation.width / metrics.pagePixels
                 let target = min(max(projected.rounded(), 0), CGFloat(tabs.count - 1))
 
-                withAnimation(.spring(duration: 0.45, bounce: 0.12)) {
-                    position = target
-                }
+                move(to: target, with: .spring(duration: 0.45, bounce: 0.12))
             }
     }
 
@@ -305,10 +341,10 @@ struct TabSwitcher: View {
     /// The store's tabs changed under us: show what it has now.
     private func reload() {
         guard leavingID == nil else { return }
-        withAnimation(.spring(duration: 0.4, bounce: 0)) {
-            tabs = store.tabsByRecency
+        let latest = store.tabsByRecency
+        move(to: CGFloat(max(0, latest.count - 2)), with: .spring(duration: 0.4, bounce: 0)) {
+            tabs = latest
             currentID = store.selectedTabID
-            position = CGFloat(max(0, tabs.count - 2))
         }
     }
 
