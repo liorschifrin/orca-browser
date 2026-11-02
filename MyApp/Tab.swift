@@ -14,12 +14,14 @@ import WebKit
 /// The web view is the source of truth for what the page is doing, but SwiftUI
 /// can't watch a WKWebView directly. So the Tab *mirrors* the interesting
 /// bits (title, progress, ...) into its own properties. Views read those
-/// properties and redraw automatically thanks to @Observable.
+/// properties and redraw automatically thanks to @Observable. The web view
+/// itself, and WebKit's callbacks, are handled by a `TabWebController`.
 @Observable
-final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
+final class Tab: Identifiable {
     let id: UUID
     /// nil while the tab is unloaded.
     private(set) var webView: WKWebView?
+    @ObservationIgnored private var controller: TabWebController?
     var isLoaded: Bool { webView != nil }
 
     // Mirrored from the web view.
@@ -104,15 +106,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     /// Told when something worth saving to disk has changed.
     @ObservationIgnored var onChange: (() -> Void)?
 
-    /// KVO (key-value observing) subscriptions. They stop when released.
-    /// Not part of the observable state, so views shouldn't track them.
-    @ObservationIgnored private var observations: [NSKeyValueObservation] = []
-
     /// A new tab with a live web view, loading `url` if given.
     init(url: URL? = nil, input: String? = nil) {
         id = UUID()
         fileOwner = (id, false)
-        super.init()
 
         _ = makeWebView()
         if let url {
@@ -125,7 +122,6 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     init(restoring saved: SavedTab, owner: (id: UUID, isPeek: Bool)? = nil, hasSnapshot: Bool, favicon: UIImage?, peekHasSnapshot: Bool = false) {
         id = saved.id
         fileOwner = owner ?? (saved.id, false)
-        super.init()
 
         url = saved.url
         searchText = saved.searchText ?? Destination.searchQuery(from: saved.url)
@@ -148,42 +144,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func makeWebView() -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        // Play videos inline (in the page) instead of forcing fullscreen.
-        configuration.allowsInlineMediaPlayback = true
-        ContentBlocker.shared.install(on: configuration.userContentController)
-        configuration.userContentController.addUserScript(LinkPress.userScript)
-        configuration.userContentController.addUserScript(
-            ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
-        )
-        configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
-
-        let view = WKWebView(frame: .zero, configuration: configuration)
-        #if DEBUG
-        // Lets Safari's Web Inspector on a Mac attach to pages in debug builds.
-        view.isInspectable = true
-        #endif
-        // Swiping from the left edge goes back, like Safari.
-        view.allowsBackForwardNavigationGestures = true
-        view.navigationDelegate = self
-        view.uiDelegate = self
-        view.allowsLinkPreview = false
-
-        // Whenever any of these web view properties change, re-copy them all.
-        observations = [
-            view.observe(\.estimatedProgress) { [weak self] view, _ in self?.sync(from: view) },
-            view.observe(\.isLoading) { [weak self] view, _ in self?.sync(from: view) },
-            view.observe(\.canGoBack) { [weak self] view, _ in self?.sync(from: view) },
-            view.observe(\.canGoForward) { [weak self] view, _ in self?.sync(from: view) },
-            view.observe(\.url) { [weak self] view, _ in self?.sync(from: view) },
-            view.observe(\.title) { [weak self] view, _ in self?.sync(from: view) },
-            // Scrolling makes the picture out of date; refresh it once the
-            // finger has been off for a moment, so opening the switcher
-            // doesn't have to wait for a new picture.
-            view.scrollView.observe(\.contentOffset) { [weak self] _, _ in self?.pageScrolled() },
-        ]
-        webView = view
-        return view
+        let controller = TabWebController(tab: self)
+        self.controller = controller
+        webView = controller.webView
+        return controller.webView
     }
 
     // MARK: - Loading and unloading
@@ -225,8 +189,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         savedInteractionState = view.interactionState as? Data
         url = view.url ?? url
         title = view.title ?? title
-        detach(view)
-        webView = nil
+        detachWebView()
         isLoading = false
         progress = 0
         isRestoring = false
@@ -311,7 +274,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         return host == "youtube.com" || host.hasSuffix(".youtube.com") || host == "youtu.be"
     }
 
-    private func sync(from view: WKWebView) {
+    /// Copies what the web view is doing into the tab. Called by the
+    /// controller whenever one of those properties changes.
+    func mirror(_ view: WKWebView) {
         // A re-created web view has no address until its page starts arriving.
         if let current = view.url, current != url {
             url = current
@@ -330,7 +295,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         if view.canGoForward != canGoForward { canGoForward = view.canGoForward }
     }
 
-    private func pageScrolled() {
+    /// Scrolling makes the picture out of date; refresh it once the finger
+    /// has been off for a moment, so opening the switcher doesn't have to
+    /// wait for a new picture.
+    func pageScrolled() {
         snapshotIsStale = true
         scrollSnapshotTask?.cancel()
         scrollSnapshotTask = Task {
@@ -398,14 +366,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         guard !isBlank, let view = webView else { return }
         snapshotsStarted += 1
         let number = snapshotsStarted
-        let configuration = WKSnapshotConfiguration()
-        configuration.snapshotWidth = 400
-        guard let image = try? await view.takeSnapshot(configuration: configuration) else { return }
-        // WebKit renders at the screen's scale (3x on most iPhones). 2x is
-        // plenty for cards and the brief stand-in, at under half the memory.
-        let picture = await Task.detached(priority: .utility) {
-            Self.atTwiceScale(image)
-        }.value
+        guard let picture = await PageSnapshotter.capture(view) else { return }
         // A newer picture was started meanwhile; it wins.
         guard number == snapshotsStarted else { return }
         snapshot = picture
@@ -415,61 +376,18 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         onChange?()
     }
 
-    nonisolated private static func atTwiceScale(_ image: UIImage) -> UIImage {
-        guard image.scale > 2 else { return image }
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 2
-        format.opaque = true
-        return UIGraphicsImageRenderer(size: image.size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
-        }
-    }
-
-    /// Finds the page's icon and downloads it. The page itself says where the
-    /// icon is (a <link> tag); if it doesn't, the conventional /favicon.ico is
-    /// tried. Only the site's own server is contacted.
+    /// Finds the page's icon and downloads it, unless it's the one we have.
     private func loadFavicon() async {
-        guard let pageURL = webView?.url, pageURL.scheme?.hasPrefix("http") == true else { return }
-
-        let script = """
-        (function () {
-          var selectors = ['link[rel="apple-touch-icon"]', 'link[rel~="icon"]'];
-          for (var i = 0; i < selectors.length; i++) {
-            var link = document.querySelector(selectors[i]);
-            if (link && link.href) { return link.href; }
-          }
-          return null;
-        })()
-        """
-        let declared = (try? await webView?.evaluateJavaScript(script)) as? String
-        let iconURL = declared.flatMap { URL(string: $0) }
-            ?? URL(string: "/favicon.ico", relativeTo: pageURL)?.absoluteURL
-        guard let iconURL, iconURL != faviconURL else { return }
-
-        guard let (data, _) = try? await URLSession.shared.data(from: iconURL),
-              let image = UIImage(data: data) else { return }
+        guard let view = webView,
+              let iconURL = await PageMetadata.iconURL(in: view), iconURL != faviconURL,
+              let image = await PageMetadata.icon(at: iconURL) else { return }
         faviconURL = iconURL
         favicon = image
     }
 
     /// Decides whether the page is in a language the user doesn't read.
     private func detectLanguage() async {
-        guard let view = webView, view.url?.scheme?.hasPrefix("http") == true else { return }
-        let script = """
-        (function () {
-          return {
-            lang: document.documentElement.lang || '',
-            text: (document.body ? document.body.innerText : '').slice(0, 2000)
-          };
-        })()
-        """
-        guard let result = (try? await view.evaluateJavaScript(script)) as? [String: Any] else { return }
-        let declared = result["lang"] as? String ?? ""
-        let text = result["text"] as? String ?? ""
-        // Language recognition is CPU work; keep it off the main thread.
-        let foreign = await Task.detached(priority: .utility) {
-            Translation.isForeign(declared: declared, text: text)
-        }.value
+        guard let view = webView, let foreign = await PageMetadata.isForeignLanguage(view) else { return }
         // The user may have moved on while the script ran.
         if view === webView { isForeignLanguage = foreign }
     }
@@ -480,23 +398,21 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         restoreFinishTask?.cancel()
         peek?.tab.teardown()
         peek = nil
-        if let view = webView { detach(view) }
+        detachWebView()
+    }
+
+    private func detachWebView() {
+        scrollSnapshotTask?.cancel()
+        controller?.detach()
+        controller = nil
         webView = nil
     }
 
-    private func detach(_ view: WKWebView) {
-        scrollSnapshotTask?.cancel()
-        observations = []
-        view.stopLoading()
-        view.navigationDelegate = nil
-        view.uiDelegate = nil
-    }
-
-    // MARK: - WKNavigationDelegate
+    // MARK: - Page events (from the controller)
 
     /// A page finished loading: refresh the card picture. (The leaving-the-tab
     /// snapshot can be taken mid-load, which would leave a half-empty card.)
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    func pageDidFinish() {
         if isRestoring {
             restoreNavigationFinished = true
             finishRestoringIfVisible()
@@ -506,66 +422,16 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         Task {
             // Give the page a moment to paint its final layout.
             try? await Task.sleep(for: .milliseconds(400))
-            if !webView.isHidden || !hasSnapshot {
+            if webView?.isHidden == false || !hasSnapshot {
                 await captureSnapshot()
             }
             onChange?()
         }
     }
 
-    /// Turns youtube.com/shorts/ID addresses into the normal watch page while
-    /// Shorts are hidden.
-    func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
-        let isMainFrame = action.targetFrame?.isMainFrame ?? true
-        if AppSettings.shared.hideShorts,
-           isMainFrame,
-           let url = action.request.url,
-           let watchURL = ShortsFilter.watchURL(forShorts: url) {
-            decisionHandler(.cancel)
-            load(watchURL)
-            return
-        }
-        // Before the page's requests go out, give it the right blocking lists:
-        // a site can have ad or tracker blocking switched off.
-        if isMainFrame, let url = action.request.url {
-            ContentBlocker.shared.willNavigate(webView.configuration.userContentController, to: url)
-        }
-        decisionHandler(.allow)
-    }
-
-    /// WebKit tells its delegate whenever a blocking list acts on a request.
-    /// This callback isn't part of the public API, which has no way to count
-    /// what was blocked, so this is the only place that depends on it. If WebKit
-    /// ever drops it, blocking keeps working and the counts stay at zero.
-    @objc(_webView:contentRuleListWithIdentifier:performedAction:forURL:)
-    func webView(_ webView: WKWebView, contentRuleListWithIdentifier identifier: String, performedAction action: NSObject, forURL url: URL) {
-        guard (action.value(forKey: "blockedLoad") as? Bool) == true else { return }
-        switch ContentBlocker.shared.category(ofList: identifier) {
-        case .ads: adsBlocked += 1
-        case .trackers: trackersBlocked += 1
-        case nil: break
-        }
-    }
-
-    // MARK: - WKUIDelegate
-
-    /// Links with target="_blank" and window.open() ask for a new window.
-    /// Without this, WebKit silently ignores them; open them in this tab.
-    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if action.targetFrame == nil {
-            webView.load(action.request)
-        }
-        return nil
-    }
-
-    /// Applies the Shorts setting to a page that is already open.
-    func setHidesShorts(_ enabled: Bool) {
-        webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
-    }
-
-    /// Called once the first bytes of a new page arrive, i.e. the old page is
-    /// about to be replaced. A good moment to drop any old error.
-    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    /// The first bytes of a new page arrived, i.e. the old page is about to
+    /// be replaced. A good moment to drop any old error.
+    func pageDidCommit() {
         loadError = nil
         snapshotIsStale = true
         adsBlocked = 0
@@ -573,17 +439,19 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
         isForeignLanguage = false
     }
 
-    /// Failure before anything arrived (offline, bad host, ...).
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        report(error)
+    func countBlocked(_ category: ContentBlocker.Category) {
+        switch category {
+        case .ads: adsBlocked += 1
+        case .trackers: trackersBlocked += 1
+        }
     }
 
-    /// Failure after the page had started arriving.
-    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        report(error)
+    /// Applies the Shorts setting to a page that is already open.
+    func setHidesShorts(_ enabled: Bool) {
+        webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
     }
 
-    private func report(_ error: Error) {
+    func pageDidFail(_ error: Error) {
         let nsError = error as NSError
 
         // Not real failures: the user (or a link tap) cancelled a load, or the
