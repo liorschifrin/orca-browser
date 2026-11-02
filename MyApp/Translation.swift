@@ -7,7 +7,7 @@ enum Translation {
     /// The text is the better evidence: pages often declare the wrong
     /// language (or none). The declared language is the fallback for pages
     /// with too little text to tell.
-    static func isForeign(declared: String, text: String) -> Bool {
+    nonisolated static func isForeign(declared: String, text: String) -> Bool {
         let readable = Set(Locale.preferredLanguages.compactMap {
             Locale(identifier: $0).language.languageCode?.identifier
         })

@@ -16,7 +16,7 @@ import WebKit
 /// bits (title, progress, ...) into its own properties. Views read those
 /// properties and redraw automatically thanks to @Observable.
 @Observable
-final class Tab: NSObject, Identifiable, WKNavigationDelegate {
+final class Tab: NSObject, Identifiable, WKNavigationDelegate, WKUIDelegate {
     let id: UUID
     /// nil while the tab is unloaded.
     private(set) var webView: WKWebView?
@@ -144,6 +144,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         // Swiping from the left edge goes back, like Safari.
         view.allowsBackForwardNavigationGestures = true
         view.navigationDelegate = self
+        view.uiDelegate = self
         view.allowsLinkPreview = false
 
         // Whenever any of these web view properties change, re-copy them all.
@@ -272,12 +273,14 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
             }
             onChange?()
         }
-        if view.title != nil || !isRestoring { title = view.title }
-        progress = view.estimatedProgress
+        // Assign only what changed: every assignment redraws the views that
+        // read it, and this runs many times per page load.
+        if view.title != title, view.title != nil || !isRestoring { title = view.title }
+        if view.estimatedProgress != progress { progress = view.estimatedProgress }
         if view.isLoading && !isLoading { snapshotIsStale = true }
-        isLoading = view.isLoading
-        canGoBack = view.canGoBack
-        canGoForward = view.canGoForward
+        if view.isLoading != isLoading { isLoading = view.isLoading }
+        if view.canGoBack != canGoBack { canGoBack = view.canGoBack }
+        if view.canGoForward != canGoForward { canGoForward = view.canGoForward }
     }
 
     private func pageScrolled() {
@@ -395,10 +398,12 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         })()
         """
         guard let result = (try? await view.evaluateJavaScript(script)) as? [String: Any] else { return }
-        let foreign = Translation.isForeign(
-            declared: result["lang"] as? String ?? "",
-            text: result["text"] as? String ?? ""
-        )
+        let declared = result["lang"] as? String ?? ""
+        let text = result["text"] as? String ?? ""
+        // Language recognition is CPU work; keep it off the main thread.
+        let foreign = await Task.detached(priority: .utility) {
+            Translation.isForeign(declared: declared, text: text)
+        }.value
         // The user may have moved on while the script ran.
         if view === webView { isForeignLanguage = foreign }
     }
@@ -418,6 +423,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         observations = []
         view.stopLoading()
         view.navigationDelegate = nil
+        view.uiDelegate = nil
     }
 
     // MARK: - WKNavigationDelegate
@@ -453,6 +459,17 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
             return
         }
         decisionHandler(.allow)
+    }
+
+    // MARK: - WKUIDelegate
+
+    /// Links with target="_blank" and window.open() ask for a new window.
+    /// Without this, WebKit silently ignores them; open them in this tab.
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if action.targetFrame == nil {
+            webView.load(action.request)
+        }
+        return nil
     }
 
     /// Applies the Shorts setting to a page that is already open.

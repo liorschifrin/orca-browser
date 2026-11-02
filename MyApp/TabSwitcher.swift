@@ -148,6 +148,7 @@ struct TabSwitcher: View {
 
     private func deck(_ metrics: StackMetrics) -> some View {
         let currentIndex = tabs.firstIndex { $0.id == currentID } ?? tabs.count - 1
+        let safeBottomInset = Self.windowBottomInset
 
         return ZStack(alignment: .topLeading) {
             ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
@@ -162,13 +163,16 @@ struct TabSwitcher: View {
                     barHeight: barHeight,
                     size: metrics.cardSize,
                     screenSize: metrics.screen,
-                    safeBottomInset: Self.windowBottomInset,
+                    safeBottomInset: safeBottomInset,
                     faviconInset: metrics.faviconInset,
                     contentTop: metrics.contentTop,
                     focus: max(0, 1 - abs(relative) * 1.5),
                     onSelect: { leave(to: tab) { onSelect(tab) } },
                     onClose: { closeCard(tab) }
                 )
+                // Paging changes `position` every frame; only cards whose
+                // inputs actually changed (the ones near focus) redraw.
+                .equatable()
                 .modifier(StackEffect(
                     relative: relative,
                     // Older cards start tiny by the tabs button...

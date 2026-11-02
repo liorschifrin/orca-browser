@@ -43,7 +43,11 @@ struct WebViewHost: UIViewRepresentable {
         func attach(to view: WKWebView) {
             // Use an isolated script world and a weak bridge so neither page
             // scripts nor the web view own the browser's preview callback.
-            view.configuration.userContentController.add(
+            // Adding a name that's already registered throws (and crashes),
+            // so clear any handler a previous host left behind first.
+            let controller = view.configuration.userContentController
+            controller.removeScriptMessageHandler(forName: LinkPress.messageName, contentWorld: .defaultClient)
+            controller.add(
                 WeakHandler(self), contentWorld: .defaultClient, name: LinkPress.messageName
             )
         }

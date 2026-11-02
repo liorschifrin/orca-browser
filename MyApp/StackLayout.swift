@@ -120,6 +120,13 @@ struct StackMetrics {
         scale = lerp(scale, fullScreenScale, expand)
         rotation *= Double(1 - expand)
 
+        // A card resting entirely off screen isn't drawn at all; with many
+        // tabs, most of the deck lies off the left edge. The margin keeps
+        // cards just out of view drawn, so paging to them doesn't stutter.
+        let margin = cardWidth / 2
+        let isDrawn = entrance < 1 || expand > 0
+            || slot.insetBy(dx: -margin, dy: -margin).intersects(CGRect(origin: .zero, size: screen))
+
         return Pose(
             center: center,
             scale: scale,
@@ -132,7 +139,7 @@ struct StackMetrics {
             // fully transparent views, which would push the cost of drawing
             // every card for the first time into the animation's first frame
             // and make its opening frames stutter.
-            opacity: Double(min(1, entrance * 6))
+            opacity: isDrawn ? Double(min(1, entrance * 6)) : 0
         )
     }
 

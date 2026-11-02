@@ -37,7 +37,7 @@ struct BottomBar: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ProgressLine(progress: tab.progress, isVisible: tab.isLoading)
+            ProgressLine(tab: tab)
 
             VStack(spacing: 2) {
                 HStack(spacing: 12) {
@@ -595,20 +595,21 @@ struct PressableButtonStyle: ButtonStyle {
 }
 
 /// A thin bar along the top edge of the toolbar that fills as the page loads.
+///
+/// Reads the tab itself, so progress updates redraw only this line rather
+/// than the whole bar. Grows by scaling, which (unlike changing its width)
+/// doesn't re-run layout on every animation frame.
 private struct ProgressLine: View {
-    let progress: Double
-    let isVisible: Bool
+    let tab: Tab
 
     var body: some View {
-        GeometryReader { geometry in
-            Rectangle()
-                .fill(.tint)
-                .frame(width: geometry.size.width * progress)
-                .animation(.easeOut(duration: 0.2), value: progress)
-        }
-        .frame(height: 2)
-        .opacity(isVisible ? 1 : 0)
-        .animation(.easeOut(duration: 0.3), value: isVisible)
+        Rectangle()
+            .fill(.tint)
+            .scaleEffect(x: tab.progress, anchor: .leading)
+            .animation(.easeOut(duration: 0.2), value: tab.progress)
+            .frame(height: 2)
+            .opacity(tab.isLoading ? 1 : 0)
+            .animation(.easeOut(duration: 0.3), value: tab.isLoading)
     }
 }
 
