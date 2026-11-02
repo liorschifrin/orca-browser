@@ -106,7 +106,8 @@ struct TabCard: View {
         let layout = PeekLayout(
             size: CGSize(width: screenSize.width,
                          height: max(1, screenSize.height - topInset - safeBottomInset)),
-            bottomInset: barHeight
+            bottomInset: barHeight,
+            actions: PeekAction.available(for: peek.tab.url ?? peek.url)
         )
 
         return ZStack(alignment: .topLeading) {

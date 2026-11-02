@@ -480,34 +480,41 @@ private struct CopyURLButton: View {
 /// Copies the address, then runs the "Add Video to Play" shortcut with it.
 /// Only shown on YouTube. iOS briefly switches to the Shortcuts app to run it,
 /// then Shortcuts hands control back through the app's arcbrowser:// address.
-private struct AddToPlayButton: View {
+enum AddToPlay {
     /// Must match the shortcut's name in the Shortcuts app exactly.
     static let shortcutName = "Add Video to Play"
 
+    @MainActor
+    static func run(with url: URL) {
+        UIPasteboard.general.url = url
+
+        var components = URLComponents()
+        components.scheme = "shortcuts"
+        components.host = "x-callback-url"
+        components.path = "/run-shortcut"
+        components.queryItems = [
+            URLQueryItem(name: "name", value: shortcutName),
+            URLQueryItem(name: "input", value: "text"),
+            URLQueryItem(name: "text", value: url.absoluteString),
+            // Shortcuts returns here when done (or cancelled).
+            URLQueryItem(name: "x-success", value: "arcbrowser://"),
+            URLQueryItem(name: "x-cancel", value: "arcbrowser://"),
+            URLQueryItem(name: "x-error", value: "arcbrowser://"),
+        ]
+        if let shortcutURL = components.url {
+            UIApplication.shared.open(shortcutURL)
+        }
+    }
+}
+
+private struct AddToPlayButton: View {
     let url: URL
     @State private var didRun = false
 
     var body: some View {
         Button {
-            UIPasteboard.general.url = url
             flash($didRun)
-
-            var components = URLComponents()
-            components.scheme = "shortcuts"
-            components.host = "x-callback-url"
-            components.path = "/run-shortcut"
-            components.queryItems = [
-                URLQueryItem(name: "name", value: Self.shortcutName),
-                URLQueryItem(name: "input", value: "text"),
-                URLQueryItem(name: "text", value: url.absoluteString),
-                // Shortcuts returns here when done (or cancelled).
-                URLQueryItem(name: "x-success", value: "arcbrowser://"),
-                URLQueryItem(name: "x-cancel", value: "arcbrowser://"),
-                URLQueryItem(name: "x-error", value: "arcbrowser://"),
-            ]
-            if let shortcutURL = components.url {
-                UIApplication.shared.open(shortcutURL)
-            }
+            AddToPlay.run(with: url)
         } label: {
             CapsuleIcon(systemName: didRun ? "checkmark" : "text.badge.plus")
         }
