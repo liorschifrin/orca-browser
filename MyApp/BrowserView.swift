@@ -27,6 +27,9 @@ struct BrowserView: View {
     /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
     @State private var barMix: Double = 0
     @State private var doneTrigger = 0
+    #if DEBUG
+    @State private var debugStatsHome = CGRect.zero
+    #endif
     @State private var switcherReloadTrigger = 0
     @State private var isShowingSettings = false
     @State private var isShowingHistory = false
@@ -73,6 +76,13 @@ struct BrowserView: View {
             bars
                 // Same rule as the page: the keyboard doesn't push the bar up.
                 .ignoresSafeArea(.keyboard)
+                #if DEBUG
+                .onPreferenceChange(DebugStatsHomeKey.self) { debugStatsHome = $0 }
+                #endif
+
+            #if DEBUG
+            DebugStatsTracker(home: debugStatsHome, mix: barMix)
+            #endif
 
             if let tab = store.selectedTab, let peek = tab.peek, !isSwitching {
                 LinkPreview(
