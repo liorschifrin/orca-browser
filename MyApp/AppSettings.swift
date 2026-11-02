@@ -11,7 +11,9 @@ final class AppSettings {
     private static let hideShortsKey = "hideShorts"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
+    private static let blockRedditPromptKey = "blockRedditPrompt"
     private static let voiceSearchProviderKey = "voiceSearchProvider"
+    private static let allowsPageDialogsKey = "allowsPageDialogs"
 
     private static let searchProvidersKey = "searchProviders.v1"
 
@@ -44,6 +46,17 @@ final class AppSettings {
         didSet { UserDefaults.standard.set(blockTrackers, forKey: Self.blockTrackersKey) }
     }
 
+    /// Removes Reddit's "get the app" pop-up. On by default.
+    var blockRedditPrompt: Bool {
+        didSet { UserDefaults.standard.set(blockRedditPrompt, forKey: Self.blockRedditPromptKey) }
+    }
+
+    /// Lets pages show alerts, confirmations and prompts. On by default; a
+    /// site can also be switched off on its own (`PageDialogPermissions`).
+    var allowsPageDialogs: Bool {
+        didSet { UserDefaults.standard.set(allowsPageDialogs, forKey: Self.allowsPageDialogsKey) }
+    }
+
     private init() {
         searchProviderPreferences = UserDefaults.standard.data(forKey: Self.searchProvidersKey)
             .flatMap { try? JSONDecoder().decode(SearchProviderPreferences.self, from: $0) }
@@ -51,6 +64,8 @@ final class AppSettings {
         hideShorts = UserDefaults.standard.bool(forKey: Self.hideShortsKey)
         blockAds = UserDefaults.standard.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = UserDefaults.standard.object(forKey: Self.blockTrackersKey) as? Bool ?? true
+        blockRedditPrompt = UserDefaults.standard.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true
+        allowsPageDialogs = UserDefaults.standard.object(forKey: Self.allowsPageDialogsKey) as? Bool ?? true
         voiceSearchProvider = VoiceSearchProvider(
             rawValue: UserDefaults.standard.string(forKey: Self.voiceSearchProviderKey) ?? ""
         ) ?? .apple

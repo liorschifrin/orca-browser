@@ -18,34 +18,48 @@ struct WebViewHost: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIView(context: Context) -> WKWebView {
-        // We don't create a web view here; the Tab already owns one.
-        // We just hand that same instance to SwiftUI.
-        context.coordinator.onPreviewLink = onPreviewLink
-        context.coordinator.attach(to: webView)
-        return webView
+    func makeUIView(context: Context) -> WebViewContainer {
+        WebViewContainer()
     }
 
-    func updateUIView(_ uiView: WKWebView, context: Context) {
+    func updateUIView(_ container: WebViewContainer, context: Context) {
+        // The Tab owns the web view, and replaces it if the tab was unloaded
+        // and brought back; show whichever one it has now.
+        context.coordinator.attach(to: webView)
+        container.show(webView)
         // Hidden views take no touches and cost almost nothing to render.
-        uiView.isHidden = !isActive
+        webView.isHidden = !isActive
         context.coordinator.onPreviewLink = isActive ? onPreviewLink : nil
         if isActive { onVisible?() }
     }
 
-    static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
-        uiView.configuration.userContentController.removeScriptMessageHandler(forName: LinkPress.messageName, contentWorld: .defaultClient)
+    static func dismantleUIView(_ container: WebViewContainer, coordinator: Coordinator) {
+        coordinator.detach()
     }
 
     final class Coordinator: NSObject, WKScriptMessageHandler {
         var onPreviewLink: ((URL) -> Void)?
+        private weak var attached: WKWebView?
 
         func attach(to view: WKWebView) {
+            guard view !== attached else { return }
+            detach()
             // Use an isolated script world and a weak bridge so neither page
             // scripts nor the web view own the browser's preview callback.
-            view.configuration.userContentController.add(
+            // Adding a name that's already registered throws (and crashes),
+            // so clear any handler a previous host left behind first.
+            let controller = view.configuration.userContentController
+            controller.removeScriptMessageHandler(forName: LinkPress.messageName, contentWorld: .defaultClient)
+            controller.add(
                 WeakHandler(self), contentWorld: .defaultClient, name: LinkPress.messageName
             )
+            attached = view
+        }
+
+        func detach() {
+            attached?.configuration.userContentController
+                .removeScriptMessageHandler(forName: LinkPress.messageName, contentWorld: .defaultClient)
+            attached = nil
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -64,6 +78,48 @@ struct WebViewHost: UIViewRepresentable {
                 target?.userContentController(userContentController, didReceive: message)
             }
         }
+    }
+}
+
+/// Holds a web view on screen.
+///
+/// Web views belong to tabs, and one can move between places: a held link's
+/// page starts in the preview and, when opened as a tab, moves into the main
+/// browser. So hosts don't hand SwiftUI the web view itself, but a container,
+/// and tell it which web view to show. A container takes a given web view
+/// once; if another container takes it after that, it lets it go rather than
+/// taking it back.
+class WebViewContainer: UIView {
+    private weak var given: WKWebView?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        clipsToBounds = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// The web view, while it's still in this container.
+    var webView: WKWebView? {
+        given?.superview === self ? given : nil
+    }
+
+    /// Shows `view`, unless it's the one already given. Returns true if it
+    /// was newly given.
+    @discardableResult
+    func show(_ view: WKWebView?) -> Bool {
+        guard view !== given else { return false }
+        webView?.removeFromSuperview()
+        given = view
+        guard let view else { return true }
+        view.frame = bounds
+        addSubview(view)
+        return true
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        webView?.frame = bounds
     }
 }
 
@@ -397,7 +453,6 @@ struct LinkPreview: View {
     private func promote(inBackground: Bool) {
         close {
             if previewTab.isBlank { previewTab.load(url) }
-            previewTab.webView?.removeFromSuperview()
             if inBackground { onOpenBackground() }
             else { onOpenNewTab() }
         }
@@ -431,7 +486,7 @@ private struct PreviewPageHost: UIViewRepresentable {
         uiView.attachWebView()
     }
 
-    final class PreviewViewport: UIView {
+    final class PreviewViewport: WebViewContainer {
         private let tab: Tab
         private let url: URL
         private var hasStarted = false
@@ -441,7 +496,6 @@ private struct PreviewPageHost: UIViewRepresentable {
             self.url = url
             super.init(frame: .zero)
             backgroundColor = .systemBackground
-            clipsToBounds = true
             attachWebView()
         }
 
@@ -453,21 +507,17 @@ private struct PreviewPageHost: UIViewRepresentable {
         }
 
         func attachWebView() {
-            guard let webView = tab.webView else { return }
-            if webView.superview !== self {
+            if let webView = tab.webView, show(webView) {
                 webView.isHidden = false
-                addSubview(webView)
                 setNeedsLayout()
             }
         }
 
         override func layoutSubviews() {
+            // Once the page has moved into the main browser, the container
+            // no longer sizes it.
             super.layoutSubviews()
-            // SwiftUI may still lay out the exiting popup after its web view
-            // has moved into the main browser. Never resize that adopted view.
-            guard let webView = tab.webView, webView.superview === self else { return }
-            webView.frame = bounds
-            guard !hasStarted, window != nil, bounds.width > 0, bounds.height > 0 else { return }
+            guard webView != nil, !hasStarted, window != nil, bounds.width > 0, bounds.height > 0 else { return }
             hasStarted = true
             // Avoid publishing observable tab changes during SwiftUI layout.
             DispatchQueue.main.async { [weak self] in
