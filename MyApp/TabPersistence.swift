@@ -2,7 +2,7 @@ import UIKit
 
 /// What we remember about one tab between launches. The heavier things (the
 /// card's picture, the icon, the web view's history) live in files beside it.
-struct SavedTab: Codable {
+nonisolated struct SavedTab: Codable, Sendable {
     var id: UUID
     var url: URL?
     var title: String?
@@ -12,13 +12,13 @@ struct SavedTab: Codable {
     var lastOpenedAt: Date? = nil
 }
 
-struct SavedPeek: Codable {
+nonisolated struct SavedPeek: Codable, Sendable {
     var url: URL
     var currentURL: URL?
     var title: String?
 }
 
-private struct SavedSession: Codable {
+nonisolated private struct SavedSession: Codable, Sendable {
     var tabs: [SavedTab]
     var selectedID: UUID?
 }
@@ -39,11 +39,42 @@ private struct SavedSession: Codable {
 /// Closed-all tabs go to a second folder, ClosedTabs, laid out the same way.
 @MainActor
 enum TabPersistence {
-    private static var directory: URL = {
-        let base = URL.applicationSupportDirectory.appending(path: "Tabs", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base
-    }()
+    nonisolated private static let directory = URL.applicationSupportDirectory.appending(path: "Tabs", directoryHint: .isDirectory)
+
+    nonisolated struct Startup: Sendable {
+        var tabs: [SavedTab] = []
+        var selectedID: UUID?
+        var files: Set<String> = []
+        var closedCount = 0
+        var archived: [ArchivedTab] = []
+    }
+
+    static func loadStartup() async -> Startup {
+        await Task.detached(priority: .userInitiated) {
+            var result = Startup()
+            if let data = try? Data(contentsOf: directory.appending(path: "session.json")),
+               let session = try? JSONDecoder().decode(SavedSession.self, from: data) {
+                result.tabs = session.tabs
+                result.selectedID = session.selectedID
+            }
+            result.files = Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? [])
+            let support = URL.applicationSupportDirectory
+            if let data = try? Data(contentsOf: support.appending(path: "ClosedTabs/session.json")) {
+                result.closedCount = (try? JSONDecoder().decode([SavedTab].self, from: data).count) ?? 0
+            }
+            result.archived = (try? TabArchive.shared.load()) ?? []
+            return result
+        }.value
+    }
+
+    static func restoreRecord(_ saved: SavedTab, files: Set<String>) -> Tab {
+        let hasSnapshot = files.contains("\(saved.id.uuidString).jpg")
+        let peekHasSnapshot = files.contains("\(saved.id.uuidString).peek.jpg")
+        let tab = Tab(restoring: saved, hasSnapshot: hasSnapshot, favicon: nil, peekHasSnapshot: peekHasSnapshot)
+        if hasSnapshot { writtenSnapshots[tab.id] = tab.snapshotRevision }
+        if let peek = tab.peek?.tab, peekHasSnapshot { writtenPeekSnapshots[tab.id] = peek.snapshotRevision }
+        return tab
+    }
 
     /// Revisions already on disk, so unchanged pictures aren't re-encoded.
     private static var writtenSnapshots: [UUID: Int] = [:]
@@ -63,6 +94,7 @@ enum TabPersistence {
     /// One piece of disk work, prepared on the main thread and run on `queue`.
     nonisolated private enum Write: @unchecked Sendable {
         case data(Data, URL)
+        case session(SavedSession, URL)
         case jpeg(UIImage, URL)
         case png(UIImage, URL)
     }
@@ -118,16 +150,18 @@ enum TabPersistence {
         return unwrittenPictures[url] ?? image(url)
     }
 
-    /// A tab's history, read back from disk.
-    static func loadInteractionState(for tab: Tab) -> Data? {
-        guard let state = try? Data(contentsOf: stateFile(for: tab)) else { return nil }
-        // It's on disk already; don't write it again unless it changes.
-        if tab.fileOwner.isPeek {
-            writtenPeekStates[tab.fileOwner.id] = state
-        } else {
-            writtenStates[tab.fileOwner.id] = state
-        }
-        return state
+    /// Memory-only lookup: thumbnail callers must never synchronously read a JPEG.
+    static func pendingSnapshot(for tab: Tab) -> UIImage? {
+        unwrittenPictures[snapshotFile(for: tab)]
+    }
+
+    static func readInteractionState(for tab: Tab) async -> Data? {
+        let file = stateFile(for: tab)
+        let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: file) }.value
+        guard !Task.isCancelled else { return nil }
+        if tab.fileOwner.isPeek { writtenPeekStates[tab.fileOwner.id] = data }
+        else { writtenStates[tab.fileOwner.id] = data }
+        return data
     }
 
     static func save(tabs: [Tab], selectedID: Tab.ID) {
@@ -135,9 +169,7 @@ enum TabPersistence {
         var writes: [Write] = []
 
         let session = SavedSession(tabs: saved.map(savedTab), selectedID: selectedID)
-        if let data = try? JSONEncoder().encode(session) {
-            writes.append(.data(data, directory.appending(path: "session.json")))
-        }
+        writes.append(.session(session, directory.appending(path: "session.json")))
 
         for tab in saved {
             if let state = tab.interactionStateForSaving, writtenStates[tab.id] != state {
@@ -198,6 +230,7 @@ enum TabPersistence {
         let backgroundTask = application.beginBackgroundTask(withName: "Save tabs")
         let directory = directory
         queue.async {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             perform(writes)
             removeFiles(in: directory, except: keep, peeks: peeks)
             DispatchQueue.main.async {
@@ -215,6 +248,8 @@ enum TabPersistence {
     nonisolated private static func perform(_ writes: [Write]) {
         for write in writes {
             switch write {
+            case .session(let session, let url):
+                try? JSONEncoder().encode(session).write(to: url, options: .atomic)
             case .data(let data, let url):
                 try? data.write(to: url, options: .atomic)
             case .jpeg(let image, let url):
@@ -223,17 +258,6 @@ enum TabPersistence {
                 try? image.pngData()?.write(to: url, options: .atomic)
             }
         }
-    }
-
-    /// Returns the saved tabs (none loaded yet) and the current tab's id, or
-    /// nil if there is nothing saved.
-    static func load() -> (tabs: [Tab], selectedID: UUID?)? {
-        guard let data = try? Data(contentsOf: directory.appending(path: "session.json")),
-              let session = try? JSONDecoder().decode(SavedSession.self, from: data),
-              !session.tabs.isEmpty
-        else { return nil }
-
-        return (session.tabs.map(restoredTab), session.selectedID)
     }
 
     // MARK: - Closed tabs

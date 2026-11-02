@@ -85,6 +85,7 @@ final class ContentBlocker {
     /// and fetches any list that was just switched on.
     func settingsChanged() {
         refresh()
+        start()
         Task { await updateIfNeeded() }
     }
 
@@ -177,6 +178,8 @@ final class ContentBlocker {
         guard !started else { return }
         started = true
         Task {
+            // Even cached lists are optional during startup and interactions.
+            do { try await InteractionBudget.shared.waitForIdle() } catch { return }
             await loadSavedLists()
             await updateIfNeeded()
         }
@@ -219,12 +222,15 @@ final class ContentBlocker {
         isUpdating = true
         defer { isUpdating = false }
 
-        // Routine refreshes wait, so they never compete with the page being
-        // opened. A missing list (first launch) starts at once.
-        if !missing { try? await Task.sleep(for: .seconds(8)) }
+        // Fresh installs receive the same quiet startup as routine refreshes.
+        do {
+            try await Task.sleep(for: .seconds(8))
+            try await InteractionBudget.shared.waitForIdle()
+        } catch { return }
 
         var succeeded = true
         for filter in filters {
+            do { try await InteractionBudget.shared.waitForIdle() } catch { return }
             if await update(filter) == false { succeeded = false }
         }
         if succeeded { UserDefaults.standard.set(Date.now, forKey: Self.lastCheckKey) }
@@ -262,7 +268,8 @@ final class ContentBlocker {
             case 304:
                 // Unchanged. Only rebuild if WebKit lost its compiled copy.
                 if compiled[filter.id] != nil { return true }
-                guard let cached = try? Data(contentsOf: cacheFile) else { return false }
+                let cached = await Task.detached(priority: .utility) { try? Data(contentsOf: cacheFile) }.value
+                guard let cached else { return false }
                 data = cached
             default:
                 return false
@@ -272,6 +279,7 @@ final class ContentBlocker {
             return false
         }
 
+        do { try await InteractionBudget.shared.waitForIdle() } catch { return false }
         let began = ContinuousClock.now
         let converted = await Task.detached(priority: .utility) { Self.convert(data) }.value
         // An empty result would silently switch the list off; keep the old one.
@@ -283,6 +291,7 @@ final class ContentBlocker {
 
         guard let store = WKContentRuleListStore.default() else { return false }
         do {
+            try await InteractionBudget.shared.waitForIdle()
             compiled[filter.id] = try await store.compileContentRuleList(
                 forIdentifier: filter.identifier, encodedContentRuleList: converted.json
             )
@@ -297,8 +306,10 @@ final class ContentBlocker {
             """)
 
         // Remember the text only once it has proven good.
-        try? FileManager.default.createDirectory(at: Self.cacheDirectory, withIntermediateDirectories: true)
-        try? data.write(to: cacheFile, options: .atomic)
+        await Task.detached(priority: .utility) {
+            try? FileManager.default.createDirectory(at: Self.cacheDirectory, withIntermediateDirectories: true)
+            try? data.write(to: cacheFile, options: .atomic)
+        }.value
         if let newETag { defaults.set(newETag, forKey: etagKey) }
         refresh()
         return true

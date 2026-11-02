@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 /// The one and only screen. The page fills the whole display, the bottom
@@ -19,7 +20,6 @@ struct BrowserView: View {
     /// A new value for every time the switcher opens, so SwiftUI never reuses
     /// a switcher that was mid-exit (it would still think it was "leaving").
     @State private var switcherID = UUID()
-    @State private var isPreparingSwitcher = false
     /// The switcher is animating away (a card was picked).
     @State private var isExitingSwitcher = false
     /// The tabs button was tapped during that exit: open it again afterwards.
@@ -45,7 +45,7 @@ struct BrowserView: View {
     init() {
         let store = BrowserStore()
         _store = State(initialValue: store)
-        _isSearching = State(initialValue: store.selectedTab?.isBlank ?? true)
+        _isSearching = State(initialValue: false)
     }
 
     var body: some View {
@@ -133,7 +133,7 @@ struct BrowserView: View {
                            let url = Destination.url(for: input) {
                             tab.load(url, input: input)
                         } else {
-                            await store.open(input)
+                            store.open(input)
                         }
                         closeSwitcher()
                     }
@@ -143,14 +143,21 @@ struct BrowserView: View {
 
         }
         // Save when leaving the app: iOS may close it without further notice.
+        .onChange(of: isSearching) { InteractionBudget.shared.isSearching = isSearching }
+        .onChange(of: isSwitching) { InteractionBudget.shared.isSwitching = isSwitching }
         .onChange(of: scenePhase) {
+            InteractionBudget.shared.isForeground = scenePhase == .active
             if scenePhase == .active {
-                archiveInactiveTabs()
+                Task {
+                    try? await InteractionBudget.shared.waitForIdle()
+                    guard !Task.isCancelled else { return }
+                    archiveInactiveTabs()
+                }
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
                 store.save()
-                HistoryStore.shared.flush()
+                HistoryStore.flushIfNeeded()
             }
         }
         .onChange(of: settings.hideShorts) {
@@ -188,7 +195,7 @@ struct BrowserView: View {
                 onOpen: { url in
                     isShowingHistory = false
                     Task {
-                        await store.open(url.absoluteString)
+                        store.open(url.absoluteString)
                         closeSwitcher()
                     }
                 },
@@ -233,9 +240,16 @@ struct BrowserView: View {
         }
         // Every so often, unload tabs that have sat unused for a while.
         .task {
+            PerformanceTrace.signposter.emitEvent("Browser shell mounted")
+            await store.restoreSession()
+            if store.selectedTab?.isBlank == true, !isSearching { openSearch() }
+            if isSwitching { switcherReloadTrigger += 1 }
+            ContentBlocker.shared.start()
             ClipboardCache.shared.refresh()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                try? await InteractionBudget.shared.waitForIdle()
                 guard !Task.isCancelled else { return }
                 if scenePhase == .active { archiveInactiveTabs() }
                 store.enforceMemoryPolicy()
@@ -293,7 +307,11 @@ struct BrowserView: View {
                         .transition(.identity)
                 }
                 // Stop these above the bar so its buttons stay usable.
-                if tab.isBlank {
+                if store.isRestoringSession && tab.isBlank {
+                    Text("Restoring tabs…")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if tab.isBlank {
                     StartView()
                         .padding(.bottom, barHeight)
                 } else if let error = tab.loadError {
@@ -340,7 +358,7 @@ struct BrowserView: View {
                         onShowTabs: openSwitcher,
                         onVoiceSearch: { url in
                             Task {
-                                await store.open(url.absoluteString)
+                                store.open(url.absoluteString)
                                 closeSwitcher()
                             }
                         }
@@ -415,6 +433,7 @@ struct BrowserView: View {
 
     /// New tabs start with the previous search or entry selected.
     private func openSearch(editing url: URL? = nil) {
+        InteractionBudget.shared.interacted()
         editingURL = url
         searchOpenedFromGoogle = url == nil
             && Destination.searchQuery(from: store.selectedTab?.url) != nil
@@ -436,35 +455,11 @@ struct BrowserView: View {
             reopenAfterExit = true
             return
         }
-        // Ignore taps while one is already on its way (or open).
-        guard !isPreparingSwitcher, !isSwitching else { return }
-        isPreparingSwitcher = true
-        Task {
-            // Only wait for a picture when there is none at all. Otherwise the
-            // one we have (refreshed after every scroll or load) is shown now,
-            // and a newer one swaps in if it's still being taken.
-            if let tab = store.selectedTab, tab.needsSnapshot {
-                if !tab.hasSnapshot {
-                    await tab.captureSnapshot()
-                } else {
-                    Task { await tab.captureSnapshot() }
-                }
-            }
-            if let peekTab = store.selectedTab?.peek?.tab, peekTab.needsSnapshot {
-                if !peekTab.hasSnapshot {
-                    await peekTab.captureSnapshot()
-                } else {
-                    Task { await peekTab.captureSnapshot() }
-                }
-            }
-            // The deck opens on the most recent tabs; have their thumbnails
-            // ready so their cards don't arrive empty.
-            let opening = store.tabsByRecency.suffix(TabSwitcher.cardsBehind + 2)
-            await CardThumbnails.shared.prefetch(opening + opening.compactMap(\.peek?.tab))
-            switcherID = UUID()
-            isSwitching = true
-            isPreparingSwitcher = false
-        }
+        guard !isSwitching else { return }
+        PerformanceTrace.signposter.emitEvent("Switcher requested")
+        InteractionBudget.shared.interacted()
+        switcherID = UUID()
+        isSwitching = true
     }
 
     private func closeSwitcher() {

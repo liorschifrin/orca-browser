@@ -1,6 +1,6 @@
 import Foundation
 
-struct ArchivedTab: Codable, Identifiable {
+nonisolated struct ArchivedTab: Codable, Identifiable, Sendable {
     var tab: SavedTab
     var archivedAt: Date
 
@@ -14,7 +14,7 @@ struct ArchivedTab: Codable, Identifiable {
     }
 }
 
-struct TabArchive {
+nonisolated struct TabArchive: Sendable {
     static let shared = TabArchive(directory: URL.applicationSupportDirectory.appending(path: "ArchivedTabs", directoryHint: .isDirectory))
     let directory: URL
 

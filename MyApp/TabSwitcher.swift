@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 /// Full-screen overview of open tabs, laid out as a deck (see `StackMetrics`).
@@ -192,6 +193,7 @@ struct TabSwitcher: View {
                 // Paging changes `position` every frame; only cards whose
                 // inputs actually changed (the ones near focus) redraw.
                 .equatable()
+                .environment(\.thumbnailDelay, 400 + Int(abs(relative)) * 100)
                 .modifier(StackEffect(
                     relative: relative,
                     // Older cards start tiny by the tabs button...
@@ -260,6 +262,7 @@ struct TabSwitcher: View {
     private func pagingGesture(_ metrics: StackMetrics) -> some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
+                InteractionBudget.shared.interacted()
                 if isHorizontalDrag == nil {
                     isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
                 }
@@ -271,6 +274,7 @@ struct TabSwitcher: View {
                 position = rubberBanded(start - value.translation.width / metrics.pagePixels)
             }
             .onEnded { value in
+                InteractionBudget.shared.interacted()
                 defer {
                     isHorizontalDrag = nil
                     dragStartPosition = nil
@@ -300,7 +304,8 @@ struct TabSwitcher: View {
         // Hold the starting pose for a few frames. The first draw of the deck
         // (decoding pictures, drawing shadows) is slow; doing it here, while
         // nothing is moving, keeps that cost out of the animation itself.
-        try? await Task.sleep(for: .milliseconds(8))
+        PerformanceTrace.signposter.emitEvent("Switcher mounted")
+        await Task.yield()
         // The current page's card starts exactly covering the live page, so
         // the backdrop can be solid from the start. Fading it in instead
         // lets the live page show through as a ghost behind the cards.
@@ -320,10 +325,8 @@ struct TabSwitcher: View {
             finish()
             return
         }
-        // Restore behind the expanding card. By the time the card leaves,
-        // the web view has already had the exit animation to start loading.
-        tab.activate()
-        tab.peek?.tab.activate()
+        // Start the animation first. The selection callback activates the
+        // page after it finishes; WebKit cannot hold up the first frame.
         leavingID = tab.id
         onLeaveStart()
         withAnimation(.spring(duration: Self.exitDuration, bounce: 0)) {

@@ -1,3 +1,4 @@
+import OSLog
 import ImageIO
 import SwiftUI
 
@@ -5,7 +6,7 @@ import SwiftUI
 ///
 /// A full page picture takes about 5 MB once decoded, and with a hundred tabs
 /// that adds up to more memory than a phone will give the app. A card needs
-/// only a fraction of it. So cards of tabs that aren't live get a thumbnail
+/// only a fraction of it. All cards use a prepared thumbnail
 /// instead: decoded off the main thread straight from the picture's file, at
 /// card size, and kept only while recently used. The switcher's memory then
 /// stays about the same however many tabs are open.
@@ -23,7 +24,7 @@ final class CardThumbnails {
         cache.totalCostLimit = 60 * 1024 * 1024
         return cache
     }()
-    private var loading: [String: Task<UIImage?, Never>] = [:]
+    private var isDecoding = false
 
     private init() {}
 
@@ -41,33 +42,32 @@ final class CardThumbnails {
     func thumbnail(for tab: Tab) async -> UIImage? {
         guard tab.hasSnapshot else { return nil }
         let key = Self.key(tab)
-        if let image = cache.object(forKey: key as NSString) { return image }
-        if let task = loading[key] { return await task.value }
-
-        let source = tab.snapshot
+        // One decode at a time. Canceled/offscreen requests leave before they
+        // take a slot; a long swipe cannot flood the device with image work.
+        do {
+            while true {
+                try await InteractionBudget.shared.waitForIdle(allowSwitcher: true)
+                if let image = cache.object(forKey: key as NSString) { return image }
+                if !isDecoding { break }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            try Task.checkCancellation()
+        } catch { return nil }
+        isDecoding = true
+        defer { isDecoding = false }
+        let source = tab.snapshot ?? TabPersistence.pendingSnapshot(for: tab)
         let file = TabPersistence.snapshotFile(for: tab)
-        let pending = source == nil ? TabPersistence.loadSnapshot(for: tab) : nil
-        let task = Task.detached(priority: .userInitiated) {
-            if let image = source ?? pending { return Self.shrink(image) }
+        let interval = PerformanceTrace.signposter.beginInterval("Card thumbnail")
+        defer { PerformanceTrace.signposter.endInterval("Card thumbnail", interval) }
+        let image = await Task.detached(priority: .utility) {
+            if let source { return Self.shrink(source) }
             return Self.decode(file)
-        }
-        loading[key] = task
-        let image = await task.value
-        loading[key] = nil
+        }.value
+        guard !Task.isCancelled, key == Self.key(tab) else { return nil }
         if let image {
             cache.setObject(image, forKey: key as NSString, cost: Self.cost(of: image))
         }
         return image
-    }
-
-    /// Decodes thumbnails ahead of time, all at once, so cards that are
-    /// about to appear don't show up empty.
-    func prefetch(_ tabs: [Tab]) async {
-        await withTaskGroup(of: Void.self) { group in
-            for tab in tabs where tab.snapshot == nil && tab.hasSnapshot {
-                group.addTask { _ = await self.thumbnail(for: tab) }
-            }
-        }
     }
 
     func removeAll() {
@@ -101,12 +101,12 @@ final class CardThumbnails {
     }
 }
 
-/// A tab's picture for a card: the full one when the tab still has it in
-/// memory (a live tab, so it costs nothing extra), else a thumbnail.
+/// Cards draw only prepared thumbnails, never lazily decoded full-size images.
 struct TabPicture<Content: View>: View {
     let tab: Tab
     @ViewBuilder let content: (UIImage?) -> Content
     @State private var thumbnail: UIImage?
+    @Environment(\.thumbnailDelay) private var delay
 
     init(tab: Tab, @ViewBuilder content: @escaping (UIImage?) -> Content) {
         self.tab = tab
@@ -118,13 +118,31 @@ struct TabPicture<Content: View>: View {
     private struct LoadKey: Equatable {
         var revision: Int
         var isInMemory: Bool
+        var delay: Int
     }
 
     var body: some View {
-        content(tab.snapshot ?? thumbnail)
-            .task(id: LoadKey(revision: tab.snapshotRevision, isInMemory: tab.snapshot != nil)) {
-                guard tab.snapshot == nil else { return }
-                thumbnail = await CardThumbnails.shared.thumbnail(for: tab)
+        content(thumbnail)
+            .task(id: LoadKey(revision: tab.snapshotRevision, isInMemory: tab.snapshot != nil, delay: delay)) {
+                do {
+                    // First draw uses only the cache or a placeholder. Focused
+                    // cards load first after the entrance/drag has settled.
+                    try await Task.sleep(for: .milliseconds(delay))
+                    let loaded = await CardThumbnails.shared.thumbnail(for: tab)
+                    guard !Task.isCancelled else { return }
+                    if let loaded { thumbnail = loaded }
+                } catch { }
             }
+    }
+}
+
+private struct ThumbnailDelayKey: EnvironmentKey {
+    static let defaultValue = 400
+}
+
+extension EnvironmentValues {
+    var thumbnailDelay: Int {
+        get { self[ThumbnailDelayKey.self] }
+        set { self[ThumbnailDelayKey.self] = newValue }
     }
 }

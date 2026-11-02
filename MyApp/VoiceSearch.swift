@@ -43,7 +43,7 @@ final class VoiceSearch {
 
     /// Switching the audio session on or off can take a noticeable moment, so
     /// it happens here rather than on the main thread, in order.
-    nonisolated private static let audioQueue = DispatchQueue(label: "VoiceSearch.audio", qos: .userInitiated)
+    nonisolated private static let audioQueue = BackgroundPlayback.audioQueue
 
     var isBusy: Bool { state != .idle }
 
