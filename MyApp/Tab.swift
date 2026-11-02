@@ -48,6 +48,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     }
     @ObservationIgnored private var faviconURL: URL?
 
+    /// Requests blocked on the current page, by kind. Start again at each page.
+    private(set) var adsBlocked = 0
+    private(set) var trackersBlocked = 0
+
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
 
@@ -107,6 +111,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         let configuration = WKWebViewConfiguration()
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
+        ContentBlocker.shared.install(on: configuration.userContentController)
         configuration.userContentController.addUserScript(LinkPress.userScript)
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
@@ -143,6 +148,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         guard webView == nil else { return }
         let view = makeWebView()
         isRestoring = true
+        // Restoring a page may not report its address before its requests start.
+        if let url { ContentBlocker.shared.willNavigate(view.configuration.userContentController, to: url) }
 
         if let savedInteractionState {
             view.interactionState = savedInteractionState
@@ -337,15 +344,35 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// Turns youtube.com/shorts/ID addresses into the normal watch page while
     /// Shorts are hidden.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        let isMainFrame = action.targetFrame?.isMainFrame ?? true
         if AppSettings.shared.hideShorts,
-           action.targetFrame?.isMainFrame ?? true,
+           isMainFrame,
            let url = action.request.url,
            let watchURL = ShortsFilter.watchURL(forShorts: url) {
             decisionHandler(.cancel)
             load(watchURL)
             return
         }
+        // Before the page's requests go out, give it the right blocking lists:
+        // a site can have ad or tracker blocking switched off.
+        if isMainFrame, let url = action.request.url {
+            ContentBlocker.shared.willNavigate(webView.configuration.userContentController, to: url)
+        }
         decisionHandler(.allow)
+    }
+
+    /// WebKit tells its delegate whenever a blocking list acts on a request.
+    /// This callback isn't part of the public API, which has no way to count
+    /// what was blocked, so this is the only place that depends on it. If WebKit
+    /// ever drops it, blocking keeps working and the counts stay at zero.
+    @objc(_webView:contentRuleListWithIdentifier:performedAction:forURL:)
+    func webView(_ webView: WKWebView, contentRuleListWithIdentifier identifier: String, performedAction action: NSObject, forURL url: URL) {
+        guard (action.value(forKey: "blockedLoad") as? Bool) == true else { return }
+        switch ContentBlocker.shared.category(ofList: identifier) {
+        case .ads: adsBlocked += 1
+        case .trackers: trackersBlocked += 1
+        case nil: break
+        }
     }
 
     /// Applies the Shorts setting to a page that is already open.
@@ -358,6 +385,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         loadError = nil
         snapshotIsStale = true
+        adsBlocked = 0
+        trackersBlocked = 0
 
     }
 

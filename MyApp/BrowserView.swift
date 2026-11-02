@@ -33,6 +33,7 @@ struct BrowserView: View {
     @State private var barMix: Double = 0
     @State private var doneTrigger = 0
     @State private var isShowingSettings = false
+    @State private var siteMenu: SiteMenuTarget?
     private let settings = AppSettings.shared
     @Environment(\.scenePhase) private var scenePhase
 
@@ -123,6 +124,11 @@ struct BrowserView: View {
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)
         }
+        .onChange(of: settings.blockAds) { ContentBlocker.shared.settingsChanged() }
+        .onChange(of: settings.blockTrackers) { ContentBlocker.shared.settingsChanged() }
+        .sheet(item: $siteMenu) { target in
+            SiteMenu(target: target)
+        }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(settings: settings, onDone: { isShowingSettings = false })
         }
@@ -198,6 +204,11 @@ struct BrowserView: View {
                         plusButtonWidth: geometry.size.width * 0.19,
                         onNewTab: { openSearch(prefillingSearchTerm: true) },
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
+                        onSiteMenu: {
+                            // Only web pages have a site to configure.
+                            guard let site = ContentBlocker.site(for: tab.url) else { return }
+                            siteMenu = SiteMenuTarget(tab: tab, site: site)
+                        },
                         onShowTabs: openSwitcher,
                         onVoiceSearch: { url in
                             Task {

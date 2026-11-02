@@ -4,7 +4,7 @@ import WebKit
 /// The floating bar at the bottom of the screen.
 ///
 ///     [ tabs ]  [      +      ]  [ mic ][ back ]
-///     [ site name ................ reload ]
+///     [ site name .......... settings reload ]
 ///
 /// Everything is within thumb reach on purpose.
 struct BottomBar: View {
@@ -13,6 +13,8 @@ struct BottomBar: View {
     let plusButtonWidth: CGFloat
     let onNewTab: () -> Void
     let onEditAddress: () -> Void
+    /// Called when the site settings caret in the address bar is tapped.
+    let onSiteMenu: () -> Void
     let onShowTabs: () -> Void
     /// Called with the Google search address for a finished voice search.
     let onVoiceSearch: (URL) -> Void
@@ -421,12 +423,26 @@ struct BottomBar: View {
                     }
                 }
                 Spacer()
+                // Only web pages have a site to configure.
+                if ContentBlocker.site(for: tab.url) != nil {
+                    siteSettingsButton
+                }
                 reloadButton
             }
         }
         .padding(.horizontal, 6)
         .frame(height: 24)
         .background(.thinMaterial, in: .capsule)
+    }
+
+    private var siteSettingsButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+            onSiteMenu()
+        } label: {
+            CapsuleIcon(systemName: "chevron.up")
+        }
+        .accessibilityLabel("Site Settings")
     }
 
     private var reloadButton: some View {
