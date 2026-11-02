@@ -30,7 +30,9 @@ struct BottomBar: View {
                     TabSwitcherButton(count: tabCount, action: onShowTabs)
 
                     #if DEBUG
-                    DebugStatsAnchor()
+                    if AppSettings.shared.showDebugStats {
+                        DebugStatsAnchor()
+                    }
                     #endif
 
                     Spacer()
