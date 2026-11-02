@@ -24,8 +24,8 @@ struct TabSwitcher: View {
     @Binding var barMix: Double
     /// Incremented by the bar's left button; means "go back to the current tab".
     let doneTrigger: Int
-    /// Incremented when the store's tabs were replaced wholesale (Close All,
-    /// Restore); means "show the tabs as they are now".
+    /// Incremented when the store's tabs change outside the switcher; means
+    /// "show the tabs as they are now".
     let reloadTrigger: Int
     let onSelect: (Tab) -> Void
     let onClose: (Tab) -> Void
@@ -365,8 +365,8 @@ struct TabSwitcher: View {
     }
 }
 
-/// The switcher's bottom bar: a "done" button and "close all" on the left, a
-/// centered capsule "+", and "restore" and settings buttons on the right. Drawn by `BrowserView` (not by
+/// The switcher's bottom bar: a "done" button on the left, a centered capsule
+/// "+", and history and settings buttons on the right. Drawn by `BrowserView` (not by
 /// `TabSwitcher`) so it can sit above the cards and cross-fade with the
 /// browser's own bar.
 ///
@@ -377,42 +377,17 @@ struct SwitcherBar: View {
     /// The browser bar's measured height.
     let height: CGFloat
     let plusButtonWidth: CGFloat
-    /// False when there is nothing to close (only a blank tab is open).
-    let canCloseAll: Bool
-    /// How many tabs Close All has put away, waiting to be restored.
-    let closedCount: Int
     let onDone: () -> Void
     let onNewTab: () -> Void
-    let onCloseAll: () -> Void
-    let onRestore: () -> Void
     let onHistory: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             BarButton(systemName: "display", label: "Back to page", action: onDone)
-            BarButton(systemName: "trash", label: "Close all tabs", action: onCloseAll)
-                .disabled(!canCloseAll)
-                .opacity(canCloseAll ? 1 : 0.3)
 
             Spacer()
 
-            BarButton(systemName: "arrow.uturn.backward", label: "Restore closed tabs", action: onRestore)
-                .disabled(closedCount == 0)
-                .opacity(closedCount == 0 ? 0.3 : 1)
-                .overlay(alignment: .topTrailing) {
-                    if closedCount > 0 {
-                        Text("\(closedCount)")
-                            .font(.caption2.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor, in: .capsule)
-                            .offset(x: 6, y: -6)
-                            .allowsHitTesting(false)
-                    }
-                }
             BarButton(systemName: "clock", label: "History", action: onHistory)
             BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
         }
@@ -420,8 +395,6 @@ struct SwitcherBar: View {
         .overlay {
             NewTabButton(width: plusButtonWidth, height: 44, action: onNewTab)
         }
-        .animation(.easeOut(duration: 0.2), value: canCloseAll)
-        .animation(.easeOut(duration: 0.2), value: closedCount == 0)
         .padding(.horizontal, 20)
         // The browser bar has a 2pt progress line, then 2pt of padding, above
         // its button row.
