@@ -29,6 +29,9 @@ struct BrowserView: View {
     @State private var doneTrigger = 0
     @State private var switcherReloadTrigger = 0
     @State private var isShowingSettings = false
+    @State private var isShowingHistory = false
+    /// Tabs were added while History was open; the switcher catches up when it closes.
+    @State private var switcherNeedsReload = false
     @State private var siteMenu: SiteMenuTarget?
     private let settings = AppSettings.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -129,15 +132,56 @@ struct BrowserView: View {
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
             if scenePhase == .active { ClipboardCache.shared.refresh() }
-            else { store.save() }
+            else {
+                store.save()
+                HistoryStore.shared.flush()
+            }
         }
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)
+        }
+        .onChange(of: settings.blockRedditPrompt) {
+            store.applyRedditPromptSetting(settings.blockRedditPrompt)
         }
         .onChange(of: settings.blockAds) { ContentBlocker.shared.settingsChanged() }
         .onChange(of: settings.blockTrackers) { ContentBlocker.shared.settingsChanged() }
         .sheet(item: $siteMenu) { target in
             SiteMenu(target: target)
+        }
+        .sheet(isPresented: $isShowingHistory, onDismiss: {
+            if switcherNeedsReload {
+                switcherNeedsReload = false
+                switcherReloadTrigger += 1
+            }
+        }) {
+            HistoryView(
+                onOpen: { url in
+                    isShowingHistory = false
+                    Task {
+                        await store.open(url.absoluteString)
+                        closeSwitcher()
+                    }
+                },
+                onOpenInBackground: { url in
+                    store.openInBackground(url)
+                    switcherNeedsReload = true
+                },
+                onAdoptPeek: { tab, inBackground in
+                    store.adoptPreview(tab, inBackground: inBackground)
+                    if inBackground {
+                        switcherNeedsReload = true
+                    } else {
+                        isShowingHistory = false
+                        closeSwitcher()
+                    }
+                },
+                onOpenPeekHere: { url in
+                    isShowingHistory = false
+                    store.selectedTab?.load(url)
+                    closeSwitcher()
+                },
+                onDone: { isShowingHistory = false }
+            )
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(settings: settings, onDone: { isShowingSettings = false })
@@ -270,6 +314,7 @@ struct BrowserView: View {
                             store.restoreClosed()
                             switcherReloadTrigger += 1
                         },
+                        onHistory: { isShowingHistory = true },
                         onSettings: { isShowingSettings = true }
                     )
                     // `barHeight` was measured after the browser bar's negative

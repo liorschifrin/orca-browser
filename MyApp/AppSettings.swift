@@ -11,6 +11,7 @@ final class AppSettings {
     private static let hideShortsKey = "hideShorts"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
+    private static let blockRedditPromptKey = "blockRedditPrompt"
     private static let voiceSearchProviderKey = "voiceSearchProvider"
 
     var voiceSearchProvider: VoiceSearchProvider {
@@ -32,10 +33,16 @@ final class AppSettings {
         didSet { UserDefaults.standard.set(blockTrackers, forKey: Self.blockTrackersKey) }
     }
 
+    /// Removes Reddit's "get the app" pop-up. On by default.
+    var blockRedditPrompt: Bool {
+        didSet { UserDefaults.standard.set(blockRedditPrompt, forKey: Self.blockRedditPromptKey) }
+    }
+
     private init() {
         hideShorts = UserDefaults.standard.bool(forKey: Self.hideShortsKey)
         blockAds = UserDefaults.standard.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = UserDefaults.standard.object(forKey: Self.blockTrackersKey) as? Bool ?? true
+        blockRedditPrompt = UserDefaults.standard.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true
         voiceSearchProvider = VoiceSearchProvider(
             rawValue: UserDefaults.standard.string(forKey: Self.voiceSearchProviderKey) ?? ""
         ) ?? .apple
