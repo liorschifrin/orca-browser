@@ -35,6 +35,8 @@ struct BrowserView: View {
     @State private var isShowingHistory = false
     /// Tabs were added while History was open; the switcher catches up when it closes.
     @State private var switcherNeedsReload = false
+    /// What's typed into a page's text prompt.
+    @State private var dialogText = ""
     @State private var siteMenu: SiteMenuTarget?
     private let settings = AppSettings.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -141,8 +143,10 @@ struct BrowserView: View {
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
-            if scenePhase == .active { ClipboardCache.shared.refresh() }
-            else {
+            if scenePhase == .active {
+                ClipboardCache.shared.refresh()
+                Translation.forgetChromeAvailability()
+            } else {
                 store.save()
                 HistoryStore.shared.flush()
             }
@@ -192,6 +196,21 @@ struct BrowserView: View {
                 },
                 onDone: { isShowingHistory = false }
             )
+        }
+        .alert(
+            dialogTitle,
+            isPresented: Binding(
+                get: { dialogTab?.dialog != nil },
+                set: { if !$0 { dialogTab?.answerDialog(.cancel) } }
+            ),
+            presenting: dialogTab?.dialog
+        ) { dialog in
+            dialogButtons(dialog)
+        } message: { dialog in
+            Text(dialog.message)
+        }
+        .onChange(of: dialogTab?.dialog?.id) {
+            if case .prompt(let defaultText) = dialogTab?.dialog?.kind { dialogText = defaultText }
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(settings: settings, onDone: { isShowingSettings = false })
@@ -339,6 +358,42 @@ struct BrowserView: View {
         }
     }
 
+    // MARK: - Page dialogs
+
+    /// The tab whose page is waiting on a dialog: the held link's page if it
+    /// asked, else the current page.
+    private var dialogTab: Tab? {
+        guard let tab = store.selectedTab else { return nil }
+        if let peekTab = tab.peek?.tab, peekTab.dialog != nil { return peekTab }
+        return tab
+    }
+
+    private var dialogTitle: String {
+        guard let dialog = dialogTab?.dialog else { return "" }
+        return dialog.site.map { "\($0) says" } ?? "This page says"
+    }
+
+    @ViewBuilder
+    private func dialogButtons(_ dialog: PageDialog) -> some View {
+        switch dialog.kind {
+        case .alert:
+            Button("OK") { dialogTab?.answerDialog(.ok(text: nil)) }
+        case .confirm:
+            Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
+            Button("OK") { dialogTab?.answerDialog(.ok(text: nil)) }
+        case .prompt:
+            TextField("", text: $dialogText)
+            Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
+            Button("OK") { dialogTab?.answerDialog(.ok(text: dialogText)) }
+        }
+        if let site = dialog.site {
+            Button("Block Dialogs from This Site", role: .destructive) {
+                PageDialogPermissions.shared.setAllowed(false, on: site)
+                dialogTab?.answerDialog(.cancel)
+            }
+        }
+    }
+
     // MARK: - Actions
 
     /// New tabs start with the previous search or entry selected.
@@ -372,19 +427,23 @@ struct BrowserView: View {
             // one we have (refreshed after every scroll or load) is shown now,
             // and a newer one swaps in if it's still being taken.
             if let tab = store.selectedTab, tab.needsSnapshot {
-                if tab.snapshot == nil {
+                if !tab.hasSnapshot {
                     await tab.captureSnapshot()
                 } else {
                     Task { await tab.captureSnapshot() }
                 }
             }
             if let peekTab = store.selectedTab?.peek?.tab, peekTab.needsSnapshot {
-                if peekTab.snapshot == nil {
+                if !peekTab.hasSnapshot {
                     await peekTab.captureSnapshot()
                 } else {
                     Task { await peekTab.captureSnapshot() }
                 }
             }
+            // The deck opens on the most recent tabs; have their thumbnails
+            // ready so their cards don't arrive empty.
+            let opening = store.tabsByRecency.suffix(TabSwitcher.cardsBehind + 2)
+            await CardThumbnails.shared.prefetch(opening + opening.compactMap(\.peek?.tab))
             switcherID = UUID()
             isSwitching = true
             isPreparingSwitcher = false

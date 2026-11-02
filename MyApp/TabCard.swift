@@ -7,7 +7,7 @@ import SwiftUI
 /// The card knows nothing about where it sits in the deck; `StackEffect`
 /// positions, scales and tilts it from outside. The card's own box is exactly
 /// the thumbnail, and the header floats above that box.
-struct TabCard: View {
+struct TabCard: View, Equatable {
     let tab: Tab
     let barHeight: CGFloat
     let size: CGSize
@@ -38,6 +38,16 @@ struct TabCard: View {
     private let faviconSize: CGFloat = 18
     /// Past this much upward travel, letting go closes the tab.
     private let closeDistance: CGFloat = 120
+
+    /// Ignores the closures, which can't be compared; they always act on
+    /// the same tab. What the tab itself shows is tracked separately, by
+    /// observation.
+    static func == (a: TabCard, b: TabCard) -> Bool {
+        a.tab === b.tab && a.barHeight == b.barHeight && a.size == b.size
+            && a.screenSize == b.screenSize && a.safeBottomInset == b.safeBottomInset
+            && a.faviconInset == b.faviconInset && a.contentTop == b.contentTop
+            && a.focus == b.focus
+    }
 
     var body: some View {
         thumbnail
@@ -73,15 +83,17 @@ struct TabCard: View {
         Color(.systemBackground)
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .top) {
-                if let image = tab.snapshot {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: size.width)
-                        .padding(.top, contentTop)
-                } else {
-                    placeholder
-                        .background(Color(.secondarySystemBackground))
+                TabPicture(tab: tab) { image in
+                    if let image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: size.width)
+                            .padding(.top, contentTop)
+                    } else if !tab.hasSnapshot {
+                        placeholder
+                            .background(Color(.secondarySystemBackground))
+                    }
                 }
             }
             .overlay {
@@ -97,7 +109,14 @@ struct TabCard: View {
                     .strokeBorder(.quaternary, lineWidth: 1)
                     .opacity(min(1, cornerRadius / StackMetrics.cornerRadius))
             }
-            .shadow(color: .black.opacity(0.3), radius: 16, y: 4)
+            // The shadow comes from a plain shape behind the card rather than
+            // the card itself: the same look (the card is opaque), but far
+            // cheaper to redraw on every frame of the deck's animations.
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: .black.opacity(0.3), radius: 16, y: 4)
+            }
     }
 
     private func peekThumbnail(_ peek: Tab.Peek) -> some View {
@@ -119,12 +138,14 @@ struct TabCard: View {
                 layout: layout,
                 page: ZStack {
                     Color(uiColor: .systemBackground)
-                    if let image = peek.tab.snapshot {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .clipped()
+                    TabPicture(tab: peek.tab) { image in
+                        if let image {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .clipped()
+                        }
                     }
                 },
                 onOpen: {}, onClose: {}, onAction: { _ in }

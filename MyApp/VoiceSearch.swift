@@ -35,11 +35,15 @@ final class VoiceSearch {
     private var provider = VoiceSearchProvider.apple
     private var previousAudioConfiguration: AudioConfiguration?
 
-    private struct AudioConfiguration {
+    nonisolated private struct AudioConfiguration: Sendable {
         let category: AVAudioSession.Category
         let mode: AVAudioSession.Mode
         let options: AVAudioSession.CategoryOptions
     }
+
+    /// Switching the audio session on or off can take a noticeable moment, so
+    /// it happens here rather than on the main thread, in order.
+    nonisolated private static let audioQueue = DispatchQueue(label: "VoiceSearch.audio", qos: .userInitiated)
 
     var isBusy: Bool { state != .idle }
 
@@ -65,7 +69,6 @@ final class VoiceSearch {
         state = .preparing
         let identifier = UUID()
         sessionID = identifier
-        // Already allowed: start in this very call, with no async hop.
         if AVAudioApplication.shared.recordPermission == .granted {
             startRecording(identifier)
             return
@@ -82,30 +85,43 @@ final class VoiceSearch {
     }
 
     private func startRecording(_ identifier: UUID) {
-        do {
-            let audioSession = AVAudioSession.sharedInstance()
-            previousAudioConfiguration = AudioConfiguration(
-                category: audioSession.category,
-                mode: audioSession.mode,
-                options: audioSession.categoryOptions
-            )
-            try audioSession.setCategory(.record, mode: .measurement)
-            try audioSession.setActive(true)
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("voice-search-\(identifier).m4a")
-            recordingURL = url
-            let capture = try AVAudioRecorder(url: url, settings: [
-                AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 44_100,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-            ])
-            recorder = capture
-            guard capture.record() else {
-                fail("The microphone couldn't start. Please try again.")
+        operation = Task {
+            let previous: AudioConfiguration
+            do {
+                previous = try await Self.activateAudioSession()
+            } catch {
+                guard sessionID == identifier else { return }
+                fail("Couldn't start recording. Check your microphone and try again.")
+                return
+            }
+            // Let go (or cancelled) while the session was starting.
+            guard !Task.isCancelled, sessionID == identifier, isHolding else {
+                Self.restoreAudioSession(previous)
+                return
+            }
+            previousAudioConfiguration = previous
+            do {
+                let url = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("voice-search-\(identifier).m4a")
+                recordingURL = url
+                let capture = try AVAudioRecorder(url: url, settings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: 44_100,
+                    AVNumberOfChannelsKey: 1,
+                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+                ])
+                recorder = capture
+                guard capture.record() else {
+                    fail("The microphone couldn't start. Please try again.")
+                    return
+                }
+            } catch {
+                fail("Couldn't start recording. Check your microphone and try again.")
                 return
             }
             state = .recording
+            // Recording really has started: say so.
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
             operation = nil
             recordingLimit = Task {
                 do {
@@ -114,8 +130,37 @@ final class VoiceSearch {
                     fail("Voice searches are limited to 30 seconds. Hold the microphone to try again.")
                 } catch {}
             }
-        } catch {
-            fail("Couldn't start recording. Check your microphone and try again.")
+        }
+    }
+
+    /// Sets the session up for recording and returns how it was before.
+    nonisolated private static func activateAudioSession() async throws -> AudioConfiguration {
+        try await withCheckedThrowingContinuation { continuation in
+            audioQueue.async {
+                let audioSession = AVAudioSession.sharedInstance()
+                let previous = AudioConfiguration(
+                    category: audioSession.category,
+                    mode: audioSession.mode,
+                    options: audioSession.categoryOptions
+                )
+                do {
+                    try audioSession.setCategory(.record, mode: .measurement)
+                    try audioSession.setActive(true)
+                    continuation.resume(returning: previous)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    /// Hands the audio back (other apps' sound resumes) and puts the session
+    /// back how it was.
+    nonisolated private static func restoreAudioSession(_ previous: AudioConfiguration) {
+        audioQueue.async {
+            let audioSession = AVAudioSession.sharedInstance()
+            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+            try? audioSession.setCategory(previous.category, mode: previous.mode, options: previous.options)
         }
     }
 
@@ -187,13 +232,7 @@ final class VoiceSearch {
         recorder = nil
         if let previousAudioConfiguration {
             self.previousAudioConfiguration = nil
-            let audioSession = AVAudioSession.sharedInstance()
-            try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
-            try? audioSession.setCategory(
-                previousAudioConfiguration.category,
-                mode: previousAudioConfiguration.mode,
-                options: previousAudioConfiguration.options
-            )
+            Self.restoreAudioSession(previousAudioConfiguration)
         }
     }
 

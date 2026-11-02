@@ -30,6 +30,9 @@ final class BrowserStore {
     static let idleLimit: TimeInterval = 5 * 60
 
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    /// True while `open` is making a new tab, so a second submit can't
+    /// make another.
+    @ObservationIgnored private var isOpening = false
 
     init() {
         closedTabCount = TabPersistence.closedTabCount()
@@ -77,17 +80,25 @@ final class BrowserStore {
     }
 
     /// Unloads tabs beyond the most recent few, and ones left alone too long.
-    /// The selected tab is never unloaded.
+    /// The selected tab is never unloaded. A held link's page has a web view
+    /// of its own, so it takes a place too, and goes before its tab does.
     func enforceMemoryPolicy() {
         let now = Date.now
-        selectedTab?.lastViewed = now
+        guard let selected = selectedTab else { return }
+        selected.lastViewed = now
 
-        let live = tabs
-            .filter { $0.isLoaded && !$0.isBlank }
+        var places = 1 + (selected.peek?.tab.isLoaded == true ? 1 : 0)
+        let others = tabs
+            .filter { $0.isLoaded && !$0.isBlank && $0.id != selectedTabID }
             .sorted { $0.recency > $1.recency }
-        for (rank, tab) in live.enumerated() where tab.id != selectedTabID {
-            if rank >= Self.liveTabLimit || now.timeIntervalSince(tab.lastViewed) > Self.idleLimit {
+        for tab in others {
+            if places >= Self.liveTabLimit || now.timeIntervalSince(tab.lastViewed) > Self.idleLimit {
                 tab.unload()
+                continue
+            }
+            places += 1
+            if let peekTab = tab.peek?.tab, peekTab.isLoaded {
+                if places >= Self.liveTabLimit { peekTab.unload() } else { places += 1 }
             }
         }
     }
@@ -97,6 +108,9 @@ final class BrowserStore {
         for tab in tabs where tab.id != selectedTabID {
             tab.unload()
         }
+        CardThumbnails.shared.removeAll()
+        // Saving also lets go of the unloaded tabs' pictures.
+        save()
     }
 
     private func markUsed(_ tab: Tab) {
@@ -113,6 +127,9 @@ final class BrowserStore {
         if let current = selectedTab, current.isBlank {
             current.load(url, input: input)
         } else {
+            guard !isOpening else { return }
+            isOpening = true
+            defer { isOpening = false }
             // Photograph the page we're leaving, for its card in the switcher.
             await selectedTab?.captureSnapshot()
             let tab = Tab(url: url, input: input)
@@ -170,6 +187,11 @@ final class BrowserStore {
     }
 
     func select(_ tab: Tab) {
+        // A page left behind can't wait on a dialog nobody can see.
+        if tab.id != selectedTabID {
+            selectedTab?.answerDialog(.cancel)
+            selectedTab?.peek?.tab.answerDialog(.cancel)
+        }
         selectedTab?.lastViewed = .now
         // Bring the page back if it had been unloaded.
         tab.activate()

@@ -26,6 +26,11 @@ struct SettingsView: View {
                     Text("Removes the \"Get the best of Reddit in the app\" pop-up that blocks the page on reddit.com.")
                 }
                 Section {
+                    Toggle("Allow page dialogs", isOn: $settings.allowsPageDialogs)
+                } footer: {
+                    Text("Alerts, confirmations and prompts that pages show. When off, pages carry on as if you'd tapped Cancel. You can also switch them off for one site from its site menu.")
+                }
+                Section {
                     Toggle("Hide YouTube Shorts", isOn: $settings.hideShorts)
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
