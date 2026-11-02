@@ -144,8 +144,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
         )
+        configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
 
         let view = WKWebView(frame: .zero, configuration: configuration)
+        #if DEBUG
+        // Lets Safari's Web Inspector on a Mac attach to pages in debug builds.
+        view.isInspectable = true
+        #endif
         // Swiping from the left edge goes back, like Safari.
         view.allowsBackForwardNavigationGestures = true
         view.navigationDelegate = self
@@ -265,8 +270,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     }
 
     /// True while the tab is showing a YouTube page.
-    var isYouTube: Bool {
-        guard let host = url?.host()?.lowercased() else { return false }
+    var isYouTube: Bool { url.map(Self.isYouTube) ?? false }
+
+    static func isYouTube(_ url: URL) -> Bool {
+        guard let host = url.host()?.lowercased() else { return false }
         return host == "youtube.com" || host.hasSuffix(".youtube.com") || host == "youtu.be"
     }
 

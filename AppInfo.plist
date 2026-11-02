@@ -11,6 +11,12 @@
 		<string>googlechromes</string>
 		<string>googlechrome</string>
 	</array>
+	<!-- Keeps web audio and picture in picture going with the app in the
+	     background. See BackgroundPlayback.swift. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<!-- Lets animations run at up to 120 Hz on ProMotion iPhones. Without this,
 	     iPhones cap an app's own animations at 60 Hz. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
