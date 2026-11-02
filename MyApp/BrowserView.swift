@@ -189,6 +189,22 @@ struct BrowserView: View {
                     ErrorView(error: error, retry: tab.reload)
                         .padding(.bottom, barHeight)
                 }
+
+                if tab.isForeignLanguage, !isSwitching, let url = tab.url,
+                   Translation.canOpenInChrome(url) {
+                    Button { Translation.openInChrome(url) } label: {
+                        Image(systemName: "translate")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Translate in Chrome")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, 12)
+                    .padding(.bottom, barHeight + 12)
+                }
             }
         }
     }

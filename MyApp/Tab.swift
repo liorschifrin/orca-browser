@@ -50,6 +50,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     }
     @ObservationIgnored private var faviconURL: URL?
 
+    /// True when the loaded page appears to be in a language the user doesn't
+    /// read (see `Translation`). Cleared when the next page starts arriving.
+    private(set) var isForeignLanguage = false
+
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
 
@@ -319,6 +323,26 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         favicon = image
     }
 
+    /// Decides whether the page is in a language the user doesn't read.
+    private func detectLanguage() async {
+        guard let view = webView, view.url?.scheme?.hasPrefix("http") == true else { return }
+        let script = """
+        (function () {
+          return {
+            lang: document.documentElement.lang || '',
+            text: (document.body ? document.body.innerText : '').slice(0, 2000)
+          };
+        })()
+        """
+        guard let result = (try? await view.evaluateJavaScript(script)) as? [String: Any] else { return }
+        let foreign = Translation.isForeign(
+            declared: result["lang"] as? String ?? "",
+            text: result["text"] as? String ?? ""
+        )
+        // The user may have moved on while the script ran.
+        if view === webView { isForeignLanguage = foreign }
+    }
+
     /// Called when the tab is closed, so the page stops loading and playing.
     func teardown() {
         scrollSnapshotTask?.cancel()
@@ -340,6 +364,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isRestoring = false
         Task { await loadFavicon() }
+        Task { await detectLanguage() }
         Task {
             // Give the page a moment to paint its final layout.
             try? await Task.sleep(for: .milliseconds(400))
@@ -374,7 +399,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         loadError = nil
         snapshotIsStale = true
-
+        isForeignLanguage = false
     }
 
     /// Failure before anything arrived (offline, bad host, ...).
