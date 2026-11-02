@@ -35,6 +35,11 @@ struct SettingsView: View {
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
                 }
+                #if DEBUG
+                Section("Debug") {
+                    Toggle("Show FPS and memory", isOn: $settings.showDebugStats)
+                }
+                #endif
                 Section {
                     Button("Clear History…", role: .destructive) { isConfirmingClearHistory = true }
                 } header: {
