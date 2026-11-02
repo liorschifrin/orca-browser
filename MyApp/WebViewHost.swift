@@ -167,14 +167,22 @@ enum LinkPress {
 
 /// One list controls the live peek and its tab card. Adding an action here
 /// automatically gives it space in both places.
-enum PeekAction: CaseIterable {
-    case newTab, backgroundTab, copyLink
+enum PeekAction {
+    case newTab, backgroundTab, copyLink, addToPlay
+
+    /// The actions that apply to the page being peeked.
+    static func available(for url: URL) -> [PeekAction] {
+        var actions: [PeekAction] = [.newTab, .backgroundTab, .copyLink]
+        if Tab.isYouTube(url) { actions.append(.addToPlay) }
+        return actions
+    }
 
     var title: String {
         switch self {
         case .newTab: "Open a New Tab"
         case .backgroundTab: "Open in Background Tab"
         case .copyLink: "Copy Link"
+        case .addToPlay: AddToPlay.shortcutName
         }
     }
 
@@ -183,6 +191,7 @@ enum PeekAction: CaseIterable {
         case .newTab: "plus.square"
         case .backgroundTab: "plus.square.on.square"
         case .copyLink: "doc.on.doc"
+        case .addToPlay: "text.badge.plus"
         }
     }
 }
@@ -197,6 +206,7 @@ struct PeekLayout {
 
     let size: CGSize
     let bottomInset: CGFloat
+    let actions: [PeekAction]
 
     var panelWidth: CGFloat { max(1, min(380, size.width - 2 * Self.margin)) }
     var panelHeight: CGFloat { max(1, size.height - bottomInset - 2 * Self.margin) }
@@ -204,7 +214,7 @@ struct PeekLayout {
         CGPoint(x: size.width / 2, y: Self.margin + panelHeight / 2)
     }
     var actionsHeight: CGFloat {
-        let count = CGFloat(PeekAction.allCases.count)
+        let count = CGFloat(actions.count)
         let natural = count * Self.rowHeight + max(0, count - 1)
         return min(natural, max(0, panelHeight - Self.headerHeight - Self.minimumPageHeight))
     }
@@ -253,7 +263,7 @@ struct PeekPanel<Page: View>: View {
 
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
-                    ForEach(Array(PeekAction.allCases.enumerated()), id: \.offset) { index, action in
+                    ForEach(Array(layout.actions.enumerated()), id: \.offset) { index, action in
                         if index > 0 { Divider() }
                         Button { onAction(action) } label: {
                             HStack {
@@ -313,7 +323,7 @@ struct LinkPreview: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let layout = PeekLayout(size: geometry.size, bottomInset: bottomInset)
+            let layout = PeekLayout(size: geometry.size, bottomInset: bottomInset, actions: PeekAction.available(for: currentURL))
             ZStack {
                 Color.black.opacity(isVisible ? 0.35 : 0)
                     .ignoresSafeArea()
@@ -399,6 +409,9 @@ struct LinkPreview: View {
         case .backgroundTab: promote(inBackground: true)
         case .copyLink:
             UIPasteboard.general.url = currentURL
+            close(onDismiss)
+        case .addToPlay:
+            AddToPlay.run(with: currentURL)
             close(onDismiss)
         }
     }

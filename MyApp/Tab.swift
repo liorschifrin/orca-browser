@@ -270,8 +270,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     }
 
     /// True while the tab is showing a YouTube page.
-    var isYouTube: Bool {
-        guard let host = url?.host()?.lowercased() else { return false }
+    var isYouTube: Bool { url.map(Self.isYouTube) ?? false }
+
+    static func isYouTube(_ url: URL) -> Bool {
+        guard let host = url.host()?.lowercased() else { return false }
         return host == "youtube.com" || host.hasSuffix(".youtube.com") || host == "youtu.be"
     }
 
