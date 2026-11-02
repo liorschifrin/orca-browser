@@ -45,6 +45,10 @@ struct BottomBar: View {
                 HStack(spacing: 12) {
                     TabSwitcherButton(count: tabCount, action: onShowTabs)
 
+                    #if DEBUG
+                    DebugStats()
+                    #endif
+
                     Spacer()
 
                     voiceButton
