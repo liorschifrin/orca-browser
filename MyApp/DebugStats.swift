@@ -2,7 +2,9 @@ import SwiftUI
 
 #if DEBUG
 /// Current frames per second and memory footprint, for debug builds. Shown
-/// in the bottom bar between the tab switcher and the new tab button.
+/// in the bottom bar between the tab switcher and the new tab button, and
+/// carried below the card deck while the tab switcher is open (see
+/// `DebugStatsTracker`).
 struct DebugStats: View {
     @State private var meter = FrameMeter()
 
@@ -18,6 +20,57 @@ struct DebugStats: View {
         .onAppear { meter.start() }
         .onDisappear { meter.stop() }
         .accessibilityHidden(true)
+    }
+}
+
+/// Reserves the indicator's spot in the bottom bar and reports where it is.
+/// The real indicator is drawn by `DebugStatsTracker`, above both screens,
+/// so the one meter keeps running while it moves between the two.
+struct DebugStatsAnchor: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("000 fps")
+            Text("000 MB")
+        }
+        .font(.system(size: 11, weight: .medium, design: .monospaced))
+        .fixedSize()
+        .hidden()
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: DebugStatsHomeKey.self, value: geometry.frame(in: .global))
+            }
+        }
+    }
+}
+
+struct DebugStatsHomeKey: PreferenceKey {
+    static let defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+/// The indicator itself: sits at `home` (in the bottom bar) when `mix` is 0
+/// and glides to just under the focused card when `mix` is 1. `mix` is the
+/// same value that cross-fades the two bars, so it moves with their springs.
+struct DebugStatsTracker: View {
+    let home: CGRect
+    let mix: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            let metrics = StackMetrics(screen: geometry.size)
+            let target = CGPoint(x: geometry.size.width / 2, y: metrics.rect(forRelative: 0).maxY + 24)
+            DebugStats()
+                .position(
+                    x: home.midX + (target.x - home.midX) * mix,
+                    y: home.midY + (target.y - home.midY) * mix
+                )
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+        .opacity(home == .zero ? 0 : 1)
     }
 }
 
