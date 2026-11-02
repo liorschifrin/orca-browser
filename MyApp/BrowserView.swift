@@ -130,8 +130,12 @@ struct BrowserView: View {
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
-            if scenePhase == .active { ClipboardCache.shared.refresh() }
-            else { store.save() }
+            if scenePhase == .active {
+                ClipboardCache.shared.refresh()
+                Translation.forgetChromeAvailability()
+            } else {
+                store.save()
+            }
         }
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)

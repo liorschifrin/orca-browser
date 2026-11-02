@@ -37,10 +37,22 @@ enum Translation {
         return components.url
     }
 
-    /// Whether Chrome is installed (the button is pointless otherwise).
+    /// Whether Chrome is installed, once asked. Asking the system each time
+    /// the browser redraws is wasteful; it's asked again when the app comes
+    /// back to the foreground, in case Chrome was installed or removed.
+    @MainActor private static var isChromeInstalled: Bool?
+
+    @MainActor static func forgetChromeAvailability() {
+        isChromeInstalled = nil
+    }
+
+    /// Whether `url` can be handed to Chrome (the button is pointless otherwise).
     @MainActor static func canOpenInChrome(_ url: URL?) -> Bool {
         guard let url, let chrome = chromeURL(for: url) else { return false }
-        return UIApplication.shared.canOpenURL(chrome)
+        if isChromeInstalled == nil {
+            isChromeInstalled = UIApplication.shared.canOpenURL(chrome)
+        }
+        return isChromeInstalled ?? false
     }
 
     @MainActor static func openInChrome(_ url: URL) {
