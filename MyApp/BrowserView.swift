@@ -144,6 +144,7 @@ struct BrowserView: View {
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
             if scenePhase == .active {
+                archiveInactiveTabs()
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
@@ -159,6 +160,8 @@ struct BrowserView: View {
         }
         .onChange(of: settings.blockAds) { ContentBlocker.shared.settingsChanged() }
         .onChange(of: settings.blockTrackers) { ContentBlocker.shared.settingsChanged() }
+        .onChange(of: settings.autoArchiveTabs) { archiveInactiveTabs() }
+        .onChange(of: settings.autoArchiveDays) { archiveInactiveTabs() }
         .sheet(item: $siteMenu) { target in
             SiteMenu(target: target)
         }
@@ -220,6 +223,8 @@ struct BrowserView: View {
             ClipboardCache.shared.refresh()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
+                guard !Task.isCancelled else { return }
+                if scenePhase == .active { archiveInactiveTabs() }
                 store.enforceMemoryPolicy()
             }
         }
@@ -228,6 +233,14 @@ struct BrowserView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             store.unloadBackgroundTabs()
+        }
+    }
+
+    private func archiveInactiveTabs() {
+        let previousCount = store.closedTabCount
+        store.archiveInactiveTabs()
+        if isSwitching, store.closedTabCount != previousCount {
+            switcherReloadTrigger += 1
         }
     }
 

@@ -54,6 +54,9 @@ final class BrowserStore {
             watch([first])
             markUsed(first)
         }
+        selectedTab?.lastOpenedAt = .now
+        archiveInactiveTabs()
+        scheduleSave()
     }
 
     private func watch(_ newTabs: [Tab]) {
@@ -118,6 +121,28 @@ final class BrowserStore {
         tab.recency = recencyClock
     }
 
+    func archiveInactiveTabs(now: Date = .now) {
+        let settings = AppSettings.shared
+        guard settings.autoArchiveTabs else { return }
+        let closing = tabs.filter {
+            Self.shouldAutoArchive($0, selectedID: selectedTabID, days: settings.autoArchiveDays, now: now)
+        }
+        guard !closing.isEmpty,
+              (try? TabPersistence.stashClosed(tabs, selectedID: selectedTabID, archiving: closing)) != nil
+        else { return }
+
+        let ids = Set(closing.map(\.id))
+        tabs.removeAll { ids.contains($0.id) }
+        for tab in closing { tab.teardown() }
+        closedTabCount += closing.count
+        save()
+    }
+
+    static func shouldAutoArchive(_ tab: Tab, selectedID: Tab.ID, days: Int, now: Date) -> Bool {
+        days > 0 && !tab.isBlank && tab.id != selectedID
+            && now.timeIntervalSince(tab.lastOpenedAt) >= Double(days) * 24 * 60 * 60
+    }
+
     /// Opens whatever the user typed (a URL or a search) in a new tab.
     /// If the current tab is still blank, it's reused instead, so we don't
     /// leave an empty tab behind.
@@ -125,6 +150,7 @@ final class BrowserStore {
         guard let url = Destination.url(for: input) else { return }
 
         if let current = selectedTab, current.isBlank {
+            current.lastOpenedAt = .now
             current.load(url, input: input)
         } else {
             guard !isOpening else { return }
@@ -135,6 +161,7 @@ final class BrowserStore {
             let tab = Tab(url: url, input: input)
             watch([tab])
             selectedTab?.lastViewed = .now
+            selectedTab?.lastOpenedAt = .now
             tabs.append(tab)
             selectedTabID = tab.id
             markUsed(tab)
@@ -157,6 +184,7 @@ final class BrowserStore {
     /// Adopt the preview's actual tab and web view, preserving page state.
     func adoptPreview(_ tab: Tab, inBackground: Bool) {
         guard !tabs.contains(where: { $0.id == tab.id }) else { return }
+        tab.lastOpenedAt = .now
         watch([tab])
         tabs.append(tab)
         markUsed(tab)
@@ -165,6 +193,7 @@ final class BrowserStore {
             if let current = selectedTab { markUsed(current) }
         } else {
             selectedTab?.lastViewed = .now
+            selectedTab?.lastOpenedAt = .now
             selectedTabID = tab.id
         }
         enforceMemoryPolicy()
@@ -193,6 +222,8 @@ final class BrowserStore {
             selectedTab?.peek?.tab.answerDialog(.cancel)
         }
         selectedTab?.lastViewed = .now
+        selectedTab?.lastOpenedAt = .now
+        tab.lastOpenedAt = .now
         // Bring the page back if it had been unloaded.
         tab.activate()
         tab.peek?.tab.activate()
@@ -220,6 +251,7 @@ final class BrowserStore {
         if wasSelected, let previous = tabs.max(by: { $0.recency < $1.recency }) {
             // Fall back to the tab you were on before this one.
             previous.activate()
+            previous.lastOpenedAt = .now
             selectedTabID = previous.id
             enforceMemoryPolicy()
         }
@@ -270,6 +302,7 @@ final class BrowserStore {
         for tab in restored + kept.sorted(by: { $0.recency < $1.recency }) {
             markUsed(tab)
         }
+        for tab in restored { tab.lastOpenedAt = .now }
         tabs = restored + kept
         if replacing, let latest = restored.last {
             latest.activate()

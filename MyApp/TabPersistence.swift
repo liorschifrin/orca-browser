@@ -9,6 +9,7 @@ struct SavedTab: Codable {
     var recency: Int
     var searchText: String? = nil
     var peek: SavedPeek? = nil
+    var lastOpenedAt: Date? = nil
 }
 
 struct SavedPeek: Codable {
@@ -84,7 +85,8 @@ enum TabPersistence {
         SavedTab(
             id: tab.id, url: tab.url, title: tab.title, recency: tab.recency,
             searchText: tab.searchText,
-            peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) }
+            peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) },
+            lastOpenedAt: tab.lastOpenedAt
         )
     }
 
@@ -260,8 +262,8 @@ enum TabPersistence {
 
     /// Moves `tabs` out to the closed folder, after any already there. Throws,
     /// before any file moves, if the list can't be written.
-    static func stashClosed(_ tabs: [Tab], selectedID: Tab.ID) throws {
-        let closing = tabs.filter { !$0.isBlank }
+    static func stashClosed(_ tabs: [Tab], selectedID: Tab.ID, archiving: [Tab]? = nil) throws {
+        let closing = (archiving ?? tabs).filter { !$0.isBlank }
         // Bring the live files up to date, then move them rather than
         // encoding every picture again.
         save(tabs: tabs, selectedID: selectedID)

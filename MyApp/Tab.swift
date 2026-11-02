@@ -41,6 +41,7 @@ final class Tab: Identifiable {
 
     /// Higher = used more recently. Set by the store; the switcher sorts by it.
     var recency = 0
+    var lastOpenedAt = Date.now
 
     /// A picture of the page, shown on its card in the switcher and as a
     /// stand-in while the tab reloads. Held in memory only while the tab is
@@ -133,6 +134,7 @@ final class Tab: Identifiable {
             ?? saved.url?.absoluteString ?? ""
         title = saved.title
         recency = saved.recency
+        lastOpenedAt = saved.lastOpenedAt ?? .now
         isBlank = false
         self.hasSnapshot = hasSnapshot
         self.favicon = favicon

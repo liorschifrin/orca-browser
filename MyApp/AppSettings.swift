@@ -14,6 +14,16 @@ final class AppSettings {
     private static let blockRedditPromptKey = "blockRedditPrompt"
     private static let voiceSearchProviderKey = "voiceSearchProvider"
     private static let allowsPageDialogsKey = "allowsPageDialogs"
+    private static let autoArchiveTabsKey = "autoArchiveTabs"
+    private static let autoArchiveDaysKey = "autoArchiveDays"
+
+    var autoArchiveTabs: Bool {
+        didSet { UserDefaults.standard.set(autoArchiveTabs, forKey: Self.autoArchiveTabsKey) }
+    }
+
+    var autoArchiveDays: Int {
+        didSet { UserDefaults.standard.set(autoArchiveDays, forKey: Self.autoArchiveDaysKey) }
+    }
 
     var voiceSearchProvider: VoiceSearchProvider {
         didSet { UserDefaults.standard.set(voiceSearchProvider.rawValue, forKey: Self.voiceSearchProviderKey) }
@@ -46,6 +56,8 @@ final class AppSettings {
     }
 
     private init() {
+        autoArchiveTabs = UserDefaults.standard.bool(forKey: Self.autoArchiveTabsKey)
+        autoArchiveDays = max(1, UserDefaults.standard.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)
         hideShorts = UserDefaults.standard.bool(forKey: Self.hideShortsKey)
         blockAds = UserDefaults.standard.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = UserDefaults.standard.object(forKey: Self.blockTrackersKey) as? Bool ?? true

@@ -13,6 +13,16 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
+                    Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)
+                    Stepper(value: $settings.autoArchiveDays, in: 1...365) {
+                        Text("After \(settings.autoArchiveDays) days")
+                    }
+                } header: {
+                    Text("Tabs")
+                } footer: {
+                    Text("Archives tabs you haven’t opened for the selected number of days. Your current tab stays open. Use Restore closed tabs in the tab switcher to bring archived tabs back.")
+                }
+                Section {
                     Toggle("Block ads", isOn: $settings.blockAds)
                     Toggle("Block trackers", isOn: $settings.blockTrackers)
                 } header: {
