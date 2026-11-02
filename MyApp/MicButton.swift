@@ -1,10 +1,11 @@
 import SwiftUI
 
 /// Hold to talk, let go to Google search what was said. Recording starts
-/// the instant the finger lands (the touch is read straight from UIKit),
-/// but the button only shows it, with a buzz, once the finger has held
-/// still for a moment. A touch that moves first is a swipe: it's dropped
-/// silently and left to the toolbar's swipe, which opens the tab switcher.
+/// once the finger has held still for a moment (the touch is read straight
+/// from UIKit), with a buzz when it's listening. A touch that moves first is
+/// a swipe: it's dropped silently and left to the toolbar's swipe, which
+/// opens the tab switcher, without ever touching the audio (so a playing
+/// video carries on).
 struct MicButton: View {
     /// Called with the Google search address for a finished voice search.
     let onSearch: (URL) -> Void
@@ -54,14 +55,14 @@ struct MicButton: View {
                     micTouchStart = point
                     isMicTouchIgnored = false
                     isMicConfirmed = false
-                    // Record at once; whether it's a swipe is decided meanwhile.
-                    voiceSearch.begin(provider: AppSettings.shared.voiceSearchProvider)
                     micConfirmTask?.cancel()
                     micConfirmTask = Task {
                         try? await Task.sleep(for: .milliseconds(150))
-                        guard !Task.isCancelled, voiceSearch.isBusy else { return }
+                        guard !Task.isCancelled else { return }
+                        // Held still: it's not a swipe. (VoiceSearch buzzes
+                        // once it's actually recording.)
                         isMicConfirmed = true
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        voiceSearch.begin(provider: AppSettings.shared.voiceSearchProvider)
                     }
                 },
                 onMoved: { point in
@@ -70,7 +71,6 @@ struct MicButton: View {
                     // Moved before it was sure to be a hold: a swipe.
                     micConfirmTask?.cancel()
                     isMicTouchIgnored = true
-                    voiceSearch.cancel()
                 },
                 onEnded: { point in
                     micConfirmTask?.cancel()
