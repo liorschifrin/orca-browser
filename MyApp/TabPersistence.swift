@@ -7,6 +7,7 @@ struct SavedTab: Codable {
     var url: URL?
     var title: String?
     var recency: Int
+    var searchText: String? = nil
 }
 
 private struct SavedSession: Codable {
@@ -45,7 +46,7 @@ enum TabPersistence {
         let saved = tabs.filter { !$0.isBlank }
 
         let session = SavedSession(
-            tabs: saved.map { SavedTab(id: $0.id, url: $0.url, title: $0.title, recency: $0.recency) },
+            tabs: saved.map { SavedTab(id: $0.id, url: $0.url, title: $0.title, recency: $0.recency, searchText: $0.searchText) },
             selectedID: selectedID
         )
         if let data = try? JSONEncoder().encode(session) {

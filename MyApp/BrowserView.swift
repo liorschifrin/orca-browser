@@ -20,6 +20,8 @@ struct BrowserView: View {
     // and the submitted text then replaces the current page.
     @State private var editingURL: URL?
     @State private var searchInitialText = ""
+    @State private var searchOpenedFromGoogle = false
+    @State private var replaceGoogleSearchOnSubmit = false
     @State private var isSwitching = false
     /// A new value for every time the switcher opens, so SwiftUI never reuses
     /// a switcher that was mid-exit (it would still think it was "leaving").
@@ -79,13 +81,16 @@ struct BrowserView: View {
                 isPresented: isSearching,
                 initialText: searchInitialText,
                 selectInitialText: editingURL == nil,
+                onAppend: {
+                    replaceGoogleSearchOnSubmit = searchOpenedFromGoogle
+                },
                 onSubmit: { input in
-                    let replacing = editingURL != nil
+                    let replacing = editingURL != nil || replaceGoogleSearchOnSubmit
                     closeSearch()
                     Task {
                         if replacing, let tab = store.selectedTab,
                            let url = Destination.url(for: input) {
-                            tab.load(url)
+                            tab.load(url, input: input)
                         } else {
                             await store.open(input)
                         }
@@ -100,10 +105,12 @@ struct BrowserView: View {
                     url: link.url,
                     onOpenNewTab: { tab in
                         previewLink = nil
+                        if tab.searchText.isEmpty { tab.searchText = link.source.searchText }
                         store.adoptPreview(tab, inBackground: false)
                     },
                     onOpenBackground: { tab in
                         previewLink = nil
+                        if tab.searchText.isEmpty { tab.searchText = link.source.searchText }
                         store.adoptPreview(tab, inBackground: true)
                     },
                     onOpen: { url in
@@ -196,7 +203,7 @@ struct BrowserView: View {
                         tab: tab,
                         tabCount: store.tabs.count,
                         plusButtonWidth: geometry.size.width * 0.19,
-                        onNewTab: { openSearch(prefillingSearchTerm: true) },
+                        onNewTab: { openSearch() },
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
                         onShowTabs: openSwitcher,
                         onVoiceSearch: { url in
@@ -236,17 +243,20 @@ struct BrowserView: View {
 
     // MARK: - Actions
 
-    /// `prefillingSearchTerm`: after a Google search, start with that term
-    /// selected so typing replaces it (or a tap lets you edit it).
-    private func openSearch(editing url: URL? = nil, prefillingSearchTerm: Bool = false) {
+    /// New tabs start with the previous search or entry selected.
+    private func openSearch(editing url: URL? = nil) {
         editingURL = url
+        searchOpenedFromGoogle = url == nil
+            && Destination.searchQuery(from: store.selectedTab?.url) != nil
+        replaceGoogleSearchOnSubmit = false
         searchInitialText = url?.absoluteString
-            ?? (prefillingSearchTerm ? Destination.searchQuery(from: store.selectedTab?.url) : nil)
+            ?? store.selectedTab?.searchText
             ?? ""
         withAnimation(.easeOut(duration: 0.2)) { isSearching = true }
     }
 
     private func closeSearch() {
+        replaceGoogleSearchOnSubmit = false
         withAnimation(.easeOut(duration: 0.2)) { isSearching = false }
     }
 

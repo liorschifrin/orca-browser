@@ -24,6 +24,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     // Mirrored from the web view.
     private(set) var url: URL?
+    /// The last search or submitted address, retained when following links.
+    var searchText = ""
     private(set) var title: String?
     private(set) var progress: Double = 0
     private(set) var isLoading = false
@@ -78,13 +80,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
 
     /// A new tab with a live web view, loading `url` if given.
-    init(url: URL? = nil) {
+    init(url: URL? = nil, input: String? = nil) {
         id = UUID()
         super.init()
 
         _ = makeWebView()
         if let url {
-            load(url)
+            load(url, input: input)
         }
     }
 
@@ -94,6 +96,8 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         super.init()
 
         url = saved.url
+        searchText = saved.searchText ?? Destination.searchQuery(from: saved.url)
+            ?? saved.url?.absoluteString ?? ""
         title = saved.title
         recency = saved.recency
         isBlank = false
@@ -190,7 +194,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     private func sync(from view: WKWebView) {
         // A re-created web view has no address until its page starts arriving.
-        if let current = view.url { url = current }
+        if let current = view.url, current != url {
+            url = current
+            if let query = Destination.searchQuery(from: current) {
+                searchText = query
+            }
+            onChange?()
+        }
         if view.title != nil || !isRestoring { title = view.title }
         progress = view.estimatedProgress
         if view.isLoading && !isLoading { snapshotIsStale = true }
@@ -218,11 +228,17 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     // MARK: - Actions
 
-    func load(_ url: URL) {
+    func load(_ url: URL, input: String? = nil) {
+        if let input {
+            searchText = Destination.searchQuery(from: url) ?? input
+        } else if let query = Destination.searchQuery(from: url) {
+            searchText = query
+        }
         isBlank = false
         loadError = nil
         activate()
         webView?.load(URLRequest(url: url))
+        onChange?()
     }
 
     /// The tab's whole history, oldest first, and where the current page is in it.

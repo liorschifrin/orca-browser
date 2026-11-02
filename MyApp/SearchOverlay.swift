@@ -10,6 +10,7 @@ struct SearchOverlay: View {
     /// Text the field starts with each time the overlay opens.
     var initialText = ""
     var selectInitialText = false
+    let onAppend: () -> Void
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
 
@@ -121,8 +122,15 @@ struct SearchOverlay: View {
 
     private var field: some View {
         HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+            Button(action: appendToSearch) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Add to search")
+            .accessibilityHint("Moves the cursor to the end with a space ready for more text")
 
             TextField("Search or enter address", text: $text, selection: $selection)
                 .focused($isFocused)
@@ -172,8 +180,17 @@ struct SearchOverlay: View {
         if trimmed.isEmpty {
             dismiss()
         } else {
-            onSubmit(trimmed)
+            onSubmit(text)
         }
+    }
+
+    private func appendToSearch() {
+        onAppend()
+        // Preserve the entry itself; normalize only its trailing whitespace.
+        while text.last?.isWhitespace == true { text.removeLast() }
+        if !text.isEmpty { text.append(" ") }
+        isFocused = true
+        selection = TextSelection(insertionPoint: text.endIndex)
     }
 
     private func dismiss() {
