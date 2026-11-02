@@ -18,6 +18,7 @@ import SwiftUI
 /// The springs are critically damped (no overshoot); see the constants below.
 struct TabSwitcher: View {
     let store: BrowserStore
+    let barHeight: CGFloat
     /// 0 = the browser's bottom bar is showing, 1 = the switcher's. Owned by
     /// `BrowserView`, which draws both bars, so they can cross-fade.
     @Binding var barMix: Double
@@ -53,6 +54,13 @@ struct TabSwitcher: View {
             .first(where: \.isKeyWindow)?
             .safeAreaInsets.top ?? 0
     }
+    private static var windowBottomInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.bottom ?? 0
+    }
 
     // MARK: State
 
@@ -81,6 +89,7 @@ struct TabSwitcher: View {
 
     init(
         store: BrowserStore,
+        barHeight: CGFloat,
         barMix: Binding<Double>,
         doneTrigger: Int,
         onSelect: @escaping (Tab) -> Void,
@@ -89,6 +98,7 @@ struct TabSwitcher: View {
         onLeaveStart: @escaping () -> Void
     ) {
         self.store = store
+        self.barHeight = barHeight
         _barMix = barMix
         self.doneTrigger = doneTrigger
         self.onSelect = onSelect
@@ -149,7 +159,10 @@ struct TabSwitcher: View {
 
                 TabCard(
                     tab: tab,
+                    barHeight: barHeight,
                     size: metrics.cardSize,
+                    screenSize: metrics.screen,
+                    safeBottomInset: Self.windowBottomInset,
                     faviconInset: metrics.faviconInset,
                     contentTop: metrics.contentTop,
                     focus: max(0, 1 - abs(relative) * 1.5),
@@ -261,6 +274,10 @@ struct TabSwitcher: View {
             finish()
             return
         }
+        // Restore behind the expanding card. By the time the card leaves,
+        // the web view has already had the exit animation to start loading.
+        tab.activate()
+        tab.peek?.tab.activate()
         leavingID = tab.id
         onLeaveStart()
         withAnimation(.spring(duration: Self.exitDuration, bounce: 0)) {

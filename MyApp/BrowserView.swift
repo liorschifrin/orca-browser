@@ -5,13 +5,6 @@ import SwiftUI
 /// on top of both.
 struct BrowserView: View {
     @State private var store: BrowserStore
-    @State private var previewLink: PreviewLink?
-
-    private struct PreviewLink: Identifiable {
-        let id = UUID()
-        let url: URL
-        let source: Tab
-    }
 
     @State private var barHeight: CGFloat = 0
     // Search starts open only when there's no page to go back to (a blank tab).
@@ -51,6 +44,7 @@ struct BrowserView: View {
             if isSwitching {
                 TabSwitcher(
                     store: store,
+                    barHeight: barHeight,
                     barMix: $barMix,
                     doneTrigger: doneTrigger,
                     onSelect: { tab in
@@ -71,6 +65,28 @@ struct BrowserView: View {
             bars
                 // Same rule as the page: the keyboard doesn't push the bar up.
                 .ignoresSafeArea(.keyboard)
+
+            if let tab = store.selectedTab, let peek = tab.peek, !isSwitching {
+                LinkPreview(
+                    url: peek.url,
+                    previewTab: peek.tab,
+                    bottomInset: barHeight,
+                    animateEntrance: !tab.peekWasPresented,
+                    onPresented: tab.markPeekPresented,
+                    onOpenNewTab: {
+                        if let page = tab.takePeek() { store.adoptPreview(page, inBackground: false) }
+                    },
+                    onOpenBackground: {
+                        if let page = tab.takePeek() { store.adoptPreview(page, inBackground: true) }
+                    },
+                    onOpen: { url in
+                        tab.dismissPeek()
+                        tab.load(url)
+                    },
+                    onDismiss: tab.dismissPeek
+                )
+                .id(peek.tab.id)
+            }
 
             // Always in the view tree, just invisible when closed. A text
             // field that already exists can take the keyboard instantly;
@@ -95,25 +111,6 @@ struct BrowserView: View {
                 onDismiss: closeSearch
             )
 
-            if let link = previewLink {
-                LinkPreview(
-                    url: link.url,
-                    onOpenNewTab: { tab in
-                        previewLink = nil
-                        store.adoptPreview(tab, inBackground: false)
-                    },
-                    onOpenBackground: { tab in
-                        previewLink = nil
-                        store.adoptPreview(tab, inBackground: true)
-                    },
-                    onOpen: { url in
-                        previewLink = nil
-                        link.source.load(url)
-                    },
-                    onDismiss: { previewLink = nil }
-                )
-                .id(link.id)
-            }
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
@@ -151,9 +148,10 @@ struct BrowserView: View {
                     webView: tab.webView!,
                     isActive: tab.id == store.selectedTabID,
                     onPreviewLink: { url in
-                        guard previewLink == nil, tab.id == store.selectedTabID else { return }
-                        previewLink = PreviewLink(url: url, source: tab)
-                    }
+                        guard tab.id == store.selectedTabID else { return }
+                        tab.openPeek(url)
+                    },
+                    onVisible: tab.finishRestoringIfVisible
                 )
                 // Sit between the status bar and the floating bar, so nothing
                 // on the page (header buttons, the end of an inner scrolling
@@ -172,7 +170,9 @@ struct BrowserView: View {
                         .clipped()
                         .padding(.bottom, barHeight)
                         .allowsHitTesting(false)
-                        .transition(.opacity.animation(.easeOut(duration: 0.2)))
+                        // The card is already visible during the switcher exit.
+                        // Show this same picture at full opacity on handoff.
+                        .transition(.identity)
                 }
                 // Stop these above the bar so its buttons stay usable.
                 if tab.isBlank {
@@ -182,6 +182,7 @@ struct BrowserView: View {
                     ErrorView(error: error, retry: tab.reload)
                         .padding(.bottom, barHeight)
                 }
+
             }
         }
     }
@@ -268,6 +269,13 @@ struct BrowserView: View {
                     await tab.captureSnapshot()
                 } else {
                     Task { await tab.captureSnapshot() }
+                }
+            }
+            if let peekTab = store.selectedTab?.peek?.tab, peekTab.needsSnapshot {
+                if peekTab.snapshot == nil {
+                    await peekTab.captureSnapshot()
+                } else {
+                    Task { await peekTab.captureSnapshot() }
                 }
             }
             switcherID = UUID()

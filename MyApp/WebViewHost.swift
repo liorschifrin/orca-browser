@@ -14,6 +14,7 @@ struct WebViewHost: UIViewRepresentable {
     let webView: WKWebView
     let isActive: Bool
     var onPreviewLink: ((URL) -> Void)?
+    var onVisible: (() -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -29,6 +30,7 @@ struct WebViewHost: UIViewRepresentable {
         // Hidden views take no touches and cost almost nothing to render.
         uiView.isHidden = !isActive
         context.coordinator.onPreviewLink = isActive ? onPreviewLink : nil
+        if isActive { onVisible?() }
     }
 
     static func dismantleUIView(_ uiView: WKWebView, coordinator: Coordinator) {
@@ -163,104 +165,214 @@ enum LinkPress {
     """
 }
 
-/// A popup with an interactive page and explicit buttons for opening it.
+/// One list controls the live peek and its tab card. Adding an action here
+/// automatically gives it space in both places.
+enum PeekAction: CaseIterable {
+    case newTab, backgroundTab, copyLink
+
+    var title: String {
+        switch self {
+        case .newTab: "Open a New Tab"
+        case .backgroundTab: "Open in Background Tab"
+        case .copyLink: "Copy Link"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .newTab: "plus.square"
+        case .backgroundTab: "plus.square.on.square"
+        case .copyLink: "doc.on.doc"
+        }
+    }
+}
+
+/// The panel uses equal margins above and below the space above the toolbar.
+/// Its web page receives whatever height remains after the action list.
+struct PeekLayout {
+    static let margin: CGFloat = 24
+    static let headerHeight: CGFloat = 44
+    static let rowHeight: CGFloat = 48
+    static let minimumPageHeight: CGFloat = 100
+
+    let size: CGSize
+    let bottomInset: CGFloat
+
+    var panelWidth: CGFloat { max(1, min(380, size.width - 2 * Self.margin)) }
+    var panelHeight: CGFloat { max(1, size.height - bottomInset - 2 * Self.margin) }
+    var panelCenter: CGPoint {
+        CGPoint(x: size.width / 2, y: Self.margin + panelHeight / 2)
+    }
+    var actionsHeight: CGFloat {
+        let count = CGFloat(PeekAction.allCases.count)
+        let natural = count * Self.rowHeight + max(0, count - 1)
+        return min(natural, max(0, panelHeight - Self.headerHeight - Self.minimumPageHeight))
+    }
+}
+
+/// Shared structure for the live peek and its exact tab-card representation.
+struct PeekPanel<Page: View>: View {
+    let address: URL
+    let layout: PeekLayout
+    let page: Page
+    let onOpen: () -> Void
+    let onClose: () -> Void
+    let onAction: (PeekAction) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                Button(action: onOpen) {
+                    HStack(spacing: 8) {
+                        Text(address.host() ?? address.absoluteString)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Image(systemName: "arrow.up.right")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open \(address.host() ?? address.absoluteString)")
+
+                Button(action: onClose) {
+                    Image(systemName: "xmark.circle.fill")
+                        .frame(width: 44, height: PeekLayout.headerHeight)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Close preview")
+            }
+            .frame(height: PeekLayout.headerHeight)
+
+            page
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+
+            ScrollView(.vertical) {
+                VStack(spacing: 0) {
+                    ForEach(Array(PeekAction.allCases.enumerated()), id: \.offset) { index, action in
+                        if index > 0 { Divider() }
+                        Button { onAction(action) } label: {
+                            HStack {
+                                Text(action.title)
+                                Spacer()
+                                Image(systemName: action.icon)
+                            }
+                            .padding(.horizontal, 16)
+                            .frame(height: PeekLayout.rowHeight)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .frame(height: layout.actionsHeight)
+        }
+        .frame(width: layout.panelWidth, height: layout.panelHeight)
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .shadow(radius: 20)
+    }
+}
+
+/// A popup with an interactive page. The toolbar remains above the tint and
+/// accepts taps while the peek is open.
 struct LinkPreview: View {
     let url: URL
-    let onOpenNewTab: (Tab) -> Void
-    let onOpenBackground: (Tab) -> Void
+    let previewTab: Tab
+    let bottomInset: CGFloat
+    let animateEntrance: Bool
+    let onPresented: () -> Void
+    let onOpenNewTab: () -> Void
+    let onOpenBackground: () -> Void
     let onOpen: (URL) -> Void
     let onDismiss: () -> Void
-    @State private var previewTab: Tab?
-    @State private var isVisible = false
+    @State private var isVisible: Bool
     @State private var isClosing = false
-    @State private var wasPromoted = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    init(url: URL, onOpenNewTab: @escaping (Tab) -> Void, onOpenBackground: @escaping (Tab) -> Void,
-         onOpen: @escaping (URL) -> Void, onDismiss: @escaping () -> Void) {
+    init(url: URL, previewTab: Tab, bottomInset: CGFloat, animateEntrance: Bool,
+         onPresented: @escaping () -> Void, onOpenNewTab: @escaping () -> Void,
+         onOpenBackground: @escaping () -> Void, onOpen: @escaping (URL) -> Void,
+         onDismiss: @escaping () -> Void) {
         self.url = url
+        self.previewTab = previewTab
+        self.bottomInset = bottomInset
+        self.animateEntrance = animateEntrance
+        self.onPresented = onPresented
         self.onOpenNewTab = onOpenNewTab
         self.onOpenBackground = onOpenBackground
         self.onOpen = onOpen
         self.onDismiss = onDismiss
+        _isVisible = State(initialValue: !animateEntrance)
     }
 
     var body: some View {
         GeometryReader { geometry in
+            let layout = PeekLayout(size: geometry.size, bottomInset: bottomInset)
             ZStack {
                 Color.black.opacity(isVisible ? 0.35 : 0)
                     .ignoresSafeArea()
+                    .padding(.bottom, bottomInset)
+                    .allowsHitTesting(false)
+
+                Color.clear
+                    .contentShape(Rectangle())
+                    .padding(.bottom, bottomInset)
                     .onTapGesture { close(onDismiss) }
                     .accessibilityLabel("Dismiss preview")
-                VStack(spacing: 0) {
-                    HStack {
-                        Text(currentURL.host() ?? currentURL.absoluteString)
-                            .font(.subheadline).lineLimit(1)
-                        Spacer()
-                        Button(action: { close(onDismiss) }) { Image(systemName: "xmark.circle.fill") }
-                            .accessibilityLabel("Close preview")
-                    }
-                    .padding(12)
 
-                    ZStack {
+                PeekPanel(
+                    address: currentURL, layout: layout,
+                    page: ZStack {
                         Color(uiColor: .systemBackground)
-                        if let previewTab {
-                            PreviewPageHost(tab: previewTab, url: url)
+                        PreviewPageHost(tab: previewTab, url: url)
+                        if previewTab.isRestoring, let image = previewTab.snapshot {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .clipped()
+                                .allowsHitTesting(false)
                         }
-                        if let error = previewTab?.loadError {
+                        if let error = previewTab.loadError {
                             Text(error.message)
                                 .foregroundStyle(.primary)
                                 .padding()
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                                 .background(.background)
                         }
-                    }
-                    .frame(height: max(100, geometry.size.height - 308))
-                    .clipped()
-
-                    VStack(spacing: 0) {
-                        action("Open a New Tab", icon: "plus.square") { promote(inBackground: false) }
-                        Divider()
-                        action("Open in Background Tab", icon: "plus.square.on.square") { promote(inBackground: true) }
-                        Divider()
-                        action("Open", icon: "arrow.up.right") {
-                            let address = currentURL
-                            close { onOpen(address) }
-                        }
-                        Divider()
-                        action("Copy Link", icon: "doc.on.doc") {
-                            UIPasteboard.general.url = currentURL
-                            close(onDismiss)
-                        }
-                    }
-                }
-                .background(.regularMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 18))
-                .shadow(radius: 20)
-                .frame(width: max(1, min(380, geometry.size.width - 48)))
-                .padding(24)
+                    },
+                    onOpen: {
+                        let address = currentURL
+                        close { onOpen(address) }
+                    },
+                    onClose: { close(onDismiss) },
+                    onAction: handleAction
+                )
+                .position(layout.panelCenter)
                 .scaleEffect(reduceMotion || isVisible ? 1 : 0.92)
                 .opacity(isVisible ? 1 : 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .onAppear {
-            if previewTab == nil { previewTab = Tab() }
-            withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.82)) {
-                isVisible = true
+            previewTab.activate()
+            onPresented()
+            if animateEntrance {
+                withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.82)) {
+                    isVisible = true
+                }
             }
         }
         .allowsHitTesting(!isClosing)
-        .onDisappear {
-            // Once adopted, the store owns this page. Dismissing the popup
-            // must not stop loading or discard the promoted web view.
-            if !wasPromoted { previewTab?.teardown() }
-            previewTab = nil
-        }
-        .accessibilityAddTraits(.isModal)
     }
 
-    private var currentURL: URL { previewTab?.url ?? url }
+    private var currentURL: URL { previewTab.url ?? url }
 
     private func close(_ completion: @escaping () -> Void) {
         guard !isClosing else { return }
@@ -273,29 +385,22 @@ struct LinkPreview: View {
     }
 
     private func promote(inBackground: Bool) {
-        guard let previewTab else { return }
         close {
-            // The button can be pressed before the preview's first layout.
             if previewTab.isBlank { previewTab.load(url) }
-            wasPromoted = true
             previewTab.webView?.removeFromSuperview()
-            if inBackground { onOpenBackground(previewTab) }
-            else { onOpenNewTab(previewTab) }
+            if inBackground { onOpenBackground() }
+            else { onOpenNewTab() }
         }
     }
 
-    private func action(_ title: String, icon: String, perform: @escaping () -> Void) -> some View {
-        Button(action: perform) {
-            HStack {
-                Text(title)
-                Spacer()
-                Image(systemName: icon)
-            }
-            .padding(.horizontal, 16)
-            .frame(minHeight: 48)
-            .contentShape(Rectangle())
+    private func handleAction(_ action: PeekAction) {
+        switch action {
+        case .newTab: promote(inBackground: false)
+        case .backgroundTab: promote(inBackground: true)
+        case .copyLink:
+            UIPasteboard.general.url = currentURL
+            close(onDismiss)
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -309,7 +414,9 @@ private struct PreviewPageHost: UIViewRepresentable {
         PreviewViewport(tab: tab, url: url)
     }
 
-    func updateUIView(_ uiView: PreviewViewport, context: Context) {}
+    func updateUIView(_ uiView: PreviewViewport, context: Context) {
+        uiView.attachWebView()
+    }
 
     final class PreviewViewport: UIView {
         private let tab: Tab
@@ -322,10 +429,7 @@ private struct PreviewPageHost: UIViewRepresentable {
             super.init(frame: .zero)
             backgroundColor = .systemBackground
             clipsToBounds = true
-            if let webView = tab.webView {
-                webView.isHidden = false
-                addSubview(webView)
-            }
+            attachWebView()
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -333,6 +437,15 @@ private struct PreviewPageHost: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             setNeedsLayout()
+        }
+
+        func attachWebView() {
+            guard let webView = tab.webView else { return }
+            if webView.superview !== self {
+                webView.isHidden = false
+                addSubview(webView)
+                setNeedsLayout()
+            }
         }
 
         override func layoutSubviews() {

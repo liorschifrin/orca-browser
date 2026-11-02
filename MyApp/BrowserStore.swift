@@ -38,6 +38,7 @@ final class BrowserStore {
                 ?? saved.tabs.max { $0.recency < $1.recency }!
             selectedTabID = current.id
             current.activate()
+            current.peek?.tab.activate()
             watch(saved.tabs)
         } else {
             // The app always has at least one tab; it starts out blank.
@@ -151,6 +152,7 @@ final class BrowserStore {
         selectedTab?.lastViewed = .now
         // Bring the page back if it had been unloaded.
         tab.activate()
+        tab.peek?.tab.activate()
         selectedTabID = tab.id
         markUsed(tab)
         enforceMemoryPolicy()

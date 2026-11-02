@@ -54,6 +54,17 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// True from the moment a web view is re-created for an unloaded tab until
     /// its page shows up. The browser covers the gap with the card's picture.
     private(set) var isRestoring = false
+    @ObservationIgnored private var restoreNavigationFinished = false
+    @ObservationIgnored private var restoreFinishTask: Task<Void, Never>?
+
+    /// The held link's page belongs to this tab, even while another tab is selected.
+    struct Peek {
+        let url: URL
+        let tab: Tab
+    }
+    private(set) var peek: Peek?
+    /// A returning peek should appear immediately rather than replay its entrance.
+    private(set) var peekWasPresented = false
 
     struct LoadError {
         let message: String
@@ -89,7 +100,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     }
 
     /// A tab brought back from disk. It has no web view until `activate()`.
-    init(restoring saved: SavedTab, snapshot: UIImage?, favicon: UIImage?, interactionState: Data?) {
+    init(restoring saved: SavedTab, snapshot: UIImage?, favicon: UIImage?, interactionState: Data?, peekInteractionState: Data? = nil, peekSnapshot: UIImage? = nil) {
         id = saved.id
         super.init()
 
@@ -101,6 +112,15 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         self.favicon = favicon
         savedInteractionState = interactionState
         snapshotIsStale = false
+        if let savedPeek = saved.peek {
+            let peekTab = Tab(restoring: SavedTab(
+                id: UUID(), url: savedPeek.currentURL ?? savedPeek.url,
+                title: savedPeek.title, recency: 0, peek: nil
+            ), snapshot: peekSnapshot, favicon: nil, interactionState: peekInteractionState)
+            peekTab.onChange = { [weak self] in self?.onChange?() }
+            peek = Peek(url: savedPeek.url, tab: peekTab)
+            peekWasPresented = true
+        }
     }
 
     private func makeWebView() -> WKWebView {
@@ -143,6 +163,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         guard webView == nil else { return }
         let view = makeWebView()
         isRestoring = true
+        restoreNavigationFinished = false
+        restoreFinishTask?.cancel()
+        restoreFinishTask = nil
 
         if let savedInteractionState {
             view.interactionState = savedInteractionState
@@ -166,11 +189,55 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         isLoading = false
         progress = 0
         isRestoring = false
+        restoreNavigationFinished = false
+        restoreFinishTask?.cancel()
+        restoreFinishTask = nil
+        peek?.tab.unload()
+    }
+
+    /// Remove the saved picture only after the restored navigation has finished
+    /// and its web view is actually showing behind that picture.
+    func finishRestoringIfVisible() {
+        guard isRestoring, restoreNavigationFinished, restoreFinishTask == nil,
+              let view = webView, !view.isHidden else { return }
+        restoreFinishTask = Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            defer { restoreFinishTask = nil }
+            guard !Task.isCancelled, self.webView === view,
+                  !view.isHidden, !view.isLoading else { return }
+            isRestoring = false
+        }
     }
 
     /// The state to write to disk: current if loaded, else what we kept.
     var interactionStateForSaving: Data? {
         (webView?.interactionState as? Data) ?? savedInteractionState
+    }
+
+    func openPeek(_ url: URL) {
+        guard peek == nil else { return }
+        let peekTab = Tab()
+        peekTab.onChange = { [weak self] in self?.onChange?() }
+        peek = Peek(url: url, tab: peekTab)
+        peekWasPresented = false
+        onChange?()
+    }
+
+    func markPeekPresented() { peekWasPresented = true }
+
+    func dismissPeek() {
+        peek?.tab.teardown()
+        peek = nil
+        onChange?()
+    }
+
+    /// Transfers the loaded peek page into the tab list without reloading it.
+    func takePeek() -> Tab? {
+        guard let peek else { return nil }
+        self.peek = nil
+        peek.tab.onChange = nil
+        onChange?()
+        return peek.tab
     }
 
     /// "apple.com" for the bar and cards; falls back to the page title.
@@ -194,13 +261,6 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         if view.title != nil || !isRestoring { title = view.title }
         progress = view.estimatedProgress
         if view.isLoading && !isLoading { snapshotIsStale = true }
-        // Half loaded means something is painted: drop the stand-in picture.
-        if isRestoring && view.estimatedProgress >= 0.5 {
-            Task {
-                try? await Task.sleep(for: .milliseconds(200))
-                isRestoring = false
-            }
-        }
         isLoading = view.isLoading
         canGoBack = view.canGoBack
         canGoForward = view.canGoForward
@@ -306,6 +366,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// Called when the tab is closed, so the page stops loading and playing.
     func teardown() {
         scrollSnapshotTask?.cancel()
+        restoreFinishTask?.cancel()
+        peek?.tab.teardown()
+        peek = nil
         if let view = webView { detach(view) }
         webView = nil
     }
@@ -322,7 +385,10 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     /// A page finished loading: refresh the card picture. (The leaving-the-tab
     /// snapshot can be taken mid-load, which would leave a half-empty card.)
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        isRestoring = false
+        if isRestoring {
+            restoreNavigationFinished = true
+            finishRestoringIfVisible()
+        }
         Task { await loadFavicon() }
         Task {
             // Give the page a moment to paint its final layout.
@@ -373,7 +439,6 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     private func report(_ error: Error) {
         let nsError = error as NSError
-        isRestoring = false
 
         // Not real failures: the user (or a link tap) cancelled a load, or the
         // page turned into a download. Showing an error would be noise.
@@ -381,6 +446,9 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         let isInterrupted = nsError.domain == "WebKitErrorDomain" && nsError.code == 102
         guard !isCancelled, !isInterrupted else { return }
 
+        restoreFinishTask?.cancel()
+        restoreFinishTask = nil
+        isRestoring = false
         loadError = LoadError(
             message: nsError.localizedDescription,
             failedURL: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL
