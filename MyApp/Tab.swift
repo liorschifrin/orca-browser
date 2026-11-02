@@ -26,6 +26,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     private(set) var url: URL?
     /// The last search or submitted address, retained when following links.
     var searchText = ""
+    var searchProviderID: String?
     private(set) var title: String?
     private(set) var progress: Double = 0
     private(set) var isLoading = false
@@ -99,13 +100,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
 
     /// A new tab with a live web view, loading `url` if given.
-    init(url: URL? = nil, input: String? = nil) {
+    init(url: URL? = nil, input: String? = nil, providerID: String? = nil) {
         id = UUID()
         super.init()
 
         _ = makeWebView()
         if let url {
-            load(url, input: input)
+            load(url, input: input, providerID: providerID)
         }
     }
 
@@ -115,6 +116,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         super.init()
 
         url = saved.url
+        searchProviderID = saved.searchProviderID
         searchText = saved.searchText ?? Destination.searchQuery(from: saved.url)
             ?? saved.url?.absoluteString ?? ""
         title = saved.title
@@ -281,7 +283,7 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         // A re-created web view has no address until its page starts arriving.
         if let current = view.url, current != url {
             url = current
-            if let query = Destination.searchQuery(from: current) {
+            if searchProviderID == nil, let query = Destination.searchQuery(from: current) {
                 searchText = query
             }
             onChange?()
@@ -306,10 +308,11 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
 
     // MARK: - Actions
 
-    func load(_ url: URL, input: String? = nil) {
+    func load(_ url: URL, input: String? = nil, providerID: String? = nil) {
         if let input {
-            searchText = Destination.searchQuery(from: url) ?? input
-        } else if let query = Destination.searchQuery(from: url) {
+            searchProviderID = providerID
+            searchText = providerID == nil ? (Destination.searchQuery(from: url) ?? input) : input
+        } else if searchProviderID == nil, let query = Destination.searchQuery(from: url) {
             searchText = query
         }
         isBlank = false

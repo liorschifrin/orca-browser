@@ -13,6 +13,7 @@ struct BrowserView: View {
     // and the submitted text then replaces the current page.
     @State private var editingURL: URL?
     @State private var searchInitialText = ""
+    @State private var searchInitialProviderID: String?
     @State private var searchOpenedFromGoogle = false
     @State private var replaceGoogleSearchOnSubmit = false
     @State private var isSwitching = false
@@ -90,13 +91,19 @@ struct BrowserView: View {
                     onPresented: tab.markPeekPresented,
                     onOpenNewTab: {
                         if let page = tab.takePeek() {
-                            if page.searchText.isEmpty { page.searchText = tab.searchText }
+                            if page.searchText.isEmpty {
+                                page.searchText = tab.searchText
+                                page.searchProviderID = tab.searchProviderID
+                            }
                             store.adoptPreview(page, inBackground: false)
                         }
                     },
                     onOpenBackground: {
                         if let page = tab.takePeek() {
-                            if page.searchText.isEmpty { page.searchText = tab.searchText }
+                            if page.searchText.isEmpty {
+                                page.searchText = tab.searchText
+                                page.searchProviderID = tab.searchProviderID
+                            }
                             store.adoptPreview(page, inBackground: true)
                         }
                     },
@@ -116,18 +123,19 @@ struct BrowserView: View {
                 isPresented: isSearching,
                 initialText: searchInitialText,
                 selectInitialText: editingURL == nil,
+                initialProviderID: searchInitialProviderID,
                 onAppend: {
                     replaceGoogleSearchOnSubmit = searchOpenedFromGoogle
                 },
-                onSubmit: { input in
+                onSubmit: { submission in
                     let replacing = editingURL != nil || replaceGoogleSearchOnSubmit
                     closeSearch()
                     Task {
                         if replacing, let tab = store.selectedTab,
-                           let url = Destination.url(for: input) {
-                            tab.load(url, input: input)
+                           let url = submission.resolvedURL {
+                            tab.load(url, input: submission.text, providerID: submission.providerID)
                         } else {
-                            await store.open(input)
+                            await store.open(submission)
                         }
                         closeSwitcher()
                     }
@@ -299,6 +307,7 @@ struct BrowserView: View {
     /// New tabs start with the previous search or entry selected.
     private func openSearch(editing url: URL? = nil) {
         editingURL = url
+        searchInitialProviderID = url == nil ? store.selectedTab?.searchProviderID : nil
         searchOpenedFromGoogle = url == nil
             && Destination.searchQuery(from: store.selectedTab?.url) != nil
         replaceGoogleSearchOnSubmit = false

@@ -11,6 +11,11 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Search") {
+                    NavigationLink("Search providers") {
+                        SearchProviderSettings(settings: settings)
+                    }
+                }
                 Section {
                     Toggle("Block ads", isOn: $settings.blockAds)
                     Toggle("Block trackers", isOn: $settings.blockTrackers)

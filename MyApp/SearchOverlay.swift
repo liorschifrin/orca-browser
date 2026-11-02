@@ -10,11 +10,15 @@ struct SearchOverlay: View {
     /// Text the field starts with each time the overlay opens.
     var initialText = ""
     var selectInitialText = false
+    var initialProviderID: String?
     let onAppend: () -> Void
-    let onSubmit: (String) -> Void
+    let onSubmit: (SearchSubmission) -> Void
     let onDismiss: () -> Void
 
     @State private var text = ""
+    @State private var activeProvider: SearchProvider?
+    // Exiting mode must not immediately reactivate a query like “a book”.
+    @State private var suppressActivation = false
     @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
     @State private var voiceSearch = VoiceSearch()
@@ -43,6 +47,23 @@ struct SearchOverlay: View {
                 if !clipboardText.isEmpty && clipboardText != text {
                     clipboardChip
                 }
+                if let provider = activeProvider {
+                    HStack {
+                        Text("Searching \(provider.name)").font(.subheadline.weight(.medium))
+                        Button {
+                            activeProvider = nil
+                            suppressActivation = true
+                            isFocused = true
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Leave \(provider.name) search and keep query")
+                    }
+                    .padding(.leading, 14)
+                    .background(.regularMaterial, in: .capsule)
+                } else {
+                    providerSuggestions
+                }
                 field
             }
                 .padding(.horizontal, 16)
@@ -63,14 +84,14 @@ struct SearchOverlay: View {
         .onAppear {
             // Presented at launch: grab the keyboard right away.
             if isPresented {
-                text = initialText
+                resetInput()
                 isFocused = true
                 clipboardCache.refresh()
             }
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
-                text = initialText
+                resetInput()
                 isFocused = true
                 clipboardCache.refresh()
             } else {
@@ -96,6 +117,48 @@ struct SearchOverlay: View {
         }
     }
 
+    private func resetInput() {
+        suppressActivation = false
+        activeProvider = settings.searchProviders.first { $0.id == initialProviderID && $0.isEnabled }
+        // Restoring a remembered ordinary query must not reinterpret it as a shortcut.
+        text = initialText
+    }
+
+    private func activateShortcutIfNeeded() {
+        guard activeProvider == nil, !suppressActivation,
+              let match = SearchProvider.activation(for: text, in: settings.searchProviders) else { return }
+        activeProvider = match.provider
+        text = match.query
+        selection = TextSelection(insertionPoint: text.endIndex)
+    }
+
+    private var providerSuggestions: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack {
+                ForEach(SearchProvider.suggestions(for: text, in: settings.searchProviders)) { provider in
+                    Button {
+                        // Consume the matched first token, preserving any query after it.
+                        let trimmed = text.drop(while: \.isWhitespace)
+                        let end = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
+                        text = String(trimmed[end...].drop(while: \.isWhitespace))
+                        activeProvider = provider
+                        suppressActivation = false
+                        isFocused = true
+                        selection = TextSelection(insertionPoint: text.endIndex)
+                    } label: {
+                        Text("Search \(provider.name)")
+                            .font(.subheadline)
+                            .padding(.horizontal, 14)
+                            .frame(height: 44)
+                            .background(.regularMaterial, in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
     private var clipboardText: String {
         clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -103,7 +166,7 @@ struct SearchOverlay: View {
     /// Shows what was copied; tapping goes straight to it.
     private var clipboardChip: some View {
         Button {
-            onSubmit(clipboardText)
+            onSubmit(SearchSubmission(text: clipboardText))
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "doc.on.clipboard")
@@ -132,7 +195,14 @@ struct SearchOverlay: View {
             .accessibilityLabel("Add to search")
             .accessibilityHint("Moves the cursor to the end with a space ready for more text")
 
-            TextField("Search or enter address", text: $text, selection: $selection)
+            TextField(activeProvider.map { "Search \($0.name)" } ?? "Search or enter address", text: Binding(
+                get: { text },
+                set: {
+                    text = $0
+                    if text.isEmpty { suppressActivation = false }
+                    activateShortcutIfNeeded()
+                }
+            ), selection: $selection)
                 .focused($isFocused)
                 .keyboardType(.webSearch)
                 .textInputAutocapitalization(.never)
@@ -159,6 +229,7 @@ struct SearchOverlay: View {
             Button {
                 voiceSearch.cancel()
                 text = ""
+                suppressActivation = false
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
@@ -180,7 +251,8 @@ struct SearchOverlay: View {
         if trimmed.isEmpty {
             dismiss()
         } else {
-            onSubmit(text)
+            guard let submission = SearchSubmission.make(text: text, provider: activeProvider) else { return }
+            onSubmit(submission)
         }
     }
 
@@ -189,6 +261,7 @@ struct SearchOverlay: View {
         // Preserve the entry itself; normalize only its trailing whitespace.
         while text.last?.isWhitespace == true { text.removeLast() }
         if !text.isEmpty { text.append(" ") }
+        activateShortcutIfNeeded()
         isFocused = true
         selection = TextSelection(insertionPoint: text.endIndex)
     }
@@ -201,11 +274,19 @@ struct SearchOverlay: View {
 
     private func finishVoiceSearch() {
         voiceSearch.finish { transcript in
-            guard isPresented, scenePhase == .active,
-                  let url = Destination.searchURL(for: transcript) else { return }
+            guard isPresented, scenePhase == .active else { return }
+            let submission: SearchSubmission?
+            if let activeProvider {
+                submission = SearchSubmission.make(text: transcript, provider: activeProvider)
+            } else if let url = Destination.searchURL(for: transcript) {
+                submission = SearchSubmission(text: transcript, url: url)
+            } else {
+                submission = nil
+            }
+            guard let submission else { return }
             text = transcript
             isFocused = false
-            onSubmit(url.absoluteString)
+            onSubmit(submission)
         }
     }
 }

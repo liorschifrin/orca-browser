@@ -108,14 +108,18 @@ final class BrowserStore {
     /// If the current tab is still blank, it's reused instead, so we don't
     /// leave an empty tab behind.
     func open(_ input: String) async {
-        guard let url = Destination.url(for: input) else { return }
+        await open(SearchSubmission(text: input))
+    }
+
+    func open(_ submission: SearchSubmission) async {
+        guard let url = submission.resolvedURL else { return }
 
         if let current = selectedTab, current.isBlank {
-            current.load(url, input: input)
+            current.load(url, input: submission.text, providerID: submission.providerID)
         } else {
             // Photograph the page we're leaving, for its card in the switcher.
             await selectedTab?.captureSnapshot()
-            let tab = Tab(url: url, input: input)
+            let tab = Tab(url: url, input: submission.text, providerID: submission.providerID)
             watch([tab])
             selectedTab?.lastViewed = .now
             tabs.append(tab)
