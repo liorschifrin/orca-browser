@@ -29,6 +29,8 @@ struct BrowserView: View {
     @State private var doneTrigger = 0
     @State private var switcherReloadTrigger = 0
     @State private var isShowingSettings = false
+    /// What's typed into a page's text prompt.
+    @State private var dialogText = ""
     @State private var siteMenu: SiteMenuTarget?
     private let settings = AppSettings.shared
     @Environment(\.scenePhase) private var scenePhase
@@ -138,6 +140,21 @@ struct BrowserView: View {
         .onChange(of: settings.blockTrackers) { ContentBlocker.shared.settingsChanged() }
         .sheet(item: $siteMenu) { target in
             SiteMenu(target: target)
+        }
+        .alert(
+            dialogTitle,
+            isPresented: Binding(
+                get: { dialogTab?.dialog != nil },
+                set: { if !$0 { dialogTab?.answerDialog(.cancel) } }
+            ),
+            presenting: dialogTab?.dialog
+        ) { dialog in
+            dialogButtons(dialog)
+        } message: { dialog in
+            Text(dialog.message)
+        }
+        .onChange(of: dialogTab?.dialog?.id) {
+            if case .prompt(let defaultText) = dialogTab?.dialog?.kind { dialogText = defaultText }
         }
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(settings: settings, onDone: { isShowingSettings = false })
@@ -281,6 +298,42 @@ struct BrowserView: View {
             }
             // Anchor both bars to the bottom of the available screen.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+
+    // MARK: - Page dialogs
+
+    /// The tab whose page is waiting on a dialog: the held link's page if it
+    /// asked, else the current page.
+    private var dialogTab: Tab? {
+        guard let tab = store.selectedTab else { return nil }
+        if let peekTab = tab.peek?.tab, peekTab.dialog != nil { return peekTab }
+        return tab
+    }
+
+    private var dialogTitle: String {
+        guard let dialog = dialogTab?.dialog else { return "" }
+        return dialog.site.map { "\($0) says" } ?? "This page says"
+    }
+
+    @ViewBuilder
+    private func dialogButtons(_ dialog: PageDialog) -> some View {
+        switch dialog.kind {
+        case .alert:
+            Button("OK") { dialogTab?.answerDialog(.ok(text: nil)) }
+        case .confirm:
+            Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
+            Button("OK") { dialogTab?.answerDialog(.ok(text: nil)) }
+        case .prompt:
+            TextField("", text: $dialogText)
+            Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
+            Button("OK") { dialogTab?.answerDialog(.ok(text: dialogText)) }
+        }
+        if let site = dialog.site {
+            Button("Block Dialogs from This Site", role: .destructive) {
+                PageDialogPermissions.shared.setAllowed(false, on: site)
+                dialogTab?.answerDialog(.cancel)
+            }
         }
     }
 

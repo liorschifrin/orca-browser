@@ -115,6 +115,36 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: - WKUIDelegate
 
+    /// Hands a page's dialog to the tab to show, or answers "Cancel" at once
+    /// if it can't be shown: dialogs are switched off (everywhere or for this
+    /// site), or the page isn't on screen. WebKit pauses the page until
+    /// `respond` is called, and requires it be called exactly once.
+    private func present(_ kind: PageDialog.Kind, _ message: String, respond: @escaping (PageDialog.Response) -> Void) {
+        let site = ContentBlocker.site(for: webView.url)
+        guard let tab, !webView.isHidden, webView.window != nil,
+              PageDialogPermissions.shared.mayShow(on: site) else {
+            respond(.cancel)
+            return
+        }
+        tab.present(PageDialog(kind: kind, message: message, site: site, respond: respond))
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+        present(.alert, message) { _ in completionHandler() }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+        present(.confirm, message) { response in
+            if case .ok = response { completionHandler(true) } else { completionHandler(false) }
+        }
+    }
+
+    func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+        present(.prompt(defaultText: defaultText ?? ""), prompt) { response in
+            if case .ok(let text) = response { completionHandler(text ?? "") } else { completionHandler(nil) }
+        }
+    }
+
     /// Links with target="_blank" and window.open() ask for a new window.
     /// Without this, WebKit silently ignores them; open them in this tab.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {

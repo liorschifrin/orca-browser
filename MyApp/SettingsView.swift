@@ -20,6 +20,11 @@ struct SettingsView: View {
                     Text("Uses AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Changes apply to pages you open next.")
                 }
                 Section {
+                    Toggle("Allow page dialogs", isOn: $settings.allowsPageDialogs)
+                } footer: {
+                    Text("Alerts, confirmations and prompts that pages show. When off, pages carry on as if you'd tapped Cancel. You can also switch them off for one site from its site menu.")
+                }
+                Section {
                     Toggle("Hide YouTube Shorts", isOn: $settings.hideShorts)
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")

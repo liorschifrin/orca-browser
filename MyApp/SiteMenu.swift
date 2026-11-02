@@ -15,11 +15,13 @@ struct SiteMenu: View {
     private let settings = AppSettings.shared
     @State private var blocksAds: Bool
     @State private var blocksTrackers: Bool
+    @State private var allowsDialogs: Bool
 
     init(target: SiteMenuTarget) {
         self.target = target
         _blocksAds = State(initialValue: ContentBlocker.shared.isBlocking(.ads, on: target.site))
         _blocksTrackers = State(initialValue: ContentBlocker.shared.isBlocking(.trackers, on: target.site))
+        _allowsDialogs = State(initialValue: PageDialogPermissions.shared.allows(target.site))
     }
 
     private var adsActive: Bool { settings.blockAds && blocksAds }
@@ -57,13 +59,28 @@ struct SiteMenu: View {
             Text(footnote)
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
+            Toggle("Allow dialogs", isOn: $allowsDialogs)
+                .disabled(!settings.allowsPageDialogs)
+                .padding(.horizontal, 16)
+                .frame(minHeight: 48)
+                .background(.thinMaterial, in: .rect(cornerRadius: 14))
+
+            if !settings.allowsPageDialogs {
+                Text("Page dialogs are off for every site in Settings.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 28)
         .frame(maxHeight: .infinity, alignment: .top)
         .onChange(of: blocksAds) { change(.ads, to: blocksAds) }
         .onChange(of: blocksTrackers) { change(.trackers, to: blocksTrackers) }
-        .presentationDetents([.height(400)])
+        .onChange(of: allowsDialogs) {
+            PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
+        }
+        .presentationDetents([.height(480)])
         .presentationDragIndicator(.visible)
     }
 

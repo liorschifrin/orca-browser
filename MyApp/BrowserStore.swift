@@ -155,6 +155,11 @@ final class BrowserStore {
     }
 
     func select(_ tab: Tab) {
+        // A page left behind can't wait on a dialog nobody can see.
+        if tab.id != selectedTabID {
+            selectedTab?.answerDialog(.cancel)
+            selectedTab?.peek?.tab.answerDialog(.cancel)
+        }
         selectedTab?.lastViewed = .now
         // Bring the page back if it had been unloaded.
         tab.activate()

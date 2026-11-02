@@ -69,6 +69,9 @@ final class Tab: Identifiable {
     /// read (see `Translation`). Cleared when the next page starts arriving.
     private(set) var isForeignLanguage = false
 
+    /// A dialog the page is waiting on, shown by the browser as an alert.
+    private(set) var dialog: PageDialog?
+
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
 
@@ -402,6 +405,7 @@ final class Tab: Identifiable {
     }
 
     private func detachWebView() {
+        answerDialog(.cancel)
         scrollSnapshotTask?.cancel()
         controller?.detach()
         controller = nil
@@ -437,6 +441,23 @@ final class Tab: Identifiable {
         adsBlocked = 0
         trackersBlocked = 0
         isForeignLanguage = false
+    }
+
+    /// Shows a dialog the page asked for, unless one is already up, in which
+    /// case the new one is answered "Cancel" straight away.
+    func present(_ dialog: PageDialog) {
+        guard self.dialog == nil else {
+            dialog.respond(.cancel)
+            return
+        }
+        self.dialog = dialog
+    }
+
+    /// Answers the waiting dialog, if any, and lets the page carry on.
+    func answerDialog(_ response: PageDialog.Response) {
+        guard let dialog else { return }
+        self.dialog = nil
+        dialog.respond(response)
     }
 
     func countBlocked(_ category: ContentBlocker.Category) {
