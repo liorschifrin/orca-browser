@@ -5,13 +5,6 @@ import SwiftUI
 /// on top of both.
 struct BrowserView: View {
     @State private var store: BrowserStore
-    @State private var previewLink: PreviewLink?
-
-    private struct PreviewLink: Identifiable {
-        let id = UUID()
-        let url: URL
-        let source: Tab
-    }
 
     @State private var barHeight: CGFloat = 0
     // Search starts open only when there's no page to go back to (a blank tab).
@@ -20,6 +13,8 @@ struct BrowserView: View {
     // and the submitted text then replaces the current page.
     @State private var editingURL: URL?
     @State private var searchInitialText = ""
+    @State private var searchOpenedFromGoogle = false
+    @State private var replaceGoogleSearchOnSubmit = false
     @State private var isSwitching = false
     /// A new value for every time the switcher opens, so SwiftUI never reuses
     /// a switcher that was mid-exit (it would still think it was "leaving").
@@ -52,6 +47,7 @@ struct BrowserView: View {
             if isSwitching {
                 TabSwitcher(
                     store: store,
+                    barHeight: barHeight,
                     barMix: $barMix,
                     doneTrigger: doneTrigger,
                     onSelect: { tab in
@@ -73,6 +69,34 @@ struct BrowserView: View {
                 // Same rule as the page: the keyboard doesn't push the bar up.
                 .ignoresSafeArea(.keyboard)
 
+            if let tab = store.selectedTab, let peek = tab.peek, !isSwitching {
+                LinkPreview(
+                    url: peek.url,
+                    previewTab: peek.tab,
+                    bottomInset: barHeight,
+                    animateEntrance: !tab.peekWasPresented,
+                    onPresented: tab.markPeekPresented,
+                    onOpenNewTab: {
+                        if let page = tab.takePeek() {
+                            if page.searchText.isEmpty { page.searchText = tab.searchText }
+                            store.adoptPreview(page, inBackground: false)
+                        }
+                    },
+                    onOpenBackground: {
+                        if let page = tab.takePeek() {
+                            if page.searchText.isEmpty { page.searchText = tab.searchText }
+                            store.adoptPreview(page, inBackground: true)
+                        }
+                    },
+                    onOpen: { url in
+                        tab.dismissPeek()
+                        tab.load(url)
+                    },
+                    onDismiss: tab.dismissPeek
+                )
+                .id(peek.tab.id)
+            }
+
             // Always in the view tree, just invisible when closed. A text
             // field that already exists can take the keyboard instantly;
             // one that has to be built first adds a noticeable delay.
@@ -80,13 +104,16 @@ struct BrowserView: View {
                 isPresented: isSearching,
                 initialText: searchInitialText,
                 selectInitialText: editingURL == nil,
+                onAppend: {
+                    replaceGoogleSearchOnSubmit = searchOpenedFromGoogle
+                },
                 onSubmit: { input in
-                    let replacing = editingURL != nil
+                    let replacing = editingURL != nil || replaceGoogleSearchOnSubmit
                     closeSearch()
                     Task {
                         if replacing, let tab = store.selectedTab,
                            let url = Destination.url(for: input) {
-                            tab.load(url)
+                            tab.load(url, input: input)
                         } else {
                             await store.open(input)
                         }
@@ -96,25 +123,6 @@ struct BrowserView: View {
                 onDismiss: closeSearch
             )
 
-            if let link = previewLink {
-                LinkPreview(
-                    url: link.url,
-                    onOpenNewTab: { tab in
-                        previewLink = nil
-                        store.adoptPreview(tab, inBackground: false)
-                    },
-                    onOpenBackground: { tab in
-                        previewLink = nil
-                        store.adoptPreview(tab, inBackground: true)
-                    },
-                    onOpen: { url in
-                        previewLink = nil
-                        link.source.load(url)
-                    },
-                    onDismiss: { previewLink = nil }
-                )
-                .id(link.id)
-            }
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
@@ -157,9 +165,10 @@ struct BrowserView: View {
                     webView: tab.webView!,
                     isActive: tab.id == store.selectedTabID,
                     onPreviewLink: { url in
-                        guard previewLink == nil, tab.id == store.selectedTabID else { return }
-                        previewLink = PreviewLink(url: url, source: tab)
-                    }
+                        guard tab.id == store.selectedTabID else { return }
+                        tab.openPeek(url)
+                    },
+                    onVisible: tab.finishRestoringIfVisible
                 )
                 // Sit between the status bar and the floating bar, so nothing
                 // on the page (header buttons, the end of an inner scrolling
@@ -178,7 +187,9 @@ struct BrowserView: View {
                         .clipped()
                         .padding(.bottom, barHeight)
                         .allowsHitTesting(false)
-                        .transition(.opacity.animation(.easeOut(duration: 0.2)))
+                        // The card is already visible during the switcher exit.
+                        // Show this same picture at full opacity on handoff.
+                        .transition(.identity)
                 }
                 // Stop these above the bar so its buttons stay usable.
                 if tab.isBlank {
@@ -187,6 +198,22 @@ struct BrowserView: View {
                 } else if let error = tab.loadError {
                     ErrorView(error: error, retry: tab.reload)
                         .padding(.bottom, barHeight)
+                }
+
+                if tab.isForeignLanguage, !isSwitching, let url = tab.url,
+                   Translation.canOpenInChrome(url) {
+                    Button { Translation.openInChrome(url) } label: {
+                        Image(systemName: "translate")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Translate in Chrome")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.leading, 12)
+                    .padding(.bottom, barHeight + 12)
                 }
             }
         }
@@ -202,7 +229,7 @@ struct BrowserView: View {
                         tab: tab,
                         tabCount: store.tabs.count,
                         plusButtonWidth: geometry.size.width * 0.19,
-                        onNewTab: { openSearch(prefillingSearchTerm: true) },
+                        onNewTab: { openSearch() },
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
                         onSiteMenu: {
                             // Only web pages have a site to configure.
@@ -247,17 +274,20 @@ struct BrowserView: View {
 
     // MARK: - Actions
 
-    /// `prefillingSearchTerm`: after a Google search, start with that term
-    /// selected so typing replaces it (or a tap lets you edit it).
-    private func openSearch(editing url: URL? = nil, prefillingSearchTerm: Bool = false) {
+    /// New tabs start with the previous search or entry selected.
+    private func openSearch(editing url: URL? = nil) {
         editingURL = url
+        searchOpenedFromGoogle = url == nil
+            && Destination.searchQuery(from: store.selectedTab?.url) != nil
+        replaceGoogleSearchOnSubmit = false
         searchInitialText = url?.absoluteString
-            ?? (prefillingSearchTerm ? Destination.searchQuery(from: store.selectedTab?.url) : nil)
+            ?? store.selectedTab?.searchText
             ?? ""
         withAnimation(.easeOut(duration: 0.2)) { isSearching = true }
     }
 
     private func closeSearch() {
+        replaceGoogleSearchOnSubmit = false
         withAnimation(.easeOut(duration: 0.2)) { isSearching = false }
     }
 
@@ -279,6 +309,13 @@ struct BrowserView: View {
                     await tab.captureSnapshot()
                 } else {
                     Task { await tab.captureSnapshot() }
+                }
+            }
+            if let peekTab = store.selectedTab?.peek?.tab, peekTab.needsSnapshot {
+                if peekTab.snapshot == nil {
+                    await peekTab.captureSnapshot()
+                } else {
+                    Task { await peekTab.captureSnapshot() }
                 }
             }
             switcherID = UUID()

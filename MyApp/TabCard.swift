@@ -9,7 +9,10 @@ import SwiftUI
 /// the thumbnail, and the header floats above that box.
 struct TabCard: View {
     let tab: Tab
+    let barHeight: CGFloat
     let size: CGSize
+    let screenSize: CGSize
+    let safeBottomInset: CGFloat
     /// How far the favicon's center sits in from the card's left edge.
     let faviconInset: CGFloat
     /// How far down the card the page picture starts (the status bar's share).
@@ -81,6 +84,11 @@ struct TabCard: View {
                         .background(Color(.secondarySystemBackground))
                 }
             }
+            .overlay {
+                if let peek = tab.peek {
+                    peekThumbnail(peek)
+                }
+            }
             .clipShape(.rect(cornerRadius: cornerRadius, style: .continuous))
             .overlay {
                 // Gone once the corners are square, so a full-screen card has
@@ -90,6 +98,44 @@ struct TabCard: View {
                     .opacity(min(1, cornerRadius / StackMetrics.cornerRadius))
             }
             .shadow(color: .black.opacity(0.3), radius: 16, y: 4)
+    }
+
+    private func peekThumbnail(_ peek: Tab.Peek) -> some View {
+        let scale = size.width / max(1, screenSize.width)
+        let topInset = contentTop / scale
+        let layout = PeekLayout(
+            size: CGSize(width: screenSize.width,
+                         height: max(1, screenSize.height - topInset - safeBottomInset)),
+            bottomInset: barHeight
+        )
+
+        return ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.35)
+                .frame(width: layout.size.width, height: max(0, layout.size.height - barHeight))
+
+            PeekPanel(
+                address: peek.tab.url ?? peek.url,
+                layout: layout,
+                page: ZStack {
+                    Color(uiColor: .systemBackground)
+                    if let image = peek.tab.snapshot {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .clipped()
+                    }
+                },
+                onOpen: {}, onClose: {}, onAction: { _ in }
+            )
+            .position(layout.panelCenter)
+        }
+        .frame(width: layout.size.width, height: layout.size.height)
+        .scaleEffect(scale, anchor: .topLeading)
+        .frame(width: size.width, height: layout.size.height * scale, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.top, contentTop)
+        .allowsHitTesting(false)
     }
 
     private var placeholder: some View {

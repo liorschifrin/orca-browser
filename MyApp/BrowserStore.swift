@@ -38,6 +38,7 @@ final class BrowserStore {
                 ?? saved.tabs.max { $0.recency < $1.recency }!
             selectedTabID = current.id
             current.activate()
+            current.peek?.tab.activate()
             watch(saved.tabs)
         } else {
             // The app always has at least one tab; it starts out blank.
@@ -107,11 +108,11 @@ final class BrowserStore {
         guard let url = Destination.url(for: input) else { return }
 
         if let current = selectedTab, current.isBlank {
-            current.load(url)
+            current.load(url, input: input)
         } else {
             // Photograph the page we're leaving, for its card in the switcher.
             await selectedTab?.captureSnapshot()
-            let tab = Tab(url: url)
+            let tab = Tab(url: url, input: input)
             watch([tab])
             selectedTab?.lastViewed = .now
             tabs.append(tab)
@@ -151,6 +152,7 @@ final class BrowserStore {
         selectedTab?.lastViewed = .now
         // Bring the page back if it had been unloaded.
         tab.activate()
+        tab.peek?.tab.activate()
         selectedTabID = tab.id
         markUsed(tab)
         enforceMemoryPolicy()
