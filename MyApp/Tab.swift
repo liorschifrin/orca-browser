@@ -144,8 +144,13 @@ final class Tab: NSObject, Identifiable, WKNavigationDelegate {
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
         )
+        configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
 
         let view = WKWebView(frame: .zero, configuration: configuration)
+        #if DEBUG
+        // Lets Safari's Web Inspector on a Mac attach to pages in debug builds.
+        view.isInspectable = true
+        #endif
         // Swiping from the left edge goes back, like Safari.
         view.allowsBackForwardNavigationGestures = true
         view.navigationDelegate = self
