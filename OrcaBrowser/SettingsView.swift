@@ -52,7 +52,7 @@ struct SettingsView: View {
                 }
                 #if DEBUG
                 Section("Debug") {
-                    Toggle("Show FPS and memory", isOn: $settings.showDebugStats)
+                    Toggle("Show FPS, memory and build", isOn: $settings.showDebugStats)
                 }
                 #endif
                 Section {
