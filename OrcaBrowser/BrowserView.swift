@@ -490,9 +490,13 @@ struct BrowserView: View {
             Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
             Button("OK") { dialogTab?.answerDialog(.ok(text: dialogText)) }
         }
-        if let site = dialog.site, dialogTab?.isIncognito != true {
+        if let site = dialog.site {
             Button("Block Dialogs from This Site", role: .destructive) {
-                PageDialogPermissions.shared.setAllowed(false, on: site)
+                if let rules = dialogTab?.privateRules {
+                    rules.setAllowsDialogs(false, on: site)
+                } else {
+                    PageDialogPermissions.shared.setAllowed(false, on: site)
+                }
                 dialogTab?.answerDialog(.cancel)
             }
         }
