@@ -592,13 +592,19 @@ final class Tab: Identifiable {
         }
     }
 
-    /// Applies the Shorts setting to a page that is already open.
+    /// Applies the Reddit pop-up setting to a page that is already open.
     func setBlocksRedditPrompt(_ enabled: Bool) {
         webView?.evaluateJavaScript(RedditPrompt.setScript(enabled: enabled))
     }
 
+    /// Applies the Shorts hiding setting to a page that is already open.
     func setHidesShorts(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
+    }
+
+    /// Applies the "open Shorts as videos" setting to a page that is already open.
+    func setOpensShortsAsVideos(_ enabled: Bool) {
+        webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))
     }
 
     func pageDidFail(_ error: Error) {

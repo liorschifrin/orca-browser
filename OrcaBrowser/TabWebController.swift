@@ -25,6 +25,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
         )
+        configuration.userContentController.addUserScript(
+            ShortsFilter.redirectUserScript(enabled: AppSettings.shared.opensShortsAsVideos)
+        )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
         configuration.userContentController.addUserScript(
             RedditPrompt.userScript(enabled: AppSettings.shared.blockRedditPrompt)
@@ -70,11 +73,12 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         tab?.pageDidFinish()
     }
 
-    /// Turns youtube.com/shorts/ID addresses into the normal watch page while
-    /// Shorts are hidden.
+    /// Turns youtube.com/shorts/ID addresses into the normal watch page when
+    /// Shorts are set to open as videos. This covers full page loads; taps
+    /// inside YouTube are caught by the page script.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let isMainFrame = action.targetFrame?.isMainFrame ?? true
-        if AppSettings.shared.hideShorts,
+        if AppSettings.shared.opensShortsAsVideos,
            isMainFrame,
            let url = action.request.url,
            let watchURL = ShortsFilter.watchURL(forShorts: url) {
