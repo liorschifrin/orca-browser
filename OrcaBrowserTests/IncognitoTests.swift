@@ -48,6 +48,63 @@ struct IncognitoTests {
         #expect(second.privateDataStore === secondStore)
     }
 
+    @Test func privateSiteChoicesAreSharedByIncognitoTabsOnTheSiteAndForgotten() throws {
+        let site = "incognito-rules-test.invalid"
+        let defaults = UserDefaults.standard
+        let before = defaults.dictionaryRepresentation().keys.sorted()
+        let first = Tab(isIncognito: true)
+        let second = Tab(isIncognito: true)
+        let elsewhere = Tab(isIncognito: true)
+        let regular = Tab()
+        defer { first.teardown(); second.teardown(); elsewhere.teardown(); regular.teardown() }
+        #expect(regular.privateRules == nil)
+        let rules = try #require(first.privateRules)
+
+        first.mirror(HistoryProbeWebView(host: site))
+        second.mirror(HistoryProbeWebView(host: site))
+        elsewhere.mirror(HistoryProbeWebView(host: "other-incognito-test.invalid"))
+
+        #expect(ContentBlocker.shared.isBlocking(.ads, on: site, privateRules: rules))
+        ContentBlocker.shared.setBlocking(false, .ads, on: site, privateRules: rules)
+        rules.setAllowsDialogs(false, on: site)
+
+        // Every incognito tab sees the choice; normal tabs and the saved settings don't.
+        #expect(!ContentBlocker.shared.isBlocking(.ads, on: site, privateRules: second.privateRules))
+        #expect(ContentBlocker.shared.isBlocking(.trackers, on: site, privateRules: rules))
+        #expect(!PageDialogPermissions.shared.mayShow(on: site, privateRules: second.privateRules))
+        #expect(ContentBlocker.shared.isBlocking(.ads, on: site))
+        #expect(PageDialogPermissions.shared.allows(site))
+
+        // Nothing about the site reaches disk.
+        let stored = defaults.dictionaryRepresentation()
+        #expect(stored.keys.sorted() == before)
+        #expect(!stored.values.contains { "\($0)".contains(site) })
+
+        // Still kept while one tab is on the site...
+        first.teardown()
+        #expect(!ContentBlocker.shared.isBlocking(.ads, on: site, privateRules: rules))
+        // ...or when another site's tab closes...
+        elsewhere.teardown()
+        #expect(!ContentBlocker.shared.isBlocking(.ads, on: site, privateRules: rules))
+        // ...and forgotten when the last tab on the site goes.
+        second.teardown()
+        #expect(ContentBlocker.shared.isBlocking(.ads, on: site, privateRules: rules))
+        #expect(rules.allowsDialogs(on: site) == nil)
+    }
+
+    @Test func privateSiteChoicesAreForgottenWhenTheLastTabNavigatesAway() throws {
+        let site = "incognito-leave-test.invalid"
+        let tab = Tab(isIncognito: true)
+        defer { tab.teardown() }
+        let rules = try #require(tab.privateRules)
+        tab.mirror(HistoryProbeWebView(host: site))
+        rules.setBlocking(false, .trackers, on: site)
+        tab.mirror(HistoryProbeWebView(host: site))
+        #expect(rules.blocking(.trackers, on: site) == false)
+        tab.mirror(HistoryProbeWebView(host: "elsewhere-incognito-test.invalid"))
+        #expect(rules.blocking(.trackers, on: site) == nil)
+    }
+
     @Test func privateNavigationDoesNotWriteHistory() throws {
         let privateTab = Tab(isIncognito: true)
         let regularTab = Tab()
@@ -121,7 +178,15 @@ struct IncognitoTests {
 /// Supplies a deterministic navigation event without contacting a website.
 @MainActor
 private final class HistoryProbeWebView: WKWebView {
-    let probeURL = URL(string: "https://incognito-test.invalid/\(UUID().uuidString)")!
+    let probeURL: URL
+    convenience init(host: String = "incognito-test.invalid") {
+        self.init(frame: .zero, configuration: WKWebViewConfiguration(), host: host)
+    }
+    init(frame: CGRect, configuration: WKWebViewConfiguration, host: String = "incognito-test.invalid") {
+        probeURL = URL(string: "https://\(host)/\(UUID().uuidString)")!
+        super.init(frame: frame, configuration: configuration)
+    }
+    required init?(coder: NSCoder) { fatalError() }
     override var url: URL? { probeURL }
     override var title: String? { "Private page" }
 }

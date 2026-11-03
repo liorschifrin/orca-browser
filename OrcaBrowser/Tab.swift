@@ -23,6 +23,9 @@ final class Tab: Identifiable {
     let isIncognito: Bool
     /// Retained across memory-pressure unloading; never backed by disk.
     @ObservationIgnored private(set) var privateDataStore: WKWebsiteDataStore?
+    /// Site choices (blocking, dialogs) made in incognito, shared by all
+    /// incognito tabs. In memory only; nil for normal tabs, which save theirs.
+    @ObservationIgnored let privateRules: PrivateSiteRules?
     @ObservationIgnored private var isClosed = false
     /// nil while the tab is unloaded.
     private(set) var webView: WKWebView?
@@ -30,7 +33,14 @@ final class Tab: Identifiable {
     var isLoaded: Bool { webView != nil }
 
     // Mirrored from the web view.
-    private(set) var url: URL?
+    private(set) var url: URL? {
+        didSet {
+            // Incognito site choices last while some tab is still on the site.
+            // (A nil address is only teardown, which forgets the tab itself.)
+            guard isIncognito, let url, url != oldValue else { return }
+            PrivateSiteRules.shared.tab(id, isOn: ContentBlocker.site(for: url))
+        }
+    }
     /// The last search or submitted address, retained when following links.
     var searchText = ""
     private(set) var title: String?
@@ -128,6 +138,7 @@ final class Tab: Identifiable {
         id = UUID()
         self.isIncognito = isIncognito
         privateDataStore = isIncognito ? .nonPersistent() : nil
+        privateRules = isIncognito ? .shared : nil
         fileOwner = (id, false)
 
         if let url {
@@ -140,6 +151,7 @@ final class Tab: Identifiable {
     init(restoring saved: SavedTab, owner: (id: UUID, isPeek: Bool)? = nil, hasSnapshot: Bool, favicon: UIImage?, peekHasSnapshot: Bool = false) {
         id = saved.id
         isIncognito = false
+        privateRules = nil
         fileOwner = owner ?? (saved.id, false)
 
         url = saved.url
@@ -517,6 +529,7 @@ final class Tab: Identifiable {
                 store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
             }
             privateDataStore = nil
+            privateRules?.forget(tab: id)
         }
     }
 
@@ -617,13 +630,19 @@ final class Tab: Identifiable {
         }
     }
 
-    /// Applies the Shorts setting to a page that is already open.
+    /// Applies the Reddit pop-up setting to a page that is already open.
     func setBlocksRedditPrompt(_ enabled: Bool) {
         webView?.evaluateJavaScript(RedditPrompt.setScript(enabled: enabled))
     }
 
+    /// Applies the Shorts hiding setting to a page that is already open.
     func setHidesShorts(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
+    }
+
+    /// Applies the "open Shorts as videos" setting to a page that is already open.
+    func setOpensShortsAsVideos(_ enabled: Bool) {
+        webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))
     }
 
     func pageDidFail(_ error: Error) {
