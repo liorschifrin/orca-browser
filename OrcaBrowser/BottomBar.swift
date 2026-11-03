@@ -305,7 +305,7 @@ struct PressableButtonStyle: ButtonStyle {
 /// Reads the tab itself, so progress updates redraw only this line rather
 /// than the whole bar. Grows by scaling, which (unlike changing its width)
 /// doesn't re-run layout on every animation frame.
-private struct ProgressLine: View {
+struct ProgressLine: View {
     let tab: Tab
 
     var body: some View {

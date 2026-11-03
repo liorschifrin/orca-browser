@@ -121,6 +121,14 @@ class WebViewContainer: UIView {
         super.layoutSubviews()
         webView?.frame = bounds
     }
+
+    /// Every tab's container stays in the view tree, stacked on top of each
+    /// other. One whose page is hidden must let touches through to the tab
+    /// beneath it; an empty view still takes them.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let webView, !webView.isHidden else { return nil }
+        return super.hitTest(point, with: event)
+    }
 }
 
 /// Detect the hold inside the page rather than competing with WebKit's
@@ -405,6 +413,9 @@ struct LinkPreview: View {
                                 .clipped()
                                 .allowsHitTesting(false)
                         }
+                        ProgressLine(tab: previewTab)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                            .allowsHitTesting(false)
                         if let error = previewTab.loadError {
                             Text(error.message)
                                 .foregroundStyle(.primary)
@@ -514,15 +525,16 @@ private struct PreviewPageHost: UIViewRepresentable {
         }
 
         override func layoutSubviews() {
-            // Once the page has moved into the main browser, the container
-            // no longer sizes it.
             super.layoutSubviews()
-            guard webView != nil, !hasStarted, window != nil, bounds.width > 0, bounds.height > 0 else { return }
+            // A new preview's tab has no web view until it loads something, so
+            // don't wait for one here: loading is what creates it.
+            guard !hasStarted, window != nil, bounds.width > 0, bounds.height > 0 else { return }
             hasStarted = true
             // Avoid publishing observable tab changes during SwiftUI layout.
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.window != nil, self.tab.isBlank else { return }
                 self.tab.load(self.url)
+                self.attachWebView()
             }
         }
     }
