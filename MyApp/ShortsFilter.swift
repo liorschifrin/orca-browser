@@ -24,7 +24,9 @@ enum ShortsFilter {
     ytm-shorts-lockup-view-model,
     ytm-shorts-lockup-view-model-v2,
     ytd-guide-entry-renderer:has(a[href="/shorts"]),
-    ytd-mini-guide-entry-renderer[aria-label="Shorts"] {
+    ytd-mini-guide-entry-renderer[aria-label="Shorts"],
+    ytm-pivot-bar-item-renderer:has(.pivot-shorts),
+    ytm-pivot-bar-item-renderer:has(a[href^="/shorts"]) {
         display: none !important;
     }
     """
