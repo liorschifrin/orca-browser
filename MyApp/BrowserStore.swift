@@ -119,12 +119,13 @@ final class BrowserStore {
     }
 
     /// Opens whatever the user typed (a URL or a search) in a new tab.
-    /// If the current tab is still blank, it's reused instead, so we don't
-    /// leave an empty tab behind.
-    func open(_ input: String) async {
+    /// Reuses a blank tab only when its privacy matches the requested mode.
+    /// Without an explicit mode, new tabs inherit the current tab's privacy.
+    func open(_ input: String, isIncognito: Bool? = nil) async {
         guard let url = Destination.url(for: input) else { return }
+        let privateMode = isIncognito ?? selectedTab?.isIncognito ?? false
 
-        if let current = selectedTab, current.isBlank {
+        if let current = selectedTab, current.isBlank, current.isIncognito == privateMode {
             current.load(url, input: input)
         } else {
             guard !isOpening else { return }
@@ -132,7 +133,7 @@ final class BrowserStore {
             defer { isOpening = false }
             // Photograph the page we're leaving, for its card in the switcher.
             await selectedTab?.captureSnapshot()
-            let tab = Tab(url: url, input: input)
+            let tab = Tab(url: url, input: input, isIncognito: privateMode)
             watch([tab])
             selectedTab?.lastViewed = .now
             tabs.append(tab)
@@ -143,9 +144,17 @@ final class BrowserStore {
         scheduleSave()
     }
 
+    /// Starts a private search without copying the previous tab's address.
+    func newIncognitoTab() {
+        let tab = Tab(isIncognito: true)
+        watch([tab])
+        tabs.append(tab)
+        select(tab)
+    }
+
     /// Opens `url` in a new tab behind the current one, which stays showing.
     func openInBackground(_ url: URL) {
-        let tab = Tab(url: url)
+        let tab = Tab(url: url, isIncognito: selectedTab?.isIncognito ?? false)
         watch([tab])
         tabs.append(tab)
         markUsed(tab)
@@ -241,14 +250,14 @@ final class BrowserStore {
     /// the tabs are closed nothing of them stays in memory: their web views
     /// are torn down and the tabs themselves released.
     func closeAll() {
-        let closing = tabs.filter { !$0.isBlank }
+        let closing = tabs.filter { !$0.isBlank || $0.isIncognito }
         guard !closing.isEmpty else { return }
         // If they can't be written, they stay open rather than get lost.
         guard (try? TabPersistence.stashClosed(tabs, selectedID: selectedTabID)) != nil else { return }
 
         for tab in tabs { tab.teardown() }
         replaceWithBlankTab()
-        closedTabCount += closing.count
+        closedTabCount += closing.filter { !$0.isIncognito }.count
         save()
     }
 

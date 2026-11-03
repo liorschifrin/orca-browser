@@ -33,13 +33,13 @@ final class CardThumbnails {
 
     /// The thumbnail, if it's ready now.
     func cached(for tab: Tab) -> UIImage? {
-        cache.object(forKey: Self.key(tab) as NSString)
+        tab.isIncognito ? nil : cache.object(forKey: Self.key(tab) as NSString)
     }
 
     /// The thumbnail, decoding it first if needed. nil if the tab has no
     /// picture.
     func thumbnail(for tab: Tab) async -> UIImage? {
-        guard tab.hasSnapshot else { return nil }
+        guard !tab.isIncognito, tab.hasSnapshot else { return nil }
         let key = Self.key(tab)
         if let image = cache.object(forKey: key as NSString) { return image }
         if let task = loading[key] { return await task.value }

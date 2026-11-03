@@ -19,6 +19,10 @@ import WebKit
 @Observable
 final class Tab: Identifiable {
     let id: UUID
+    let isIncognito: Bool
+    /// Retained across memory-pressure unloading; never backed by disk.
+    @ObservationIgnored private(set) var privateDataStore: WKWebsiteDataStore?
+    @ObservationIgnored private var isClosed = false
     /// nil while the tab is unloaded.
     private(set) var webView: WKWebView?
     @ObservationIgnored private var controller: TabWebController?
@@ -62,6 +66,7 @@ final class Tab: Identifiable {
         didSet { faviconRevision += 1 }
     }
     @ObservationIgnored private var faviconURL: URL?
+    @ObservationIgnored private var faviconTask: Task<Void, Never>?
 
     /// Requests blocked on the current page, by kind. Start again at each page.
     private(set) var adsBlocked = 0
@@ -112,8 +117,10 @@ final class Tab: Identifiable {
     @ObservationIgnored var onChange: (() -> Void)?
 
     /// A new tab with a live web view, loading `url` if given.
-    init(url: URL? = nil, input: String? = nil) {
+    init(url: URL? = nil, input: String? = nil, isIncognito: Bool = false) {
         id = UUID()
+        self.isIncognito = isIncognito
+        privateDataStore = isIncognito ? .nonPersistent() : nil
         fileOwner = (id, false)
 
         _ = makeWebView()
@@ -126,6 +133,7 @@ final class Tab: Identifiable {
     /// and its picture and history stay on disk until then.
     init(restoring saved: SavedTab, owner: (id: UUID, isPeek: Bool)? = nil, hasSnapshot: Bool, favicon: UIImage?, peekHasSnapshot: Bool = false) {
         id = saved.id
+        isIncognito = false
         fileOwner = owner ?? (saved.id, false)
 
         url = saved.url
@@ -160,7 +168,7 @@ final class Tab: Identifiable {
     /// Makes sure the tab has a web view, re-creating one (and returning to
     /// where you were) if it was unloaded.
     func activate() {
-        guard webView == nil else { return }
+        guard !isClosed, webView == nil else { return }
         let view = makeWebView()
         isRestoring = true
         // The picture covers the page until it's back, and the history
@@ -207,7 +215,7 @@ final class Tab: Identifiable {
     /// Lets go of the in-memory picture. Only for pictures already saved;
     /// cards and `activate()` read it back from disk.
     func releaseSnapshot() {
-        if snapshot != nil { snapshot = nil }
+        if !isIncognito, snapshot != nil { snapshot = nil }
     }
 
     /// Remove the saved picture only after the restored navigation has finished
@@ -226,12 +234,13 @@ final class Tab: Identifiable {
 
     /// The state to write to disk: current if loaded, else what we kept.
     var interactionStateForSaving: Data? {
-        (webView?.interactionState as? Data) ?? savedInteractionState
+        guard !isIncognito else { return nil }
+        return (webView?.interactionState as? Data) ?? savedInteractionState
     }
 
     func openPeek(_ url: URL) {
-        guard peek == nil else { return }
-        let peekTab = Tab()
+        guard !isClosed, peek == nil else { return }
+        let peekTab = Tab(isIncognito: isIncognito)
         peekTab.fileOwner = (id, true)
         peekTab.onChange = { [weak self] in self?.onChange?() }
         peek = Peek(url: url, tab: peekTab)
@@ -308,7 +317,7 @@ final class Tab: Identifiable {
     /// A new address arrives with the *previous* page's title still showing,
     /// so it's recorded without one; the real title follows.
     private func recordHistory(urlChanged: Bool, titleChanged: Bool) {
-        guard !isRestoring, loadError == nil, let url else { return }
+        guard !isIncognito, !isClosed, !isRestoring, loadError == nil, let url else { return }
         if urlChanged || lastRecordedURL != url {
             lastRecordedURL = url
             HistoryStore.shared.recordVisit(url, title: nil)
@@ -333,6 +342,7 @@ final class Tab: Identifiable {
     // MARK: - Actions
 
     func load(_ url: URL, input: String? = nil) {
+        guard !isClosed else { return }
         if let input {
             searchText = Destination.searchQuery(from: url) ?? input
         } else if let query = Destination.searchQuery(from: url) {
@@ -390,7 +400,7 @@ final class Tab: Identifiable {
         let number = snapshotsStarted
         guard let picture = await PageSnapshotter.capture(view) else { return }
         // A newer picture was started meanwhile; it wins.
-        guard number == snapshotsStarted else { return }
+        guard !isClosed, number == snapshotsStarted else { return }
         snapshot = picture
         hasSnapshot = true
         snapshotRevision += 1
@@ -402,10 +412,11 @@ final class Tab: Identifiable {
     private func loadFavicon() async {
         guard let view = webView, let pageURL = view.url,
               let iconURL = await PageMetadata.iconURL(in: view), iconURL != faviconURL,
-              let image = await PageMetadata.icon(at: iconURL) else { return }
+              let image = await PageMetadata.icon(at: iconURL, isIncognito: isIncognito),
+              !isClosed, view === webView else { return }
         faviconURL = iconURL
         favicon = image
-        HistoryStore.shared.saveIcon(image, for: pageURL)
+        if !isIncognito { HistoryStore.shared.saveIcon(image, for: pageURL) }
     }
 
     /// Decides whether the page is in a language the user doesn't read.
@@ -417,11 +428,31 @@ final class Tab: Identifiable {
 
     /// Called when the tab is closed, so the page stops loading and playing.
     func teardown() {
+        isClosed = true
+        snapshotsStarted += 1
+        onChange = nil
+        faviconTask?.cancel()
+        faviconTask = nil
         scrollSnapshotTask?.cancel()
         restoreFinishTask?.cancel()
         peek?.tab.teardown()
         peek = nil
         detachWebView()
+        if isIncognito {
+            snapshot = nil
+            hasSnapshot = false
+            favicon = nil
+            faviconURL = nil
+            savedInteractionState = nil
+            url = nil
+            title = nil
+            searchText = ""
+            loadError = nil
+            if let store = privateDataStore {
+                store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
+            }
+            privateDataStore = nil
+        }
     }
 
     private func detachWebView() {
@@ -441,7 +472,8 @@ final class Tab: Identifiable {
             restoreNavigationFinished = true
             finishRestoringIfVisible()
         }
-        Task { await loadFavicon() }
+        faviconTask?.cancel()
+        faviconTask = Task { await loadFavicon() }
         Task { await detectLanguage() }
         Task {
             // Give the page a moment to paint its final layout.

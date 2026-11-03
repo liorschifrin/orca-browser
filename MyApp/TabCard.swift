@@ -67,7 +67,7 @@ struct TabCard: View, Equatable {
             // we also watch for upward drags on the card.
             .simultaneousGesture(swipeToClose)
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(tab.title?.isEmpty == false ? tab.title! : tab.displayName)
+            .accessibilityLabel((tab.isIncognito ? "Incognito, " : "") + (tab.title?.isEmpty == false ? tab.title! : tab.displayName))
             .accessibilityAddTraits(.isButton)
             .accessibilityAction(named: "Close tab", onClose)
     }
@@ -84,7 +84,10 @@ struct TabCard: View, Equatable {
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .top) {
                 TabPicture(tab: tab) { image in
-                    if let image {
+                    if tab.isIncognito {
+                        // Private pages show no picture at all, only this haze.
+                        incognitoFill
+                    } else if let image {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
@@ -117,6 +120,22 @@ struct TabCard: View, Equatable {
                     .fill(Color(.systemBackground))
                     .shadow(color: .black.opacity(0.3), radius: 16, y: 4)
             }
+    }
+
+    /// A soft grey-blue-teal wash, standing in for the page.
+    private var incognitoFill: some View {
+        LinearGradient(
+            stops: [
+                .init(color: Color(red: 0.29, green: 0.29, blue: 0.30), location: 0),
+                .init(color: Color(red: 0.18, green: 0.20, blue: 0.34), location: 0.2),
+                .init(color: Color(red: 0.33, green: 0.33, blue: 0.34), location: 0.45),
+                .init(color: Color(red: 0.31, green: 0.33, blue: 0.34), location: 0.75),
+                .init(color: Color(red: 0.20, green: 0.31, blue: 0.36), location: 1)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func peekThumbnail(_ peek: Tab.Peek) -> some View {
@@ -178,15 +197,24 @@ struct TabCard: View, Equatable {
             favicon
                 .frame(width: faviconSize, height: faviconSize)
 
-            Text(tab.title?.isEmpty == false ? tab.title! : tab.displayName)
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .opacity(focus)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(tab.title?.isEmpty == false ? tab.title! : tab.displayName)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                if tab.isIncognito {
+                    Text("Incognito Tab")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .opacity(focus)
         }
         // Puts the icon's *center* `faviconInset` from the card's left edge.
         .padding(.leading, faviconInset - faviconSize / 2)
         // Anything longer than the card is cut off with an ellipsis.
-        .frame(width: size.width, alignment: .leading)
+        // A fixed height keeps the icon where it was when a second line
+        // (Incognito Tab) is added; the text spills out evenly around it.
+        .frame(width: size.width, height: faviconSize, alignment: .leading)
     }
 
     @ViewBuilder

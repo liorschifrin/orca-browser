@@ -33,7 +33,7 @@ struct SiteMenu: View {
                 Text(target.site)
                     .font(.title3.weight(.semibold))
                     .lineLimit(1)
-                Text("Applies to every page on this site")
+                Text(target.tab.isIncognito ? "Site preferences cannot be saved in incognito." : "Applies to every page on this site")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -45,12 +45,12 @@ struct SiteMenu: View {
 
             VStack(spacing: 0) {
                 Toggle("Block ads", isOn: $blocksAds)
-                    .disabled(!settings.blockAds)
+                    .disabled(!settings.blockAds || target.tab.isIncognito)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
                 Divider().padding(.leading, 16)
                 Toggle("Block trackers", isOn: $blocksTrackers)
-                    .disabled(!settings.blockTrackers)
+                    .disabled(!settings.blockTrackers || target.tab.isIncognito)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
             }
@@ -61,7 +61,7 @@ struct SiteMenu: View {
                 .foregroundStyle(.secondary)
 
             Toggle("Allow dialogs", isOn: $allowsDialogs)
-                .disabled(!settings.allowsPageDialogs)
+                .disabled(!settings.allowsPageDialogs || target.tab.isIncognito)
                 .padding(.horizontal, 16)
                 .frame(minHeight: 48)
                 .background(.thinMaterial, in: .rect(cornerRadius: 14))

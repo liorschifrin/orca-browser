@@ -17,6 +17,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     init(tab: Tab) {
         self.tab = tab
         let configuration = WKWebViewConfiguration()
+        if let store = tab.privateDataStore { configuration.websiteDataStore = store }
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
         ContentBlocker.shared.install(on: configuration.userContentController)

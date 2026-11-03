@@ -13,6 +13,7 @@ struct BrowserView: View {
     // and the submitted text then replaces the current page.
     @State private var editingURL: URL?
     @State private var searchInitialText = ""
+    @State private var searchIsIncognito = false
     @State private var searchOpenedFromGoogle = false
     @State private var replaceGoogleSearchOnSubmit = false
     @State private var isSwitching = false
@@ -39,12 +40,15 @@ struct BrowserView: View {
     @State private var dialogText = ""
     @State private var siteMenu: SiteMenuTarget?
     private let settings = AppSettings.shared
+    /// Height of the "Incognito" strip under the status bar.
+    private static let incognitoBarHeight: CGFloat = 16
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
         let store = BrowserStore()
         _store = State(initialValue: store)
         _isSearching = State(initialValue: store.selectedTab?.isBlank ?? true)
+        _searchIsIncognito = State(initialValue: store.selectedTab?.isIncognito ?? false)
     }
 
     var body: some View {
@@ -121,18 +125,22 @@ struct BrowserView: View {
                 isPresented: isSearching,
                 initialText: searchInitialText,
                 selectInitialText: editingURL == nil,
+                showsIncognitoToggle: editingURL == nil,
+                isIncognito: $searchIsIncognito,
                 onAppend: {
                     replaceGoogleSearchOnSubmit = searchOpenedFromGoogle
                 },
                 onSubmit: { input in
-                    let replacing = editingURL != nil || replaceGoogleSearchOnSubmit
+                    let isIncognito = searchIsIncognito
+                    let replacing = editingURL != nil || (replaceGoogleSearchOnSubmit
+                        && store.selectedTab?.isIncognito == isIncognito)
                     closeSearch()
                     Task {
                         if replacing, let tab = store.selectedTab,
                            let url = Destination.url(for: input) {
                             tab.load(url, input: input)
                         } else {
-                            await store.open(input)
+                            await store.open(input, isIncognito: isIncognito)
                         }
                         closeSwitcher()
                     }
@@ -140,6 +148,14 @@ struct BrowserView: View {
                 onDismiss: closeSearch
             )
 
+            // Hides the screen in the iOS app switcher, but only when what was
+            // last on screen is private.
+            if scenePhase != .active, store.selectedTab?.isIncognito == true {
+                Color(.systemBackground).ignoresSafeArea()
+                Label("Bark", systemImage: "eye.slash.fill")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.purple)
+            }
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
@@ -233,7 +249,8 @@ struct BrowserView: View {
 
     /// Every tab's web view, then error/start states. (The bars sit above.)
     private var page: some View {
-        ZStack(alignment: .bottom) {
+        let isIncognito = store.selectedTab?.isIncognito == true
+        return ZStack(alignment: .bottom) {
             // All tabs stay mounted; only the selected one is visible.
             ForEach(store.tabs.filter(\.isLoaded)) { tab in
                 WebViewHost(
@@ -292,6 +309,19 @@ struct BrowserView: View {
                 }
             }
         }
+        // The page shrinks a little to leave room for the strip.
+        .padding(.top, isIncognito ? Self.incognitoBarHeight : 0)
+        .overlay(alignment: .top) {
+            if isIncognito {
+                Text("Incognito")
+                    .font(.system(size: 12, weight: .medium))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: Self.incognitoBarHeight)
+                    .background(Color(.systemBackground).ignoresSafeArea(edges: .top))
+                    .allowsHitTesting(false)
+                    .accessibilityLabel("Incognito tab")
+            }
+        }
     }
 
     /// Both bottom bars, stacked above the page and the switcher, fading
@@ -331,7 +361,7 @@ struct BrowserView: View {
                     SwitcherBar(
                         height: barHeight,
                         plusButtonWidth: geometry.size.width * 0.19,
-                        canCloseAll: store.tabs.contains { !$0.isBlank },
+                        canCloseAll: store.tabs.contains { !$0.isBlank || $0.isIncognito },
                         closedCount: store.closedTabCount,
                         onDone: { doneTrigger += 1 },
                         onNewTab: { openSearch() },
@@ -386,7 +416,7 @@ struct BrowserView: View {
             Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
             Button("OK") { dialogTab?.answerDialog(.ok(text: dialogText)) }
         }
-        if let site = dialog.site {
+        if let site = dialog.site, dialogTab?.isIncognito != true {
             Button("Block Dialogs from This Site", role: .destructive) {
                 PageDialogPermissions.shared.setAllowed(false, on: site)
                 dialogTab?.answerDialog(.cancel)
@@ -399,6 +429,7 @@ struct BrowserView: View {
     /// New tabs start with the previous search or entry selected.
     private func openSearch(editing url: URL? = nil) {
         editingURL = url
+        searchIsIncognito = store.selectedTab?.isIncognito ?? false
         searchOpenedFromGoogle = url == nil
             && Destination.searchQuery(from: store.selectedTab?.url) != nil
         replaceGoogleSearchOnSubmit = false

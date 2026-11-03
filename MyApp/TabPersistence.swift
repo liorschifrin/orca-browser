@@ -112,12 +112,14 @@ enum TabPersistence {
 
     /// A tab's picture, read back from disk (or from a save still under way).
     static func loadSnapshot(for tab: Tab) -> UIImage? {
+        guard !tab.isIncognito else { return nil }
         let url = snapshotFile(for: tab)
         return unwrittenPictures[url] ?? image(url)
     }
 
     /// A tab's history, read back from disk.
     static func loadInteractionState(for tab: Tab) -> Data? {
+        guard !tab.isIncognito else { return nil }
         guard let state = try? Data(contentsOf: stateFile(for: tab)) else { return nil }
         // It's on disk already; don't write it again unless it changes.
         if tab.fileOwner.isPeek {
@@ -129,10 +131,11 @@ enum TabPersistence {
     }
 
     static func save(tabs: [Tab], selectedID: Tab.ID) {
-        let saved = tabs.filter { !$0.isBlank }
+        let saved = tabs.filter { !$0.isBlank && !$0.isIncognito }
         var writes: [Write] = []
 
-        let session = SavedSession(tabs: saved.map(savedTab), selectedID: selectedID)
+        let session = SavedSession(tabs: saved.map(savedTab), selectedID: saved.first(where: { $0.id == selectedID })?.id
+            ?? saved.max(by: { $0.recency < $1.recency })?.id)
         if let data = try? JSONEncoder().encode(session) {
             writes.append(.data(data, directory.appending(path: "session.json")))
         }
@@ -261,7 +264,8 @@ enum TabPersistence {
     /// Moves `tabs` out to the closed folder, after any already there. Throws,
     /// before any file moves, if the list can't be written.
     static func stashClosed(_ tabs: [Tab], selectedID: Tab.ID) throws {
-        let closing = tabs.filter { !$0.isBlank }
+        let closing = tabs.filter { !$0.isBlank && !$0.isIncognito }
+        guard !closing.isEmpty else { return }
         // Bring the live files up to date, then move them rather than
         // encoding every picture again.
         save(tabs: tabs, selectedID: selectedID)

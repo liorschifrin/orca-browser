@@ -24,8 +24,10 @@ enum PageMetadata {
 
     /// Downloads an icon. Only the site's own server is contacted. nil if it
     /// fails, or is a format iOS can't decode (e.g. SVG).
-    static func icon(at url: URL) async -> UIImage? {
-        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
+    static func icon(at url: URL, isIncognito: Bool = false) async -> UIImage? {
+        let session = isIncognito ? URLSession(configuration: .ephemeral) : URLSession.shared
+        defer { if isIncognito { session.invalidateAndCancel() } }
+        guard let (data, _) = try? await session.data(from: url) else { return nil }
         return UIImage(data: data)
     }
 

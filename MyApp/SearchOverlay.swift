@@ -10,6 +10,8 @@ struct SearchOverlay: View {
     /// Text the field starts with each time the overlay opens.
     var initialText = ""
     var selectInitialText = false
+    var showsIncognitoToggle = false
+    @Binding var isIncognito: Bool
     let onAppend: () -> Void
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
@@ -19,6 +21,7 @@ struct SearchOverlay: View {
     private let clipboardCache = ClipboardCache.shared
     @State private var voiceSearch = VoiceSearch()
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var systemColorScheme
     private let settings = AppSettings.shared
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
@@ -29,8 +32,21 @@ struct SearchOverlay: View {
             // Backdrop: tapping anywhere outside the field dismisses.
             Rectangle()
                 .fill(.ultraThinMaterial)
+                .overlay {
+                    // Incognito darkens the whole screen, so it's obvious at a glance.
+                    Color.black.opacity(isIncognito ? 0.55 : 0)
+                }
                 .ignoresSafeArea()
                 .onTapGesture(perform: dismiss)
+
+            if isIncognito {
+                Text("You’re browsing Incognito")
+                    .font(.title3.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
 
             VStack(spacing: 10) {
                 if let status = voiceSearch.status {
@@ -49,6 +65,8 @@ struct SearchOverlay: View {
                 .padding(.bottom, 12)
                 .offset(y: isPresented ? 0 : 24)
         }
+        .environment(\.colorScheme, isIncognito ? .dark : systemColorScheme)
+        .animation(.easeOut(duration: 0.2), value: isIncognito)
         .opacity(isPresented ? 1 : 0)
         // While invisible, it must not steal taps or show up for VoiceOver.
         .allowsHitTesting(isPresented)
@@ -143,7 +161,7 @@ struct SearchOverlay: View {
             if voiceSearch.state == .transcribing || voiceSearch.state == .downloading {
                 ProgressView()
                     .frame(width: 44, height: 44)
-            } else {
+            } else if !isIncognito {
                 VoiceSearchButton(
                     isRecording: voiceSearch.state == .recording,
                     isEnabled: isPresented,
@@ -154,7 +172,11 @@ struct SearchOverlay: View {
                 .frame(width: 44, height: 44)
             }
 
-            // Always laid out so the microphone doesn't shift when it appears.
+            if showsIncognitoToggle || isIncognito {
+                incognitoToggle
+            }
+
+            // Always laid out so the toggle doesn't shift when it appears.
             let showsClear = !text.isEmpty || voiceSearch.isBusy
             Button {
                 voiceSearch.cancel()
@@ -172,6 +194,32 @@ struct SearchOverlay: View {
         .frame(height: 52)
         .background(.regularMaterial, in: .capsule)
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+    }
+
+    /// Flips between normal and Incognito while the query is being typed;
+    /// the field keeps its text and the keyboard stays up.
+    private var incognitoToggle: some View {
+        Button {
+            isIncognito.toggle()
+        } label: {
+            HStack(spacing: 8) {
+                if isIncognito {
+                    Text("Incognito")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Image(systemName: isIncognito ? "eye.slash.fill" : "eye.slash")
+                    .font(.system(size: 18))
+                    .foregroundStyle(isIncognito ? Color.primary : Color.secondary)
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!showsIncognitoToggle)
+        .accessibilityLabel("Incognito")
+        .accessibilityValue(isIncognito ? "On" : "Off")
+        .accessibilityAddTraits(.isToggle)
     }
 
     private func submit() {
