@@ -1,0 +1,306 @@
+#!/bin/bash
+# Builds this checkout and installs it on your iPhone, without opening Xcode.
+#
+#   scripts/ship-to-phone.sh --label "two to four words"
+#                                         build this branch into a test slot
+#   scripts/ship-to-phone.sh --main       after a merge: update main from GitHub and rebuild
+#                                         the regular Orca Browser app (no stamp), from
+#                                         any worktree
+#   scripts/ship-to-phone.sh --release    free this branch's test slot (after merging)
+#   scripts/ship-to-phone.sh --takeover N replace whatever is in slot N (ask the user first)
+#   scripts/ship-to-phone.sh --status     show who holds each slot
+#
+# There are two test slots, "Orca 1" and "Orca 2" (bundle IDs ending .dev1 and
+# .dev2), next to the regular app. A branch keeps its slot across rebuilds, so
+# two branches in flight never overwrite each other. When both slots are taken
+# the script stops and says who holds them.
+#
+# Nothing here touches tracked files. The slot name, bundle ID and branch/commit
+# stamp are passed to xcodebuild as build settings, so a build from Xcode (or
+# the code on GitHub) looks the same as before.
+#
+# Other options:
+#   --label "words"     what the branch is about, shown under the slot in the
+#                       app (kept for later builds; defaults to the branch name)
+#   --build-only        build but don't install
+#   --configuration X   Debug (default) or Release
+#   --device X          device name or UDID (default: the connected iPhone)
+
+set -euo pipefail
+
+SLOT_COUNT=2
+BASE_ID="com.liorschifrin.OrcaBrowser"
+SLOTS_DIR="${ORCA_SLOTS_DIR:-$HOME/.orca-slots}"
+
+mode=ship
+configuration=Debug
+device="${ORCA_DEVICE:-}"
+label=""
+takeover=""
+build_only=0
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --main) mode=main ;;
+        --release) mode=release ;;
+        --status) mode=status ;;
+        --build-only) build_only=1 ;;
+        --configuration) configuration="$2"; shift ;;
+        --device) device="$2"; shift ;;
+        --label) label="$2"; shift ;;
+        --takeover) takeover="$2"; shift ;;
+        -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+root="$(git rev-parse --show-toplevel)"
+if [[ "$mode" == main ]]; then
+    # Build in whichever checkout has main, so this works from any worktree.
+    root="$(git worktree list --porcelain \
+        | awk '/^worktree /{ p = substr($0, 10) } /^branch refs\/heads\/main$/{ print p; exit }')"
+    if [[ -z "$root" ]]; then
+        echo "No checkout has main checked out." >&2
+        exit 1
+    fi
+    cd "$root"
+    if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+        echo "The main checkout ($root) has uncommitted changes; not building them into the main app." >&2
+        exit 1
+    fi
+    # Pick up merged pull requests. If this can't fast-forward, build local main as it is.
+    git fetch --quiet origin main && git merge --ff-only --quiet origin/main \
+        || echo "Couldn't update main from GitHub; building local main as it is." >&2
+fi
+cd "$root"
+branch="$(git symbolic-ref --quiet --short HEAD || basename "$root")"
+branch_label="${branch#t3/}"
+commit="$(git rev-parse --short=7 HEAD)"
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+    commit="$commit*"
+fi
+
+mkdir -p "$SLOTS_DIR"
+
+# Up to four words: a branch named like "fix-page-safe-area" reads fine, and a
+# hash-named branch falls back to its latest commit message.
+default_label() {
+    local text="$branch_label"
+    [[ "$text" =~ ^[0-9a-f]{8}$ ]] && text="$(git log -1 --format=%s)"
+    echo "$text" | tr '_-' '  ' | awk '{ for (i = 1; i <= NF && i <= 4; i++) printf "%s%s", $i, (i < NF && i < 4 ? " " : ""); print "" }'
+}
+
+slot_file() { echo "$SLOTS_DIR/$1"; }
+slot_field() { grep "^$2=" "$(slot_file "$1")" 2>/dev/null | head -1 | cut -d= -f2- || true; }
+
+with_lock() {
+    local tries=0
+    until mkdir "$SLOTS_DIR/.lock" 2>/dev/null; do
+        tries=$((tries + 1))
+        if [[ $tries -gt 100 ]]; then
+            echo "Slot lock $SLOTS_DIR/.lock is stuck; remove it if no other build is running." >&2
+            exit 1
+        fi
+        sleep 0.1
+    done
+    trap 'rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true' EXIT
+}
+
+# A slot is stale when its worktree or branch no longer exists.
+slot_is_stale() {
+    local n="$1" w b
+    [[ -f "$(slot_file "$n")" ]] || return 1
+    w="$(slot_field "$n" worktree)"; b="$(slot_field "$n" branch)"
+    [[ ! -d "$w" ]] && return 0
+    git show-ref --verify --quiet "refs/heads/$b" || return 0
+    return 1
+}
+
+# Best effort: a slot whose branch has a merged or closed pull request is free.
+slot_pr_is_done() {
+    local state
+    command -v gh >/dev/null || return 1
+    state="$(gh pr view "$(slot_field "$1" branch)" --json state --jq .state 2>/dev/null || true)"
+    [[ "$state" == MERGED || "$state" == CLOSED ]]
+}
+
+# "5m", "3h" or "2d" for a number of seconds.
+format_age() {
+    local s="$1"
+    if [[ $s -lt 3600 ]]; then echo "$((s / 60))m"
+    elif [[ $s -lt 86400 ]]; then echo "$((s / 3600))h"
+    else echo "$((s / 86400))d"; fi
+}
+
+print_status() {
+    local n built built_ago
+    for n in $(seq 1 "$SLOT_COUNT"); do
+        if [[ -f "$(slot_file "$n")" ]]; then
+            built="$(slot_field "$n" built_epoch)"
+            if [[ -n "$built" ]]; then built_ago="$(format_age $(( $(date +%s) - built ))) ago"; else built_ago="at an unknown time"; fi
+            echo "Orca $n  \"$(slot_field "$n" label)\"  $(slot_field "$n" branch) @ $(slot_field "$n" commit)  last built $built_ago  ($(slot_field "$n" worktree))"
+        else
+            echo "Orca $n  free"
+        fi
+    done
+}
+
+find_slot_for_this_checkout() {
+    local n
+    for n in $(seq 1 "$SLOT_COUNT"); do
+        [[ -f "$(slot_file "$n")" ]] || continue
+        if [[ "$(slot_field "$n" worktree)" == "$root" && "$(slot_field "$n" branch)" == "$branch" ]]; then
+            echo "$n"; return 0
+        fi
+    done
+    return 1
+}
+
+claim_slot() {
+    local n
+    if n="$(find_slot_for_this_checkout)"; then echo "$n"; return 0; fi
+    for n in $(seq 1 "$SLOT_COUNT"); do
+        if slot_is_stale "$n"; then rm -f "$(slot_file "$n")"; fi
+    done
+    for n in $(seq 1 "$SLOT_COUNT"); do
+        [[ -f "$(slot_file "$n")" ]] || { write_slot "$n"; echo "$n"; return 0; }
+    done
+    for n in $(seq 1 "$SLOT_COUNT"); do
+        if slot_pr_is_done "$n"; then write_slot "$n"; echo "$n"; return 0; fi
+    done
+    return 1
+}
+
+write_slot() {
+    cat > "$(slot_file "$1")" <<EOF
+branch=$branch
+worktree=$root
+commit=$commit
+label=$label
+built_epoch=$(date +%s)
+EOF
+}
+
+case "$mode" in
+    status)
+        print_status
+        exit 0
+        ;;
+    release)
+        with_lock
+        if n="$(find_slot_for_this_checkout)"; then
+            rm -f "$(slot_file "$n")"
+            echo "Released Orca $n (it stays installed on the phone until another branch overwrites it)."
+        else
+            echo "$branch holds no slot."
+        fi
+        exit 0
+        ;;
+esac
+
+# Pick the device before spending a minute on a build.
+if [[ $build_only -eq 0 ]]; then
+    if [[ -z "$device" ]]; then
+        listing="$(mktemp)"
+        xcrun devicectl list devices --json-output "$listing" >/dev/null 2>&1 || true
+        device="$(jq -r '[.result.devices[]?
+            | select(.hardwareProperties.reality == "physical"
+                     and .connectionProperties.tunnelState == "connected")][0]
+            | .hardwareProperties.udid // empty' "$listing")"
+        rm -f "$listing"
+        if [[ -z "$device" ]]; then
+            echo "No iPhone is connected. Plug it in (or pass --device), unlock it, and run again." >&2
+            exit 1
+        fi
+    fi
+fi
+
+settings=()
+if [[ "$mode" == main ]]; then
+    slot_name=main
+    bundle_id="$BASE_ID"
+    # Two threads rebuilding main at once would trample the same build folder.
+    tries=0
+    until mkdir "$SLOTS_DIR/.main-lock" 2>/dev/null; do
+        tries=$((tries + 1))
+        if [[ $tries -gt 600 ]]; then
+            echo "Another main build seems stuck; remove $SLOTS_DIR/.main-lock if none is running." >&2
+            exit 1
+        fi
+        sleep 0.5
+    done
+    trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
+else
+    with_lock
+    if [[ -z "$label" ]]; then
+        if existing="$(find_slot_for_this_checkout)"; then label="$(slot_field "$existing" label)"; fi
+        [[ -n "$label" ]] || label="$(default_label)"
+    fi
+    if [[ -n "$takeover" ]]; then
+        if ! [[ "$takeover" =~ ^[0-9]+$ ]] || [[ "$takeover" -lt 1 || "$takeover" -gt $SLOT_COUNT ]]; then
+            echo "--takeover takes a slot number from 1 to $SLOT_COUNT." >&2
+            exit 2
+        fi
+        # Give up any slot this branch already holds, then take the requested one.
+        if existing="$(find_slot_for_this_checkout)"; then rm -f "$(slot_file "$existing")"; fi
+        if [[ -f "$(slot_file "$takeover")" ]]; then
+            echo "Taking over Orca $takeover from $(slot_field "$takeover" branch) ($(slot_field "$takeover" label))."
+        fi
+        write_slot "$takeover"
+        slot="$takeover"
+    elif ! slot="$(claim_slot)"; then
+        echo "All $SLOT_COUNT test slots are in use, so nothing was built. Not overwriting another branch's build:" >&2
+        print_status >&2
+        echo "Report this to the user and let them decide. Don't take a slot unasked. If they say to," >&2
+        echo "run again with --takeover N (the other branch's next build will pick a new slot)." >&2
+        exit 3
+    fi
+    slot_name="dev $slot"
+    bundle_id="$BASE_ID.dev$slot"
+    settings+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id" "INFOPLIST_KEY_CFBundleDisplayName=Orca $slot")
+    settings+=("ORCA_BUILD_SLOT=$slot_name" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
+
+    # Slot claimed: the rest can run without holding the lock.
+    rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true
+    trap - EXIT
+fi
+
+derived="$root/build"
+log="$derived/ship-to-phone.log"
+mkdir -p "$derived"
+echo "Building $branch @ $commit as $slot_name ($configuration)..."
+if ! xcodebuild \
+        -project OrcaBrowser.xcodeproj \
+        -scheme OrcaBrowser \
+        -configuration "$configuration" \
+        -destination 'generic/platform=iOS' \
+        -derivedDataPath "$derived" \
+        -skipPackagePluginValidation \
+        -allowProvisioningUpdates \
+        ${settings[@]+"${settings[@]}"} \
+        build >"$log" 2>&1; then
+    grep -E "error:|BUILD FAILED" "$log" | head -20 >&2 || true
+    echo "Build failed. Full log: $log" >&2
+    exit 1
+fi
+
+app="$derived/Build/Products/$configuration-iphoneos/OrcaBrowser.app"
+if [[ $build_only -eq 1 ]]; then
+    echo "Built $app"
+else
+    echo "Installing on the phone..."
+    xcrun devicectl device install app --device "$device" "$app" >>"$log" 2>&1 || {
+        tail -15 "$log" >&2
+        echo "Install failed. Is the phone unlocked and trusted? Log: $log" >&2
+        exit 1
+    }
+    xcrun devicectl device process launch --device "$device" --terminate-existing "$bundle_id" >>"$log" 2>&1 \
+        || echo "Installed, but couldn't launch it (phone locked?). Open it by hand."
+    echo "Done: $slot_name ($branch_label @ $commit) is on the phone."
+fi
+
+# Remember what's in the slot, so --status and other branches can see it.
+if [[ "$mode" != main ]]; then
+    with_lock
+    write_slot "$slot"
+fi
