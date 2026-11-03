@@ -120,7 +120,7 @@ struct BottomBar: View {
 
     private var siteSettingsButton: some View {
         Button {
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
             onSiteMenu()
         } label: {
             CapsuleIcon(systemName: "chevron.up")
@@ -237,7 +237,7 @@ struct NewTabButton: View {
     var body: some View {
         Button {
             // .soft is a gentler, rounder tap than .light; intensity is 0...1.
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
             action()
         } label: {
             Image(systemName: "plus")
@@ -258,7 +258,7 @@ struct TabSwitcherButton: View {
 
     var body: some View {
         Button {
-            UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
             action()
         } label: {
             Text("\(count)")

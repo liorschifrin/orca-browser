@@ -268,7 +268,7 @@ struct TabCard: View, Equatable {
                 // "Predicted" includes momentum, so a quick flick also counts.
                 let flick = value.predictedEndTranslation.height
                 if dragOffset < -closeDistance || flick < -400 {
-                    UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+                    UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
                     withAnimation(.easeOut(duration: 0.12)) {
                         dragOffset = -700
                     } completion: {
