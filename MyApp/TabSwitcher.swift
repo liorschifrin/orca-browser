@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 /// Full-screen overview of open tabs, laid out as a deck (see `StackMetrics`).
@@ -24,8 +25,8 @@ struct TabSwitcher: View {
     @Binding var barMix: Double
     /// Incremented by the bar's left button; means "go back to the current tab".
     let doneTrigger: Int
-    /// Incremented when the store's tabs were replaced wholesale (Close All,
-    /// Restore); means "show the tabs as they are now".
+    /// Incremented when the store's tabs change outside the switcher; means
+    /// "show the tabs as they are now".
     let reloadTrigger: Int
     let onSelect: (Tab) -> Void
     let onClose: (Tab) -> Void
@@ -192,6 +193,7 @@ struct TabSwitcher: View {
                 // Paging changes `position` every frame; only cards whose
                 // inputs actually changed (the ones near focus) redraw.
                 .equatable()
+                .environment(\.thumbnailDelay, 400 + Int(abs(relative)) * 100)
                 .modifier(StackEffect(
                     relative: relative,
                     // Older cards start tiny by the tabs button...
@@ -260,6 +262,7 @@ struct TabSwitcher: View {
     private func pagingGesture(_ metrics: StackMetrics) -> some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
+                InteractionBudget.shared.interacted()
                 if isHorizontalDrag == nil {
                     isHorizontalDrag = abs(value.translation.width) > abs(value.translation.height)
                 }
@@ -271,6 +274,7 @@ struct TabSwitcher: View {
                 position = rubberBanded(start - value.translation.width / metrics.pagePixels)
             }
             .onEnded { value in
+                InteractionBudget.shared.interacted()
                 defer {
                     isHorizontalDrag = nil
                     dragStartPosition = nil
@@ -300,7 +304,8 @@ struct TabSwitcher: View {
         // Hold the starting pose for a few frames. The first draw of the deck
         // (decoding pictures, drawing shadows) is slow; doing it here, while
         // nothing is moving, keeps that cost out of the animation itself.
-        try? await Task.sleep(for: .milliseconds(8))
+        PerformanceTrace.signposter.emitEvent("Switcher mounted")
+        await Task.yield()
         // The current page's card starts exactly covering the live page, so
         // the backdrop can be solid from the start. Fading it in instead
         // lets the live page show through as a ghost behind the cards.
@@ -320,10 +325,8 @@ struct TabSwitcher: View {
             finish()
             return
         }
-        // Restore behind the expanding card. By the time the card leaves,
-        // the web view has already had the exit animation to start loading.
-        tab.activate()
-        tab.peek?.tab.activate()
+        // Start the animation first. The selection callback activates the
+        // page after it finishes; WebKit cannot hold up the first frame.
         leavingID = tab.id
         onLeaveStart()
         withAnimation(.spring(duration: Self.exitDuration, bounce: 0)) {
@@ -365,8 +368,8 @@ struct TabSwitcher: View {
     }
 }
 
-/// The switcher's bottom bar: a "done" button and "close all" on the left, a
-/// centered capsule "+", and "restore" and settings buttons on the right. Drawn by `BrowserView` (not by
+/// The switcher's bottom bar: a "done" button on the left, a centered capsule
+/// "+", and history and settings buttons on the right. Drawn by `BrowserView` (not by
 /// `TabSwitcher`) so it can sit above the cards and cross-fade with the
 /// browser's own bar.
 ///
@@ -377,44 +380,21 @@ struct SwitcherBar: View {
     /// The browser bar's measured height.
     let height: CGFloat
     let plusButtonWidth: CGFloat
-    /// False when there is nothing to close (only a blank tab is open).
-    let canCloseAll: Bool
-    /// How many tabs Close All has put away, waiting to be restored.
-    let closedCount: Int
     let onDone: () -> Void
     let onNewTab: () -> Void
     let voiceQuery: VoiceQuery
     let onVoiceSearch: (URL) -> Void
-    let onCloseAll: () -> Void
-    let onRestore: () -> Void
+    let onArchive: () -> Void
     let onHistory: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
             BarButton(systemName: "display", label: "Back to page", action: onDone)
-            BarButton(systemName: "trash", label: "Close all tabs", action: onCloseAll)
-                .disabled(!canCloseAll)
-                .opacity(canCloseAll ? 1 : 0.3)
+            BarButton(systemName: "archivebox", label: "Archive", action: onArchive)
 
             Spacer()
 
-            BarButton(systemName: "arrow.uturn.backward", label: "Restore closed tabs", action: onRestore)
-                .disabled(closedCount == 0)
-                .opacity(closedCount == 0 ? 0.3 : 1)
-                .overlay(alignment: .topTrailing) {
-                    if closedCount > 0 {
-                        Text("\(closedCount)")
-                            .font(.caption2.weight(.bold))
-                            .monospacedDigit()
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor, in: .capsule)
-                            .offset(x: 6, y: -6)
-                            .allowsHitTesting(false)
-                    }
-                }
             BarButton(systemName: "clock", label: "History", action: onHistory)
             BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
         }
@@ -422,8 +402,6 @@ struct SwitcherBar: View {
         .overlay {
             VoiceNewTabButton(width: plusButtonWidth, query: voiceQuery, onTap: onNewTab, onSearch: onVoiceSearch)
         }
-        .animation(.easeOut(duration: 0.2), value: canCloseAll)
-        .animation(.easeOut(duration: 0.2), value: closedCount == 0)
         .padding(.horizontal, 20)
         // The browser bar has a 2pt progress line, then 2pt of padding, above
         // its button row.

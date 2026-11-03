@@ -13,6 +13,16 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
+                    Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)
+                    Stepper(value: $settings.autoArchiveDays, in: 1...365) {
+                        Text("After \(settings.autoArchiveDays) days")
+                    }
+                } header: {
+                    Text("Tabs")
+                } footer: {
+                    Text("Archives tabs you haven’t opened for the selected number of days. Your current tab stays open. Find and reopen auto-archived tabs using the Archive button in the tab switcher.")
+                }
+                Section {
                     Toggle("Block ads", isOn: $settings.blockAds)
                     Toggle("Block trackers", isOn: $settings.blockTrackers)
                 } header: {
@@ -35,6 +45,11 @@ struct SettingsView: View {
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
                 }
+                #if DEBUG
+                Section("Debug") {
+                    Toggle("Show FPS and memory", isOn: $settings.showDebugStats)
+                }
+                #endif
                 Section {
                     Button("Clear History…", role: .destructive) { isConfirmingClearHistory = true }
                 } header: {

@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 
 /// The single source of truth for "what tabs exist and which one is showing".
@@ -7,6 +8,7 @@ final class BrowserStore {
     var selectedTabID: Tab.ID
     /// How many tabs "Close All" has put away. They live on disk only.
     private(set) var closedTabCount = 0
+    private(set) var archivedTabs: [ArchivedTab] = []
 
     /// Counts up every time a tab becomes the current one. Each tab remembers
     /// the value it got, which gives us "most recently used" ordering.
@@ -30,29 +32,64 @@ final class BrowserStore {
     static let idleLimit: TimeInterval = 5 * 60
 
     @ObservationIgnored private var saveTask: Task<Void, Never>?
-    /// True while `open` is making a new tab, so a second submit can't
-    /// make another.
-    @ObservationIgnored private var isOpening = false
+    private(set) var isRestoringSession = true
+    @ObservationIgnored private var hasStartedRestoring = false
 
     init() {
-        closedTabCount = TabPersistence.closedTabCount()
-        if let saved = TabPersistence.load() {
-            tabs = saved.tabs
-            recencyClock = saved.tabs.map(\.recency).max() ?? 0
-            // The saved current tab, else the most recently used.
-            let current = saved.tabs.first { $0.id == saved.selectedID }
-                ?? saved.tabs.max { $0.recency < $1.recency }!
-            selectedTabID = current.id
+        // No disk reads or WebKit construction before the first frame.
+        let first = Tab()
+        tabs = [first]
+        selectedTabID = first.id
+        watch([first])
+        markUsed(first)
+    }
+
+    func restoreSession() async {
+        guard !hasStartedRestoring else { return }
+        hasStartedRestoring = true
+        let interval = PerformanceTrace.signposter.beginInterval("Session restoration")
+        defer { PerformanceTrace.signposter.endInterval("Session restoration", interval) }
+        let initialID = selectedTabID
+        let saved = await TabPersistence.loadStartup()
+        var restored: [Tab] = []
+        for record in saved.tabs {
+            restored.append(TabPersistence.restoreRecord(record, files: saved.files))
+            if restored.count.isMultiple(of: 20) { await Task.yield() }
+        }
+        applyRestoredTabs(restored, selectedID: saved.selectedID, initialID: initialID)
+        closedTabCount = saved.closedCount
+        archivedTabs = saved.archived
+        isRestoringSession = false
+        // An early background transition must flush the merged session too;
+        // waiting for foreground idle here could otherwise lose the user's tab.
+        guard InteractionBudget.shared.isForeground else {
+            save()
+            return
+        }
+        scheduleSave()
+        // The shell and metadata get a turn to render before WebKit starts.
+        await Task.yield()
+        if let current = selectedTab, !current.isBlank {
             current.activate()
             current.peek?.tab.activate()
-            watch(saved.tabs)
-        } else {
-            // The app always has at least one tab; it starts out blank.
-            let first = Tab()
-            tabs = [first]
-            selectedTabID = first.id
-            watch([first])
-            markUsed(first)
+        }
+    }
+
+    /// A user who navigated while disk work ran keeps their page and selection.
+    /// The saved tabs join behind it rather than replacing it.
+    func applyRestoredTabs(_ restored: [Tab], selectedID: UUID?, initialID: UUID) {
+        guard !restored.isEmpty else { return }
+        let untouched = tabs.count == 1 && tabs[0].id == initialID && tabs[0].isBlank
+        let kept = untouched ? [] : tabs
+        watch(restored)
+        recencyClock = max(recencyClock, restored.map(\.recency).max() ?? 0)
+        for tab in kept.sorted(by: { $0.recency < $1.recency }) { markUsed(tab) }
+        tabs = restored + kept
+        if untouched {
+            let current = restored.first { $0.id == selectedID }
+                ?? restored.max { $0.recency < $1.recency }!
+            selectedTabID = current.id
+            current.lastOpenedAt = .now
         }
     }
 
@@ -70,12 +107,15 @@ final class BrowserStore {
         saveTask = Task {
             try? await Task.sleep(for: .seconds(1))
             guard !Task.isCancelled else { return }
+            try? await InteractionBudget.shared.waitForIdle()
+            guard !Task.isCancelled else { return }
             save()
         }
     }
 
     func save() {
         saveTask?.cancel()
+        guard !isRestoringSession else { return }
         TabPersistence.save(tabs: tabs, selectedID: selectedTabID)
     }
 
@@ -118,23 +158,70 @@ final class BrowserStore {
         tab.recency = recencyClock
     }
 
+    func archiveInactiveTabs(now: Date = .now) {
+        let settings = AppSettings.shared
+        guard !isRestoringSession, settings.autoArchiveTabs else { return }
+        let closing = tabs.filter {
+            Self.shouldAutoArchive($0, selectedID: selectedTabID, days: settings.autoArchiveDays, now: now)
+        }
+        guard !closing.isEmpty,
+              let entries = try? TabPersistence.archive(closing, among: tabs, selectedID: selectedTabID, now: now)
+        else { return }
+
+        let ids = Set(closing.map(\.id))
+        tabs.removeAll { ids.contains($0.id) }
+        for tab in closing { tab.teardown() }
+        archivedTabs = entries
+        save()
+    }
+
+    func restoreArchived(_ entry: ArchivedTab, inBackground: Bool) throws {
+        if let existing = tabs.first(where: { $0.id == entry.id }) {
+            if !inBackground { select(existing) }
+        } else {
+            let tab = try TabPersistence.restoreArchived(entry)
+            tab.lastOpenedAt = .now
+            watch([tab])
+            tabs.append(tab)
+            markUsed(tab)
+            if inBackground {
+                if let current = selectedTab { markUsed(current) }
+            } else {
+                select(tab)
+            }
+        }
+        save()
+        archivedTabs = try TabPersistence.removeArchived(entry.id)
+    }
+
+    func deleteArchived(_ entry: ArchivedTab) throws {
+        archivedTabs = try TabPersistence.removeArchived(entry.id)
+    }
+
+    static func shouldAutoArchive(_ tab: Tab, selectedID: Tab.ID, days: Int, now: Date) -> Bool {
+        days > 0 && !tab.isBlank && tab.id != selectedID
+            && now.timeIntervalSince(tab.lastOpenedAt) >= Double(days) * 24 * 60 * 60
+    }
+
     /// Opens whatever the user typed (a URL or a search) in a new tab.
     /// If the current tab is still blank, it's reused instead, so we don't
     /// leave an empty tab behind.
-    func open(_ input: String) async {
+    func open(_ input: String) {
+        let interval = PerformanceTrace.signposter.beginInterval("New tab submission")
+        defer { PerformanceTrace.signposter.endInterval("New tab submission", interval) }
+        InteractionBudget.shared.interacted()
         guard let url = Destination.url(for: input) else { return }
 
         if let current = selectedTab, current.isBlank {
+            current.lastOpenedAt = .now
             current.load(url, input: input)
         } else {
-            guard !isOpening else { return }
-            isOpening = true
-            defer { isOpening = false }
-            // Photograph the page we're leaving, for its card in the switcher.
-            await selectedTab?.captureSnapshot()
+            // Navigation never waits for a picture. Cards use a cached image
+            // or a placeholder until a later idle capture.
             let tab = Tab(url: url, input: input)
             watch([tab])
             selectedTab?.lastViewed = .now
+            selectedTab?.lastOpenedAt = .now
             tabs.append(tab)
             selectedTabID = tab.id
             markUsed(tab)
@@ -157,6 +244,7 @@ final class BrowserStore {
     /// Adopt the preview's actual tab and web view, preserving page state.
     func adoptPreview(_ tab: Tab, inBackground: Bool) {
         guard !tabs.contains(where: { $0.id == tab.id }) else { return }
+        tab.lastOpenedAt = .now
         watch([tab])
         tabs.append(tab)
         markUsed(tab)
@@ -165,6 +253,7 @@ final class BrowserStore {
             if let current = selectedTab { markUsed(current) }
         } else {
             selectedTab?.lastViewed = .now
+            selectedTab?.lastOpenedAt = .now
             selectedTabID = tab.id
         }
         enforceMemoryPolicy()
@@ -193,6 +282,8 @@ final class BrowserStore {
             selectedTab?.peek?.tab.answerDialog(.cancel)
         }
         selectedTab?.lastViewed = .now
+        selectedTab?.lastOpenedAt = .now
+        tab.lastOpenedAt = .now
         // Bring the page back if it had been unloaded.
         tab.activate()
         tab.peek?.tab.activate()
@@ -220,6 +311,7 @@ final class BrowserStore {
         if wasSelected, let previous = tabs.max(by: { $0.recency < $1.recency }) {
             // Fall back to the tab you were on before this one.
             previous.activate()
+            previous.lastOpenedAt = .now
             selectedTabID = previous.id
             enforceMemoryPolicy()
         }
@@ -242,7 +334,7 @@ final class BrowserStore {
     /// are torn down and the tabs themselves released.
     func closeAll() {
         let closing = tabs.filter { !$0.isBlank }
-        guard !closing.isEmpty else { return }
+        guard !isRestoringSession, !closing.isEmpty else { return }
         // If they can't be written, they stay open rather than get lost.
         guard (try? TabPersistence.stashClosed(tabs, selectedID: selectedTabID)) != nil else { return }
 
@@ -257,6 +349,7 @@ final class BrowserStore {
     /// most recently used becomes current; otherwise they join the open tabs,
     /// older than all of them, and the current tab stays put.
     func restoreClosed() {
+        guard !isRestoringSession else { return }
         let restored = TabPersistence.unstashClosed()
         guard !restored.isEmpty else { return }
 
@@ -270,6 +363,7 @@ final class BrowserStore {
         for tab in restored + kept.sorted(by: { $0.recency < $1.recency }) {
             markUsed(tab)
         }
+        for tab in restored { tab.lastOpenedAt = .now }
         tabs = restored + kept
         if replacing, let latest = restored.last {
             latest.activate()

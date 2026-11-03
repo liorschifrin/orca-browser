@@ -24,9 +24,25 @@ final class AppSettings {
     private static let blockRedditPromptKey = "blockRedditPrompt"
     private static let voiceSearchProviderKey = "voiceSearchProvider"
     private static let allowsPageDialogsKey = "allowsPageDialogs"
+    private static let showDebugStatsKey = "showDebugStats"
+    private static let autoArchiveTabsKey = "autoArchiveTabs"
+    private static let autoArchiveDaysKey = "autoArchiveDays"
+
+    var autoArchiveTabs: Bool {
+        didSet { defaults.set(autoArchiveTabs, forKey: Self.autoArchiveTabsKey) }
+    }
+
+    var autoArchiveDays: Int {
+        didSet { defaults.set(autoArchiveDays, forKey: Self.autoArchiveDaysKey) }
+    }
 
     var voiceSearchProvider: VoiceSearchProvider {
         didSet { defaults.set(voiceSearchProvider.rawValue, forKey: Self.voiceSearchProviderKey) }
+    }
+
+    /// Shows the FPS and memory indicator in the bottom bar. On by default.
+    var showDebugStats: Bool {
+        didSet { defaults.set(showDebugStats, forKey: Self.showDebugStatsKey) }
     }
 
     /// Hides YouTube Shorts in every tab. Off by default.
@@ -59,6 +75,8 @@ final class AppSettings {
         self.defaults = defaults
         voiceQueryOptions = defaults.data(forKey: Self.voiceQueryOptionsKey)
             .flatMap { try? JSONDecoder().decode(VoiceQueryOptions.self, from: $0) } ?? .defaults
+        autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
+        autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)
         hideShorts = defaults.bool(forKey: Self.hideShortsKey)
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
@@ -67,5 +85,6 @@ final class AppSettings {
         voiceSearchProvider = VoiceSearchProvider(
             rawValue: defaults.string(forKey: Self.voiceSearchProviderKey) ?? ""
         ) ?? .apple
+        showDebugStats = defaults.object(forKey: Self.showDebugStatsKey) as? Bool ?? true
     }
 }

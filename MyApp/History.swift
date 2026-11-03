@@ -48,7 +48,54 @@ final class HistoryIcon {
 @MainActor
 @Observable
 final class HistoryStore {
-    static let shared = HistoryStore()
+    private static var instance: HistoryStore?
+    static var shared: HistoryStore {
+        if let instance { return instance }
+        let store = HistoryStore()
+        instance = store
+        return store
+    }
+
+    private struct PendingVisit {
+        let url: URL
+        let title: String?
+        let isNew: Bool
+    }
+    private static var pendingVisits: [PendingVisit] = []
+    private static var pendingTask: Task<Void, Never>?
+    private static var pendingGeneration = 0
+
+    /// Database initialization and visit writes yield to the first page/UI.
+    static func deferVisit(_ url: URL, title: String?, isNew: Bool) {
+        pendingVisits.append(PendingVisit(url: url, title: title, isNew: isNew))
+        guard pendingTask == nil else { return }
+        pendingGeneration += 1
+        let generation = pendingGeneration
+        pendingTask = Task {
+            defer { if generation == pendingGeneration { pendingTask = nil } }
+            do {
+                try await InteractionBudget.shared.waitForIdle()
+                drainVisits()
+            } catch { }
+        }
+    }
+
+    private static func drainVisits() {
+        let visits = pendingVisits
+        pendingVisits.removeAll()
+        for visit in visits {
+            if visit.isNew { shared.recordVisit(visit.url, title: visit.title) }
+            else if let title = visit.title { shared.updateTitle(title, for: visit.url) }
+        }
+    }
+
+    static func flushIfNeeded() {
+        pendingTask?.cancel()
+        pendingGeneration += 1
+        pendingTask = nil
+        if !pendingVisits.isEmpty { drainVisits() }
+        instance?.flush()
+    }
 
     let container: ModelContainer
     private var context: ModelContext { container.mainContext }

@@ -18,10 +18,15 @@ import WebKit
 /// which iOS silences the app and closes picture in picture in the background.
 /// YouTube changes its player often, so this may need updating.
 enum BackgroundPlayback {
+    // Playback setup and microphone changes share an ordered background queue.
+    nonisolated static let audioQueue = DispatchQueue(label: "Bark.audio", qos: .userInitiated)
+
     /// Lets web audio keep playing with the screen locked or the app in the
     /// background. Voice search switches to recording and restores this after.
     static func configureAudioSession() {
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        Self.audioQueue.async {
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        }
     }
 
     static var userScript: WKUserScript {
