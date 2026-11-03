@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hold the microphone to dictate a Google search. With OpenAI selected, the recording is sent to OpenAI for transcription when you release.</string>
+	<string>Swipe up from + or hold the microphone to dictate a search. With OpenAI selected, the recording is sent to OpenAI for transcription when you release.</string>
 	<!-- Lets the app ask whether Google Chrome is installed, for the translate
 	     button on pages in another language. -->
 	<key>LSApplicationQueriesSchemes</key>

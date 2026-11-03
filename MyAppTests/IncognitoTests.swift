@@ -12,6 +12,9 @@ struct IncognitoTests {
         let second = Tab(isIncognito: true)
         let regular = Tab()
         defer { first.teardown(); second.teardown(); regular.teardown() }
+        // Tabs create WebKit only once they navigate.
+        first.load(URL(string: "about:blank")!, input: "private search")
+        regular.load(URL(string: "about:blank")!, input: "ordinary")
 
         let firstStore = try #require(first.privateDataStore)
         let secondStore = try #require(second.privateDataStore)
@@ -27,7 +30,6 @@ struct IncognitoTests {
         #expect(await firstStore.httpCookieStore.allCookies().contains { $0.name == "private" })
         #expect(await secondStore.httpCookieStore.allCookies().isEmpty)
 
-        first.load(URL(string: "about:blank")!, input: "private search")
         first.unload()
         first.activate()
         #expect(first.webView?.configuration.websiteDataStore === firstStore)
@@ -60,12 +62,14 @@ struct IncognitoTests {
             HistoryStore.shared.flush()
         }
         privateTab.mirror(page)
+        HistoryStore.flushIfNeeded()
         #expect(try context.fetch(descriptor).isEmpty)
         regularTab.mirror(page)
+        HistoryStore.flushIfNeeded()
         #expect(try context.fetch(descriptor).count == 1)
     }
 
-    @Test func privateTabsNeverEnterSessionOrClosedTabArchive() throws {
+    @Test func privateTabsNeverEnterSessionOrClosedTabArchive() async throws {
         let regular = Tab()
         let secret = Tab(isIncognito: true)
         defer {
@@ -81,8 +85,7 @@ struct IncognitoTests {
         TabPersistence.save(tabs: [regular, secret], selectedID: secret.id)
         // Restoring synchronizes with the persistence queue, even for an empty archive.
         #expect(TabPersistence.unstashClosed().isEmpty)
-        let session = try #require(TabPersistence.load())
-        defer { for tab in session.tabs { tab.teardown() } }
+        let session = await TabPersistence.loadStartup()
         #expect(session.tabs.map(\.id) == [regular.id])
         #expect(session.selectedID == regular.id)
 
@@ -96,9 +99,10 @@ struct IncognitoTests {
         #expect(!filenames.contains { $0.hasPrefix(secret.id.uuidString) })
     }
 
-    @Test func blankPrivateTabsCanBeClosedWithoutBeingArchived() {
+    @Test func blankPrivateTabsCanBeClosedWithoutBeingArchived() async {
         let store = BrowserStore()
-        for tab in store.tabs { store.close(tab) }
+        await store.restoreSession()
+        for tab in Array(store.tabs) { store.close(tab) }
         store.newIncognitoTab()
         let privateTab = store.selectedTab!
         #expect(privateTab.isIncognito)

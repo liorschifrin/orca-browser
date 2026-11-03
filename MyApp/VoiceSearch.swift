@@ -27,6 +27,8 @@ final class VoiceSearch {
     private(set) var state = State.idle
     var errorMessage: String?
     private var recorder: AVAudioRecorder?
+    private var liveSession: LiveSpeechSession?
+    private(set) var transcript = ""
     private var recordingURL: URL?
     private var operation: Task<Void, Never>?
     private var recordingLimit: Task<Void, Never>?
@@ -43,7 +45,7 @@ final class VoiceSearch {
 
     /// Switching the audio session on or off can take a noticeable moment, so
     /// it happens here rather than on the main thread, in order.
-    nonisolated private static let audioQueue = DispatchQueue(label: "VoiceSearch.audio", qos: .userInitiated)
+    nonisolated private static let audioQueue = BackgroundPlayback.audioQueue
 
     var isBusy: Bool { state != .idle }
 
@@ -51,7 +53,7 @@ final class VoiceSearch {
         switch state {
         case .idle: nil
         case .preparing: "Allow microphone access, then hold to talk."
-        case .recording: "Listening… Release to Google search."
+        case .recording: "Listening… Release to search."
         case .transcribing: "Transcribing…"
         case .downloading: "Downloading Apple's speech model…"
         }
@@ -60,6 +62,7 @@ final class VoiceSearch {
     func begin(provider: VoiceSearchProvider) {
         guard !isBusy else { return }
         errorMessage = nil
+        transcript = ""
         if provider == .openAI, VoiceSearchCredentials.apiKey == nil {
             errorMessage = "Add your OpenAI API key in Settings, or choose Apple on-device dictation."
             return
@@ -86,6 +89,29 @@ final class VoiceSearch {
 
     private func startRecording(_ identifier: UUID) {
         operation = Task {
+            if provider == .apple {
+                do {
+                    guard SpeechTranscriber.isAvailable,
+                          let locale = await SpeechTranscriber.supportedLocale(
+                            equivalentTo: Locale(identifier: Locale.preferredLanguages.first ?? Locale.current.identifier)
+                          ) else {
+                        throw VoiceSearchError.message("Apple's on-device speech model isn't available for this device or language. Try OpenAI in Settings.")
+                    }
+                    try Task.checkCancellation()
+                    guard sessionID == identifier, isHolding else { return }
+                    let live = LiveSpeechSession(locale: locale)
+                    liveSession = live
+                    try await live.prepare {
+                        if sessionID == identifier { state = .downloading }
+                    }
+                    guard !Task.isCancelled, sessionID == identifier, isHolding else { return }
+                    state = .preparing
+                } catch {
+                    guard !Task.isCancelled, sessionID == identifier else { return }
+                    fail(error.localizedDescription)
+                    return
+                }
+            }
             let previous: AudioConfiguration
             do {
                 previous = try await Self.activateAudioSession()
@@ -101,21 +127,36 @@ final class VoiceSearch {
             }
             previousAudioConfiguration = previous
             do {
-                let url = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("voice-search-\(identifier).m4a")
-                recordingURL = url
-                let capture = try AVAudioRecorder(url: url, settings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: 44_100,
-                    AVNumberOfChannelsKey: 1,
-                    AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-                ])
-                recorder = capture
-                guard capture.record() else {
-                    fail("The microphone couldn't start. Please try again.")
-                    return
+                if let liveSession {
+                    try await liveSession.start(onPreview: { [weak owner = self] text in
+                        guard owner?.sessionID == identifier else { return }
+                        owner?.transcript = text
+                    }, onError: { [weak owner = self] error in
+                        guard owner?.sessionID == identifier else { return }
+                        owner?.fail(error.localizedDescription)
+                    })
+                    guard !Task.isCancelled, sessionID == identifier, isHolding else {
+                        liveSession.cancel()
+                        return
+                    }
+                } else {
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("voice-search-\(identifier).m4a")
+                    recordingURL = url
+                    let capture = try AVAudioRecorder(url: url, settings: [
+                        AVFormatIDKey: kAudioFormatMPEG4AAC,
+                        AVSampleRateKey: 44_100,
+                        AVNumberOfChannelsKey: 1,
+                        AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+                    ])
+                    recorder = capture
+                    guard capture.record() else {
+                        fail("The microphone couldn't start. Please try again.")
+                        return
+                    }
                 }
             } catch {
+                guard !Task.isCancelled, sessionID == identifier else { return }
                 fail("Couldn't start recording. Check your microphone and try again.")
                 return
             }
@@ -127,7 +168,7 @@ final class VoiceSearch {
                 do {
                     try await Task.sleep(for: .seconds(30))
                     guard sessionID == identifier else { return }
-                    fail("Voice searches are limited to 30 seconds. Hold the microphone to try again.")
+                    fail("Voice searches are limited to 30 seconds. Start voice search again to try again.")
                 } catch {}
             }
         }
@@ -167,12 +208,13 @@ final class VoiceSearch {
     func finish(onTranscript: @escaping (String) -> Void) {
         guard isHolding else { return }
         isHolding = false
-        guard state == .recording, let recorder, let url = recordingURL,
-              let identifier = sessionID else {
+        guard state == .recording, let identifier = sessionID else {
             cancel()
             return
         }
-        let duration = recorder.currentTime
+        let duration = liveSession?.duration ?? recorder?.currentTime ?? 0
+        let live = liveSession
+        let url = recordingURL
         stopRecording()
         guard duration >= 0.3 else {
             cancel()
@@ -182,9 +224,10 @@ final class VoiceSearch {
         let selectedProvider = provider
         operation = Task {
             defer {
-                try? FileManager.default.removeItem(at: url)
+                if let url { try? FileManager.default.removeItem(at: url) }
                 if sessionID == identifier {
                     recordingURL = nil
+                    liveSession = nil
                     operation = nil
                     sessionID = nil
                     state = .idle
@@ -194,8 +237,10 @@ final class VoiceSearch {
                 let transcript: String
                 switch selectedProvider {
                 case .apple:
-                    transcript = try await transcribeOnDevice(url, session: identifier)
+                    guard let live else { throw VoiceSearchError.message("Speech recognition didn't start.") }
+                    transcript = try await live.finish()
                 case .openAI:
+                    guard let url else { throw VoiceSearchError.message("The recording couldn't be found.") }
                     transcript = try await OpenAITranscription.transcribe(url)
                 }
                 try Task.checkCancellation()
@@ -218,6 +263,9 @@ final class VoiceSearch {
         operation?.cancel()
         operation = nil
         stopRecording()
+        liveSession?.cancel()
+        liveSession = nil
+        transcript = ""
         if let recordingURL {
             try? FileManager.default.removeItem(at: recordingURL)
         }
@@ -228,6 +276,7 @@ final class VoiceSearch {
     private func stopRecording() {
         recordingLimit?.cancel()
         recordingLimit = nil
+        liveSession?.stopInput()
         recorder?.stop()
         recorder = nil
         if let previousAudioConfiguration {
@@ -241,44 +290,6 @@ final class VoiceSearch {
         errorMessage = message
     }
 
-    private func transcribeOnDevice(_ url: URL, session identifier: UUID) async throws -> String {
-        guard SpeechTranscriber.isAvailable,
-              let locale = await SpeechTranscriber.supportedLocale(
-                equivalentTo: Locale(identifier: Locale.preferredLanguages.first ?? Locale.current.identifier)
-              ) else {
-            throw VoiceSearchError.message("Apple's on-device speech model isn't available for this device or language. Try OpenAI in Settings.")
-        }
-        try Task.checkCancellation()
-        let transcriber = SpeechTranscriber(locale: locale, preset: .transcription)
-        if let installation = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-            if sessionID == identifier { state = .downloading }
-            try await installation.downloadAndInstall()
-        }
-        try Task.checkCancellation()
-        if sessionID == identifier { state = .transcribing }
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
-        return try await withTaskCancellationHandler {
-            let results = Task {
-                var transcript = ""
-                for try await result in transcriber.results {
-                    try Task.checkCancellation()
-                    transcript += String(result.text.characters)
-                }
-                return transcript
-            }
-            do {
-                let audioFile = try AVAudioFile(forReading: url)
-                try await analyzer.start(inputAudioFile: audioFile, finishAfterFile: true)
-                return try await results.value
-            } catch {
-                results.cancel()
-                await analyzer.cancelAndFinishNow()
-                throw error
-            }
-        } onCancel: {
-            Task { await analyzer.cancelAndFinishNow() }
-        }
-    }
 }
 
 enum VoiceSearchError: LocalizedError {

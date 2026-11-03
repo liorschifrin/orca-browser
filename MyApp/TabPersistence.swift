@@ -2,22 +2,23 @@ import UIKit
 
 /// What we remember about one tab between launches. The heavier things (the
 /// card's picture, the icon, the web view's history) live in files beside it.
-struct SavedTab: Codable {
+nonisolated struct SavedTab: Codable, Sendable {
     var id: UUID
     var url: URL?
     var title: String?
     var recency: Int
     var searchText: String? = nil
     var peek: SavedPeek? = nil
+    var lastOpenedAt: Date? = nil
 }
 
-struct SavedPeek: Codable {
+nonisolated struct SavedPeek: Codable, Sendable {
     var url: URL
     var currentURL: URL?
     var title: String?
 }
 
-private struct SavedSession: Codable {
+nonisolated private struct SavedSession: Codable, Sendable {
     var tabs: [SavedTab]
     var selectedID: UUID?
 }
@@ -38,11 +39,42 @@ private struct SavedSession: Codable {
 /// Closed-all tabs go to a second folder, ClosedTabs, laid out the same way.
 @MainActor
 enum TabPersistence {
-    private static var directory: URL = {
-        let base = URL.applicationSupportDirectory.appending(path: "Tabs", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base
-    }()
+    nonisolated private static let directory = URL.applicationSupportDirectory.appending(path: "Tabs", directoryHint: .isDirectory)
+
+    nonisolated struct Startup: Sendable {
+        var tabs: [SavedTab] = []
+        var selectedID: UUID?
+        var files: Set<String> = []
+        var closedCount = 0
+        var archived: [ArchivedTab] = []
+    }
+
+    static func loadStartup() async -> Startup {
+        await Task.detached(priority: .userInitiated) {
+            var result = Startup()
+            if let data = try? Data(contentsOf: directory.appending(path: "session.json")),
+               let session = try? JSONDecoder().decode(SavedSession.self, from: data) {
+                result.tabs = session.tabs
+                result.selectedID = session.selectedID
+            }
+            result.files = Set((try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? [])
+            let support = URL.applicationSupportDirectory
+            if let data = try? Data(contentsOf: support.appending(path: "ClosedTabs/session.json")) {
+                result.closedCount = (try? JSONDecoder().decode([SavedTab].self, from: data).count) ?? 0
+            }
+            result.archived = (try? TabArchive.shared.load()) ?? []
+            return result
+        }.value
+    }
+
+    static func restoreRecord(_ saved: SavedTab, files: Set<String>) -> Tab {
+        let hasSnapshot = files.contains("\(saved.id.uuidString).jpg")
+        let peekHasSnapshot = files.contains("\(saved.id.uuidString).peek.jpg")
+        let tab = Tab(restoring: saved, hasSnapshot: hasSnapshot, favicon: nil, peekHasSnapshot: peekHasSnapshot)
+        if hasSnapshot { writtenSnapshots[tab.id] = tab.snapshotRevision }
+        if let peek = tab.peek?.tab, peekHasSnapshot { writtenPeekSnapshots[tab.id] = peek.snapshotRevision }
+        return tab
+    }
 
     /// Revisions already on disk, so unchanged pictures aren't re-encoded.
     private static var writtenSnapshots: [UUID: Int] = [:]
@@ -62,6 +94,7 @@ enum TabPersistence {
     /// One piece of disk work, prepared on the main thread and run on `queue`.
     nonisolated private enum Write: @unchecked Sendable {
         case data(Data, URL)
+        case session(SavedSession, URL)
         case jpeg(UIImage, URL)
         case png(UIImage, URL)
     }
@@ -84,7 +117,8 @@ enum TabPersistence {
         SavedTab(
             id: tab.id, url: tab.url, title: tab.title, recency: tab.recency,
             searchText: tab.searchText,
-            peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) }
+            peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) },
+            lastOpenedAt: tab.lastOpenedAt
         )
     }
 
@@ -117,28 +151,29 @@ enum TabPersistence {
         return unwrittenPictures[url] ?? image(url)
     }
 
-    /// A tab's history, read back from disk.
-    static func loadInteractionState(for tab: Tab) -> Data? {
+    /// Memory-only lookup: thumbnail callers must never synchronously read a JPEG.
+    static func pendingSnapshot(for tab: Tab) -> UIImage? {
+        unwrittenPictures[snapshotFile(for: tab)]
+    }
+
+    static func readInteractionState(for tab: Tab) async -> Data? {
         guard !tab.isIncognito else { return nil }
-        guard let state = try? Data(contentsOf: stateFile(for: tab)) else { return nil }
-        // It's on disk already; don't write it again unless it changes.
-        if tab.fileOwner.isPeek {
-            writtenPeekStates[tab.fileOwner.id] = state
-        } else {
-            writtenStates[tab.fileOwner.id] = state
-        }
-        return state
+        let file = stateFile(for: tab)
+        let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: file) }.value
+        guard !Task.isCancelled else { return nil }
+        if tab.fileOwner.isPeek { writtenPeekStates[tab.fileOwner.id] = data }
+        else { writtenStates[tab.fileOwner.id] = data }
+        return data
     }
 
     static func save(tabs: [Tab], selectedID: Tab.ID) {
         let saved = tabs.filter { !$0.isBlank && !$0.isIncognito }
         var writes: [Write] = []
 
+        // The selected tab may be a private one, which is never saved.
         let session = SavedSession(tabs: saved.map(savedTab), selectedID: saved.first(where: { $0.id == selectedID })?.id
             ?? saved.max(by: { $0.recency < $1.recency })?.id)
-        if let data = try? JSONEncoder().encode(session) {
-            writes.append(.data(data, directory.appending(path: "session.json")))
-        }
+        writes.append(.session(session, directory.appending(path: "session.json")))
 
         for tab in saved {
             if let state = tab.interactionStateForSaving, writtenStates[tab.id] != state {
@@ -199,6 +234,7 @@ enum TabPersistence {
         let backgroundTask = application.beginBackgroundTask(withName: "Save tabs")
         let directory = directory
         queue.async {
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             perform(writes)
             removeFiles(in: directory, except: keep, peeks: peeks)
             DispatchQueue.main.async {
@@ -216,6 +252,8 @@ enum TabPersistence {
     nonisolated private static func perform(_ writes: [Write]) {
         for write in writes {
             switch write {
+            case .session(let session, let url):
+                try? JSONEncoder().encode(session).write(to: url, options: .atomic)
             case .data(let data, let url):
                 try? data.write(to: url, options: .atomic)
             case .jpeg(let image, let url):
@@ -224,17 +262,6 @@ enum TabPersistence {
                 try? image.pngData()?.write(to: url, options: .atomic)
             }
         }
-    }
-
-    /// Returns the saved tabs (none loaded yet) and the current tab's id, or
-    /// nil if there is nothing saved.
-    static func load() -> (tabs: [Tab], selectedID: UUID?)? {
-        guard let data = try? Data(contentsOf: directory.appending(path: "session.json")),
-              let session = try? JSONDecoder().decode(SavedSession.self, from: data),
-              !session.tabs.isEmpty
-        else { return nil }
-
-        return (session.tabs.map(restoredTab), session.selectedID)
     }
 
     // MARK: - Closed tabs
@@ -301,6 +328,51 @@ enum TabPersistence {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: closedDirectory.path(percentEncoded: false))) ?? []
         for name in names {
             try? FileManager.default.removeItem(at: closedDirectory.appending(path: name))
+        }
+    }
+
+    static func archive(_ archiving: [Tab], among tabs: [Tab], selectedID: Tab.ID, now: Date) throws -> [ArchivedTab] {
+        let ids = Set(archiving.map(\.id))
+        let entries = try TabArchive.shared.load().filter { !ids.contains($0.id) }
+            + archiving.map { ArchivedTab(tab: savedTab($0), archivedAt: now) }
+        let (source, destination) = (directory, TabArchive.shared.directory)
+        try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+        save(tabs: tabs, selectedID: selectedID)
+        try queue.sync { try copyFiles(of: ids, from: source, to: destination) }
+        try TabArchive.shared.save(entries)
+        return entries
+    }
+
+    static func restoreArchived(_ entry: ArchivedTab) throws -> Tab {
+        let (source, destination) = (TabArchive.shared.directory, directory)
+        try queue.sync { try copyFiles(of: [entry.id], from: source, to: destination) }
+        return restoredTab(entry.tab)
+    }
+
+    static func removeArchived(_ id: UUID) throws -> [ArchivedTab] {
+        let entries = try TabArchive.shared.load().filter { $0.id != id }
+        queue.sync {}
+        try TabArchive.shared.save(entries)
+        let directory = TabArchive.shared.directory
+        queue.async {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path(percentEncoded: false))) ?? []
+            for name in names where name.hasPrefix(id.uuidString + ".") {
+                try? FileManager.default.removeItem(at: directory.appending(path: name))
+            }
+        }
+        return entries
+    }
+
+    nonisolated private static func copyFiles(of ids: Set<UUID>, from source: URL, to destination: URL) throws {
+        let names = try FileManager.default.contentsOfDirectory(atPath: source.path(percentEncoded: false))
+        for name in names {
+            let stem = String(name.split(separator: ".", maxSplits: 1).first ?? "")
+            guard let id = UUID(uuidString: stem), ids.contains(id) else { continue }
+            let target = destination.appending(path: name)
+            if FileManager.default.fileExists(atPath: target.path(percentEncoded: false)) {
+                try FileManager.default.removeItem(at: target)
+            }
+            try FileManager.default.copyItem(at: source.appending(path: name), to: target)
         }
     }
 

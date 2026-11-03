@@ -13,6 +13,16 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 Section {
+                    Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)
+                    Stepper(value: $settings.autoArchiveDays, in: 1...365) {
+                        Text("After \(settings.autoArchiveDays) days")
+                    }
+                } header: {
+                    Text("Tabs")
+                } footer: {
+                    Text("Archives tabs you haven’t opened for the selected number of days. Your current tab stays open. Find and reopen auto-archived tabs using the Archive button in the tab switcher.")
+                }
+                Section {
                     Toggle("Block ads", isOn: $settings.blockAds)
                     Toggle("Block trackers", isOn: $settings.blockTrackers)
                 } header: {
@@ -35,12 +45,27 @@ struct SettingsView: View {
                 } footer: {
                     Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
                 }
+                #if DEBUG
+                Section("Debug") {
+                    Toggle("Show FPS and memory", isOn: $settings.showDebugStats)
+                }
+                #endif
                 Section {
                     Button("Clear History…", role: .destructive) { isConfirmingClearHistory = true }
                 } header: {
                     Text("History")
                 }
                 Section {
+                    NavigationLink {
+                        VoiceQueryOptionsView(settings: settings)
+                    } label: {
+                        HStack {
+                            Text("Voice search options")
+                            Spacer()
+                            Text("\(settings.voiceQueryOptions.active.count) enabled")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Picker("Speech recognition", selection: $settings.voiceSearchProvider) {
                         ForEach(VoiceSearchProvider.allCases) { provider in
                             Text(provider.title).tag(provider)
@@ -70,7 +95,7 @@ struct SettingsView: View {
                     Text("Voice search")
                 } footer: {
                     Text(settings.voiceSearchProvider == .apple
-                         ? "Hold the microphone in the search bar, then release to search Google. Speech is processed on device in your preferred iPhone language. A speech model may download on first use."
+                         ? "Swipe up from +, speak, then release to use your selected destination. Apple shows a live preview and finishes recognition before searching. Speech stays on device in your preferred iPhone language. A speech model may download on first use."
                          : "Recordings are sent to OpenAI only when you release the microphone. Uses gpt-transcribe and your own API billing. Your key stays in this device's Keychain. Local recordings are deleted after transcription or cancellation.")
                 }
             }

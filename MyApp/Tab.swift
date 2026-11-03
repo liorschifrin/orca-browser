@@ -1,3 +1,4 @@
+import OSLog
 import SwiftUI
 import WebKit
 
@@ -45,6 +46,7 @@ final class Tab: Identifiable {
 
     /// Higher = used more recently. Set by the store; the switcher sorts by it.
     var recency = 0
+    var lastOpenedAt = Date.now
 
     /// A picture of the page, shown on its card in the switcher and as a
     /// stand-in while the tab reloads. Held in memory only while the tab is
@@ -86,6 +88,10 @@ final class Tab: Identifiable {
     /// its page shows up. The browser covers the gap with the card's picture.
     private(set) var isRestoring = false
     @ObservationIgnored private var restoreNavigationFinished = false
+    @ObservationIgnored private var isReadingInteractionState = false
+    @ObservationIgnored private var restoreLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var metadataTask: Task<Void, Never>?
+    @ObservationIgnored private var isCapturingSnapshot = false
     @ObservationIgnored private var restoreFinishTask: Task<Void, Never>?
 
     /// The held link's page belongs to this tab, even while another tab is selected.
@@ -116,14 +122,13 @@ final class Tab: Identifiable {
     /// Told when something worth saving to disk has changed.
     @ObservationIgnored var onChange: (() -> Void)?
 
-    /// A new tab with a live web view, loading `url` if given.
+    /// Empty tabs are lightweight records; create WebKit only for navigation.
     init(url: URL? = nil, input: String? = nil, isIncognito: Bool = false) {
         id = UUID()
         self.isIncognito = isIncognito
         privateDataStore = isIncognito ? .nonPersistent() : nil
         fileOwner = (id, false)
 
-        _ = makeWebView()
         if let url {
             load(url, input: input)
         }
@@ -141,6 +146,7 @@ final class Tab: Identifiable {
             ?? saved.url?.absoluteString ?? ""
         title = saved.title
         recency = saved.recency
+        lastOpenedAt = saved.lastOpenedAt ?? .now
         isBlank = false
         self.hasSnapshot = hasSnapshot
         self.favicon = favicon
@@ -167,30 +173,29 @@ final class Tab: Identifiable {
 
     /// Makes sure the tab has a web view, re-creating one (and returning to
     /// where you were) if it was unloaded.
-    func activate() {
-        guard !isClosed, webView == nil else { return }
+    func activate(restoreState: Bool = true) {
+        guard !isClosed, webView == nil, !isBlank else { return }
         let view = makeWebView()
+        guard restoreState, !isBlank else { return }
         isRestoring = true
-        // The picture covers the page until it's back, and the history
-        // puts it back where it was. Both wait on disk until now.
-        if snapshot == nil, hasSnapshot {
-            snapshot = TabPersistence.loadSnapshot(for: self)
-        }
-        if savedInteractionState == nil {
-            savedInteractionState = TabPersistence.loadInteractionState(for: self)
-        }
-        // Restoring a page may not report its address before its requests start.
         if let url { ContentBlocker.shared.willNavigate(view.configuration.userContentController, to: url) }
         restoreNavigationFinished = false
         restoreFinishTask?.cancel()
         restoreFinishTask = nil
-
-        if let savedInteractionState {
-            view.interactionState = savedInteractionState
-        }
-        // No usable saved state (or it didn't take): just load the address.
-        if view.backForwardList.currentItem == nil, let url {
-            view.load(URLRequest(url: url))
+        // Disk I/O cannot block the transition to this tab. Screenshots are
+        // optional; restore history first and use a placeholder meanwhile.
+        isReadingInteractionState = true
+        restoreLoadTask = Task { [weak self, weak view] in
+            guard let self, let view else { return }
+            var state = savedInteractionState
+            if state == nil { state = await TabPersistence.readInteractionState(for: self) }
+            guard !Task.isCancelled, webView === view else { return }
+            savedInteractionState = state
+            isReadingInteractionState = false
+            if let state { view.interactionState = state }
+            if view.backForwardList.currentItem == nil, let url {
+                view.load(URLRequest(url: url))
+            }
         }
     }
 
@@ -199,7 +204,7 @@ final class Tab: Identifiable {
     func unload() {
         guard let view = webView, !isBlank else { return }
 
-        savedInteractionState = view.interactionState as? Data
+        if !isReadingInteractionState { savedInteractionState = view.interactionState as? Data }
         url = view.url ?? url
         title = view.title ?? title
         detachWebView()
@@ -235,6 +240,7 @@ final class Tab: Identifiable {
     /// The state to write to disk: current if loaded, else what we kept.
     var interactionStateForSaving: Data? {
         guard !isIncognito else { return nil }
+        if isReadingInteractionState { return savedInteractionState }
         return (webView?.interactionState as? Data) ?? savedInteractionState
     }
 
@@ -320,9 +326,9 @@ final class Tab: Identifiable {
         guard !isIncognito, !isClosed, !isRestoring, loadError == nil, let url else { return }
         if urlChanged || lastRecordedURL != url {
             lastRecordedURL = url
-            HistoryStore.shared.recordVisit(url, title: nil)
+            HistoryStore.deferVisit(url, title: nil, isNew: true)
         } else if titleChanged, let title {
-            HistoryStore.shared.updateTitle(title, for: url)
+            HistoryStore.deferVisit(url, title: title, isNew: false)
         }
     }
 
@@ -330,12 +336,22 @@ final class Tab: Identifiable {
     /// has been off for a moment, so opening the switcher doesn't have to
     /// wait for a new picture.
     func pageScrolled() {
+        InteractionBudget.shared.interacted()
         snapshotIsStale = true
         scrollSnapshotTask?.cancel()
-        scrollSnapshotTask = Task {
-            try? await Task.sleep(for: .milliseconds(350))
-            guard !Task.isCancelled, let view = webView, !view.isHidden else { return }
-            await captureSnapshot()
+        scheduleSnapshot()
+    }
+
+    private func scheduleSnapshot() {
+        scrollSnapshotTask?.cancel()
+        scrollSnapshotTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .milliseconds(600))
+                try await InteractionBudget.shared.waitForIdle()
+                guard let self, let view = webView, !view.isHidden,
+                      !view.isLoading, needsSnapshot else { return }
+                await captureSnapshot()
+            } catch { }
         }
     }
 
@@ -350,7 +366,11 @@ final class Tab: Identifiable {
         }
         isBlank = false
         loadError = nil
-        activate()
+        InteractionBudget.shared.interacted()
+        restoreLoadTask?.cancel()
+        isReadingInteractionState = false
+        activate(restoreState: false)
+        isRestoring = false
         webView?.load(URLRequest(url: url))
         onChange?()
     }
@@ -395,12 +415,17 @@ final class Tab: Identifiable {
     /// Takes a picture of what the web view is showing right now.
     /// Call this *before* the web view is hidden: a hidden view may render blank.
     func captureSnapshot() async {
-        guard !isBlank, let view = webView else { return }
+        guard !isBlank, !isCapturingSnapshot, let view = webView,
+              !view.isHidden, !view.isLoading else { return }
+        isCapturingSnapshot = true
+        defer { isCapturingSnapshot = false }
+        let interval = PerformanceTrace.signposter.beginInterval("Page snapshot")
+        defer { PerformanceTrace.signposter.endInterval("Page snapshot", interval) }
         snapshotsStarted += 1
         let number = snapshotsStarted
         guard let picture = await PageSnapshotter.capture(view) else { return }
         // A newer picture was started meanwhile; it wins.
-        guard !isClosed, number == snapshotsStarted else { return }
+        guard !isClosed, !Task.isCancelled, number == snapshotsStarted, webView === view else { return }
         snapshot = picture
         hasSnapshot = true
         snapshotRevision += 1
@@ -457,6 +482,9 @@ final class Tab: Identifiable {
 
     private func detachWebView() {
         answerDialog(.cancel)
+        restoreLoadTask?.cancel()
+        metadataTask?.cancel()
+        snapshotsStarted += 1
         scrollSnapshotTask?.cancel()
         controller?.detach()
         controller = nil
@@ -472,22 +500,27 @@ final class Tab: Identifiable {
             restoreNavigationFinished = true
             finishRestoringIfVisible()
         }
-        faviconTask?.cancel()
-        faviconTask = Task { await loadFavicon() }
-        Task { await detectLanguage() }
-        Task {
-            // Give the page a moment to paint its final layout.
-            try? await Task.sleep(for: .milliseconds(400))
-            if webView?.isHidden == false || !hasSnapshot {
-                await captureSnapshot()
-            }
-            onChange?()
+        metadataTask?.cancel()
+        metadataTask = Task { [weak self] in
+            do {
+                try await InteractionBudget.shared.waitForIdle()
+                guard let self, webView?.isHidden == false else { return }
+                await loadFavicon()
+                try Task.checkCancellation()
+                try await InteractionBudget.shared.waitForIdle()
+                await detectLanguage()
+            } catch { }
         }
+        snapshotIsStale = true
+        scheduleSnapshot()
+        onChange?()
     }
 
     /// The first bytes of a new page arrived, i.e. the old page is about to
     /// be replaced. A good moment to drop any old error.
     func pageDidCommit() {
+        snapshotsStarted += 1
+        scrollSnapshotTask?.cancel()
         loadError = nil
         snapshotIsStale = true
         adsBlocked = 0
