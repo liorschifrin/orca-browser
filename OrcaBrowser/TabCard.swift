@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 /// One tab in the switcher: a picture of the page, with the site's icon above
 /// it (and, for the focused card only, the page title beside the icon).
@@ -20,6 +21,9 @@ struct TabCard: View, Equatable {
     /// 1 when this card is the focused one, fading to 0 as it moves away.
     /// Controls the title and close button, which only the focused card shows.
     let focus: Double
+    /// True for the most recent tab, whose real page runs in the card (a
+    /// video keeps playing) instead of a picture of it.
+    let showsLivePage: Bool
     let onSelect: () -> Void
     let onClose: () -> Void
 
@@ -46,7 +50,7 @@ struct TabCard: View, Equatable {
         a.tab === b.tab && a.barHeight == b.barHeight && a.size == b.size
             && a.screenSize == b.screenSize && a.safeBottomInset == b.safeBottomInset
             && a.faviconInset == b.faviconInset && a.contentTop == b.contentTop
-            && a.focus == b.focus
+            && a.focus == b.focus && a.showsLivePage == b.showsLivePage
     }
 
     var body: some View {
@@ -100,6 +104,12 @@ struct TabCard: View, Equatable {
                 }
             }
             .overlay {
+                if showsLivePage, !tab.isIncognito, !tab.isBlank, !tab.isRestoring,
+                   tab.loadError == nil, let webView = tab.webView {
+                    livePage(webView)
+                }
+            }
+            .overlay {
                 if let peek = tab.peek {
                     peekThumbnail(peek)
                 }
@@ -136,6 +146,23 @@ struct TabCard: View, Equatable {
             endPoint: .bottom
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// The running page at full-screen size, scaled down into the card. It
+    /// takes the same place and size the browser gives it, so nothing in the
+    /// page reflows when it moves in or out.
+    private func livePage(_ webView: WKWebView) -> some View {
+        let scale = size.width / max(1, screenSize.width)
+        let topInset = contentTop / scale
+        let height = max(1, screenSize.height - topInset - safeBottomInset - barHeight)
+
+        return LiveCardPage(webView: webView)
+            .frame(width: screenSize.width, height: height)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: size.width, height: height * scale, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.top, contentTop)
+            .allowsHitTesting(false)
     }
 
     private func peekThumbnail(_ peek: Tab.Peek) -> some View {

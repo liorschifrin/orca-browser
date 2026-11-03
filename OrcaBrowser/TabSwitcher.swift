@@ -92,6 +92,8 @@ struct TabSwitcher: View {
     @State private var backdrop: Double = 0
     /// Cards kept built while the deck animates away from them (see `shownRange`).
     @State private var heldRange: ClosedRange<Int>?
+    /// The current page is back in the browser, and its card shows no more.
+    @State private var livePageReleased = false
 
     /// Only cards this close to the focus are built at all. Those further
     /// away are off screen, and building them would decode their pictures:
@@ -187,6 +189,7 @@ struct TabSwitcher: View {
                     faviconInset: metrics.faviconInset,
                     contentTop: metrics.contentTop,
                     focus: max(0, 1 - abs(relative) * 1.5),
+                    showsLivePage: isCurrent && !livePageReleased,
                     onSelect: { leave(to: tab) { onSelect(tab) } },
                     onClose: { closeCard(tab) }
                 )
@@ -194,6 +197,9 @@ struct TabSwitcher: View {
                 // inputs actually changed (the ones near focus) redraw.
                 .equatable()
                 .environment(\.thumbnailDelay, 400 + Int(abs(relative)) * 100)
+                // Once the page is back in the browser, a card that was
+                // opening onto it must not cover it with a stale picture.
+                .opacity(isCurrent && isLeaving && livePageReleased ? 0 : 1)
                 .modifier(StackEffect(
                     relative: relative,
                     // Older cards start tiny by the tabs button...
@@ -360,6 +366,9 @@ struct TabSwitcher: View {
         }
         Task {
             try? await Task.sleep(for: .seconds(Self.exitDuration))
+            // The live page goes back to the browser before the switcher fades.
+            livePageReleased = true
+            await Task.yield()
             finish()
         }
     }
