@@ -20,7 +20,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         if let store = tab.privateDataStore { configuration.websiteDataStore = store }
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
-        ContentBlocker.shared.install(on: configuration.userContentController)
+        ContentBlocker.shared.install(on: configuration.userContentController, privateRules: tab.privateRules)
         configuration.userContentController.addUserScript(LinkPress.userScript)
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
@@ -126,7 +126,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func present(_ kind: PageDialog.Kind, _ message: String, respond: @escaping (PageDialog.Response) -> Void) {
         let site = ContentBlocker.site(for: webView.url)
         guard let tab, !webView.isHidden, webView.window != nil,
-              PageDialogPermissions.shared.mayShow(on: site) else {
+              PageDialogPermissions.shared.mayShow(on: site, privateRules: tab.privateRules) else {
             respond(.cancel)
             return
         }

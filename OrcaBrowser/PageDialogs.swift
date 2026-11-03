@@ -40,10 +40,12 @@ final class PageDialogPermissions {
         !blockedSites.contains(site)
     }
 
-    /// Whether a page on `site` may show a dialog right now.
-    func mayShow(on site: String?) -> Bool {
+    /// Whether a page on `site` may show a dialog right now. The incognito
+    /// choice for the site, if it made one, wins over the saved one.
+    func mayShow(on site: String?, privateRules: PrivateSiteRules? = nil) -> Bool {
         guard AppSettings.shared.allowsPageDialogs else { return false }
-        return site.map(allows) ?? true
+        guard let site else { return true }
+        return privateRules?.allowsDialogs(on: site) ?? allows(site)
     }
 
     func setAllowed(_ allowed: Bool, on site: String) {
