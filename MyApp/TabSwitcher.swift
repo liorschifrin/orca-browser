@@ -383,6 +383,8 @@ struct SwitcherBar: View {
     let closedCount: Int
     let onDone: () -> Void
     let onNewTab: () -> Void
+    let voiceQuery: VoiceQuery
+    let onVoiceSearch: (URL) -> Void
     let onCloseAll: () -> Void
     let onRestore: () -> Void
     let onHistory: () -> Void
@@ -418,7 +420,7 @@ struct SwitcherBar: View {
         }
         // Centered on the bar, whatever sits on either side of it.
         .overlay {
-            NewTabButton(width: plusButtonWidth, height: 44, action: onNewTab)
+            VoiceNewTabButton(width: plusButtonWidth, query: voiceQuery, onTap: onNewTab, onSearch: onVoiceSearch)
         }
         .animation(.easeOut(duration: 0.2), value: canCloseAll)
         .animation(.easeOut(duration: 0.2), value: closedCount == 0)

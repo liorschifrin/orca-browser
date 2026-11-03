@@ -11,13 +11,15 @@ struct BottomBar: View {
     let tabCount: Int
     let plusButtonWidth: CGFloat
     let onNewTab: () -> Void
+    let voiceQuery: VoiceQuery
     let onEditAddress: () -> Void
     /// Called when the site settings caret in the address bar is tapped.
     let onSiteMenu: () -> Void
     let onShowTabs: () -> Void
-    /// Called with the Google search address for a finished voice search.
+    /// Called with the selected destination address for a finished voice search.
     let onVoiceSearch: (URL) -> Void
 
+    @State private var plusButtonFrame = CGRect.zero
     @State private var backButtonFrame = CGRect.zero
     @State private var showHistory = false
 
@@ -43,7 +45,10 @@ struct BottomBar: View {
                 }
                 // Centered on the bar, whatever sits on either side of it.
                 .overlay {
-                    NewTabButton(width: plusButtonWidth, height: 44, action: onNewTab)
+                    VoiceNewTabButton(width: plusButtonWidth, query: voiceQuery, onTap: onNewTab, onSearch: onVoiceSearch)
+                        .onGeometryChange(for: CGRect.self) {
+                            $0.frame(in: .named("browserToolbar"))
+                        } action: { plusButtonFrame = $0 }
                 }
 
                 siteCapsule
@@ -64,9 +69,10 @@ struct BottomBar: View {
         .simultaneousGesture(
             DragGesture(minimumDistance: 20, coordinateSpace: .named("browserToolbar"))
                 .onEnded { value in
-                    // A drag that starts at Back belongs to its history menu,
-                    // even if the finger later moves outside the button.
-                    guard !backButtonFrame.insetBy(dx: -8, dy: -8).contains(value.startLocation),
+                    // Drags starting on + belong to voice search; Back owns
+                    // its history menu, even when the finger moves outside.
+                    guard !plusButtonFrame.insetBy(dx: -8, dy: -8).contains(value.startLocation),
+                          !backButtonFrame.insetBy(dx: -8, dy: -8).contains(value.startLocation),
                           value.translation.height < -30,
                           -value.translation.height > abs(value.translation.width) else { return }
                     onShowTabs()

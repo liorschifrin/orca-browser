@@ -39,10 +39,11 @@ struct MicButton: View {
         .animation(.spring(duration: 0.2), value: isRecording)
         .overlay(alignment: .bottomTrailing) {
             if isMicConfirmed, let status = voiceSearch.status {
-                Text(status)
+                Text(voiceSearch.transcript.isEmpty ? status : voiceSearch.transcript)
                     .font(.subheadline)
-                    .lineLimit(1)
-                    .fixedSize()
+                    .lineLimit(4)
+                    .frame(maxWidth: 280)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(12)
                     .background(.regularMaterial, in: .capsule)
                     .offset(y: -(44 + Self.statusGap))

@@ -6,6 +6,7 @@ import SwiftUI
 struct BrowserView: View {
     @State private var store: BrowserStore
 
+    @State private var voiceQuery = VoiceQuery()
     @State private var barHeight: CGFloat = 0
     // Search starts open only when there's no page to go back to (a blank tab).
     @State private var isSearching: Bool
@@ -140,6 +141,25 @@ struct BrowserView: View {
                 onDismiss: closeSearch
             )
 
+            if voiceQuery.isPresented {
+                VoiceQueryOverlay(query: voiceQuery, onSearch: openVoiceQuery)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
+        }
+        .coordinateSpace(name: "voiceQueryScreen")
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { voiceQuery.screenSize = $0 }
+        .cancelsVoiceSearchWhenInterrupted(voiceQuery.speech)
+        .onChange(of: voiceQuery.speech.state) {
+            if voiceQuery.speech.state == .idle { voiceQuery.isPresented = false }
+        }
+        .alert("Voice search", isPresented: Binding(
+            get: { voiceQuery.speech.errorMessage != nil },
+            set: { if !$0 { voiceQuery.speech.errorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { voiceQuery.speech.errorMessage = nil }
+        } message: {
+            Text(voiceQuery.speech.errorMessage ?? "")
         }
         // Save when leaving the app: iOS may close it without further notice.
         .onChange(of: scenePhase) {
@@ -305,6 +325,7 @@ struct BrowserView: View {
                         tabCount: store.tabs.count,
                         plusButtonWidth: geometry.size.width * 0.19,
                         onNewTab: { openSearch() },
+                        voiceQuery: voiceQuery,
                         onEditAddress: { openSearch(editing: store.selectedTab?.url) },
                         onSiteMenu: {
                             // Only web pages have a site to configure.
@@ -312,12 +333,7 @@ struct BrowserView: View {
                             siteMenu = SiteMenuTarget(tab: tab, site: site)
                         },
                         onShowTabs: openSwitcher,
-                        onVoiceSearch: { url in
-                            Task {
-                                await store.open(url.absoluteString)
-                                closeSwitcher()
-                            }
-                        }
+                        onVoiceSearch: openVoiceQuery
                     )
                     // Put the address strip just above the physical bottom edge.
                     .padding(.bottom, -max(0, geometry.safeAreaInsets.bottom - 3))
@@ -335,6 +351,8 @@ struct BrowserView: View {
                         closedCount: store.closedTabCount,
                         onDone: { doneTrigger += 1 },
                         onNewTab: { openSearch() },
+                        voiceQuery: voiceQuery,
+                        onVoiceSearch: openVoiceQuery,
                         onCloseAll: {
                             store.closeAll()
                             switcherReloadTrigger += 1
@@ -355,6 +373,23 @@ struct BrowserView: View {
             }
             // Anchor both bars to the bottom of the available screen.
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+
+    private func openVoiceQuery(_ url: URL) {
+        Task {
+            if url.scheme == "com.openai.chat" {
+                let opened = await ChatGPTLink.open(url) { link, appOnly in
+                    await UIApplication.shared.open(link, options: appOnly ? [.universalLinksOnly: true] : [:])
+                }
+                if !opened {
+                    voiceQuery.speech.errorMessage = "Couldn't open the ChatGPT app. Make sure ChatGPT is installed."
+                }
+                return
+            }
+            closeSearch()
+            await store.open(url.absoluteString)
+            closeSwitcher()
         }
     }
 

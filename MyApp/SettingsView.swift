@@ -41,6 +41,16 @@ struct SettingsView: View {
                     Text("History")
                 }
                 Section {
+                    NavigationLink {
+                        VoiceQueryOptionsView(settings: settings)
+                    } label: {
+                        HStack {
+                            Text("Voice search options")
+                            Spacer()
+                            Text("\(settings.voiceQueryOptions.active.count) enabled")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Picker("Speech recognition", selection: $settings.voiceSearchProvider) {
                         ForEach(VoiceSearchProvider.allCases) { provider in
                             Text(provider.title).tag(provider)
@@ -70,7 +80,7 @@ struct SettingsView: View {
                     Text("Voice search")
                 } footer: {
                     Text(settings.voiceSearchProvider == .apple
-                         ? "Hold the microphone in the search bar, then release to search Google. Speech is processed on device in your preferred iPhone language. A speech model may download on first use."
+                         ? "Swipe up from +, speak, then release to use your selected destination. Apple shows a live preview and finishes recognition before searching. Speech stays on device in your preferred iPhone language. A speech model may download on first use."
                          : "Recordings are sent to OpenAI only when you release the microphone. Uses gpt-transcribe and your own API billing. Your key stays in this device's Keychain. Local recordings are deleted after transcription or cancellation.")
                 }
             }

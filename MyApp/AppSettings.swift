@@ -7,6 +7,16 @@ import Foundation
 @Observable
 final class AppSettings {
     static let shared = AppSettings()
+    @ObservationIgnored private let defaults: UserDefaults
+    private static let voiceQueryOptionsKey = "voiceQueryOptions"
+
+    var voiceQueryOptions: VoiceQueryOptions {
+        didSet {
+            if let data = try? JSONEncoder().encode(voiceQueryOptions) {
+                defaults.set(data, forKey: Self.voiceQueryOptionsKey)
+            }
+        }
+    }
 
     private static let hideShortsKey = "hideShorts"
     private static let blockAdsKey = "blockAds"
@@ -16,43 +26,46 @@ final class AppSettings {
     private static let allowsPageDialogsKey = "allowsPageDialogs"
 
     var voiceSearchProvider: VoiceSearchProvider {
-        didSet { UserDefaults.standard.set(voiceSearchProvider.rawValue, forKey: Self.voiceSearchProviderKey) }
+        didSet { defaults.set(voiceSearchProvider.rawValue, forKey: Self.voiceSearchProviderKey) }
     }
 
     /// Hides YouTube Shorts in every tab. Off by default.
     var hideShorts: Bool {
-        didSet { UserDefaults.standard.set(hideShorts, forKey: Self.hideShortsKey) }
+        didSet { defaults.set(hideShorts, forKey: Self.hideShortsKey) }
     }
 
     /// Blocks ads in every tab. On by default.
     var blockAds: Bool {
-        didSet { UserDefaults.standard.set(blockAds, forKey: Self.blockAdsKey) }
+        didSet { defaults.set(blockAds, forKey: Self.blockAdsKey) }
     }
 
     /// Blocks trackers in every tab. On by default.
     var blockTrackers: Bool {
-        didSet { UserDefaults.standard.set(blockTrackers, forKey: Self.blockTrackersKey) }
+        didSet { defaults.set(blockTrackers, forKey: Self.blockTrackersKey) }
     }
 
     /// Removes Reddit's "get the app" pop-up. On by default.
     var blockRedditPrompt: Bool {
-        didSet { UserDefaults.standard.set(blockRedditPrompt, forKey: Self.blockRedditPromptKey) }
+        didSet { defaults.set(blockRedditPrompt, forKey: Self.blockRedditPromptKey) }
     }
 
     /// Lets pages show alerts, confirmations and prompts. On by default; a
     /// site can also be switched off on its own (`PageDialogPermissions`).
     var allowsPageDialogs: Bool {
-        didSet { UserDefaults.standard.set(allowsPageDialogs, forKey: Self.allowsPageDialogsKey) }
+        didSet { defaults.set(allowsPageDialogs, forKey: Self.allowsPageDialogsKey) }
     }
 
-    private init() {
-        hideShorts = UserDefaults.standard.bool(forKey: Self.hideShortsKey)
-        blockAds = UserDefaults.standard.object(forKey: Self.blockAdsKey) as? Bool ?? true
-        blockTrackers = UserDefaults.standard.object(forKey: Self.blockTrackersKey) as? Bool ?? true
-        blockRedditPrompt = UserDefaults.standard.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true
-        allowsPageDialogs = UserDefaults.standard.object(forKey: Self.allowsPageDialogsKey) as? Bool ?? true
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        voiceQueryOptions = defaults.data(forKey: Self.voiceQueryOptionsKey)
+            .flatMap { try? JSONDecoder().decode(VoiceQueryOptions.self, from: $0) } ?? .defaults
+        hideShorts = defaults.bool(forKey: Self.hideShortsKey)
+        blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
+        blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
+        blockRedditPrompt = defaults.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true
+        allowsPageDialogs = defaults.object(forKey: Self.allowsPageDialogsKey) as? Bool ?? true
         voiceSearchProvider = VoiceSearchProvider(
-            rawValue: UserDefaults.standard.string(forKey: Self.voiceSearchProviderKey) ?? ""
+            rawValue: defaults.string(forKey: Self.voiceSearchProviderKey) ?? ""
         ) ?? .apple
     }
 }
