@@ -2,7 +2,7 @@ import Foundation
 import Testing
 import SwiftData
 import WebKit
-@testable import MyApp
+@testable import OrcaBrowser
 
 @MainActor
 @Suite(.serialized)

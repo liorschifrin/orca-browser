@@ -30,7 +30,7 @@ final class ContentBlocker {
         let id: Int
         let category: Category
 
-        var identifier: String { "bark.adguard.\(id)" }
+        var identifier: String { "orcabrowser.adguard.\(id)" }
         var url: URL { URL(string: "https://filters.adtidy.org/ios/filters/\(id)_optimized.txt")! }
     }
 
@@ -44,7 +44,7 @@ final class ContentBlocker {
     private static let updateInterval: TimeInterval = 3 * 24 * 60 * 60
     private static let lastCheckKey = "contentBlocker.lastCheck"
 
-    private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Bark", category: "ContentBlocker")
+    private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "OrcaBrowser", category: "ContentBlocker")
     private let settings = AppSettings.shared
     private var compiled: [Int: WKContentRuleList] = [:]
     /// What each web view currently has. Weak keys, so closed tabs fall out by themselves.

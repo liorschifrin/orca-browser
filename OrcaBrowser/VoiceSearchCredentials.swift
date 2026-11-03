@@ -5,7 +5,7 @@ enum VoiceSearchCredentials {
     private static var query: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "\(Bundle.main.bundleIdentifier ?? "Browser").voice-search",
+            kSecAttrService as String: "\(Bundle.main.bundleIdentifier ?? "OrcaBrowser").voice-search",
             kSecAttrAccount as String: "openai-api-key"
         ]
     }

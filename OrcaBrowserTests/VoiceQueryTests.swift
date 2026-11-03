@@ -1,7 +1,7 @@
 import CoreMedia
 import Foundation
 import Testing
-@testable import MyApp
+@testable import OrcaBrowser
 
 struct VoiceQueryTests {
     @Test(arguments: VoiceQueryDestination.allCases)

@@ -19,7 +19,7 @@ import WebKit
 /// YouTube changes its player often, so this may need updating.
 enum BackgroundPlayback {
     // Playback setup and microphone changes share an ordered background queue.
-    nonisolated static let audioQueue = DispatchQueue(label: "Bark.audio", qos: .userInitiated)
+    nonisolated static let audioQueue = DispatchQueue(label: "OrcaBrowser.audio", qos: .userInitiated)
 
     /// Lets web audio keep playing with the screen locked or the app in the
     /// background. Voice search switches to recording and restores this after.

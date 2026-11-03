@@ -154,7 +154,7 @@ struct BrowserView: View {
             // last on screen is private.
             if scenePhase != .active, store.selectedTab?.isIncognito == true {
                 Color(.systemBackground).ignoresSafeArea()
-                Label("Bark", systemImage: "eye.slash.fill")
+                Label("Orca", systemImage: "eye.slash.fill")
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.purple)
             }

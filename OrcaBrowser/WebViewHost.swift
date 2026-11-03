@@ -126,7 +126,7 @@ class WebViewContainer: UIView {
 /// Detect the hold inside the page rather than competing with WebKit's
 /// built-in drag recognizers. Injected into every frame, including iframes.
 enum LinkPress {
-    static let messageName = "barkLinkPreview"
+    static let messageName = "orcaLinkPreview"
     static var userScript: WKUserScript {
         WKUserScript(source: source, injectionTime: .atDocumentStart,
                      forMainFrameOnly: false, in: .defaultClient)
@@ -184,7 +184,7 @@ enum LinkPress {
                 if (selection && (activeLink.contains(selection.anchorNode) ||
                     activeLink.contains(selection.focusNode))) selection.removeAllRanges();
                 suppressClickUntil = Date.now() + 1500;
-                window.webkit.messageHandlers.barkLinkPreview.postMessage(address);
+                window.webkit.messageHandlers.orcaLinkPreview.postMessage(address);
             }, 250);
         }, { capture: true, passive: true });
         document.addEventListener('touchmove', event => {

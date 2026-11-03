@@ -35,7 +35,7 @@ remains available as the existing hold-to-search-Google shortcut, including in
 the text search interface.
 
 ChatGPT uses `com.openai.chat://chatgpt.com/?prompt=…` with strict query
-encoding. The URL is opened through iOS, never loaded into a Bark web view.
+encoding. The URL is opened through iOS, never loaded into an Orca Browser web view.
 If the scheme fails, an app-only `https://chatgpt.com/?prompt=…` universal link
 is attempted. If neither opens, an error asks the user to install ChatGPT.
 Only the dictated prompt is included; sending it is done inside ChatGPT.
@@ -83,7 +83,7 @@ The existing mic supports activation once to start and again to submit Google.
 minimum enabled count, unknown saved IDs, default selection, and target spacing
 for all counts at several widths. `VoiceQueryTests` covers destination URL encoding, blank queries, transcript
 corrections/revocations, time ordering, target tolerance, cancellation selection,
-and preservation of normal taps. Run the full MyApp test suite in Xcode.
+and preservation of normal taps. Run the full OrcaBrowser test suite in Xcode.
 
 On a real device, verify:
 

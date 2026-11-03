@@ -9,7 +9,7 @@ enum ChatGPTLink {
         return URL(string: "\(scheme)://chatgpt.com/?prompt=\(encoded)")
     }
 
-    /// The fallback is app-only: Bark may itself be the default web browser.
+    /// The fallback is app-only: Orca Browser may itself be the default web browser.
     /// Keeping the opener injectable lets tests verify that no browser tab is
     /// created and that the prompt survives the fallback unchanged.
     static func open(_ url: URL, using openURL: (URL, Bool) async -> Bool) async -> Bool {

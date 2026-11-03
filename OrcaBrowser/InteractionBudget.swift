@@ -33,5 +33,5 @@ final class InteractionBudget {
 
 /// Inspect these intervals alongside Animation Hitches in Instruments.
 enum PerformanceTrace {
-    static let signposter = OSSignposter(subsystem: Bundle.main.bundleIdentifier ?? "Bark", category: "Responsiveness")
+    static let signposter = OSSignposter(subsystem: Bundle.main.bundleIdentifier ?? "OrcaBrowser", category: "Responsiveness")
 }

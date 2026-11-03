@@ -21,7 +21,7 @@
 	     iPhones cap an app's own animations at 60 Hz. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<!-- Registers arcbrowser:// so Shortcuts can hand control back to the app
+	<!-- Registers orcabrowser:// so Shortcuts can hand control back to the app
 	     after "Add Video to Play" finishes. -->
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -30,7 +30,7 @@
 			<string>com.liorschifrin.ArcBrowser</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>arcbrowser</string>
+				<string>orcabrowser</string>
 			</array>
 		</dict>
 	</array>

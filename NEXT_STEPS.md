@@ -2,7 +2,7 @@
 
 Ads and trackers are blocked natively (WebKit content rule lists built from
 AdGuard's filters), with a per-site menu opened from the caret in the address
-bar. See `MyApp/ContentBlocker.swift` and `MyApp/SiteMenu.swift`.
+bar. See `OrcaBrowser/ContentBlocker.swift` and `OrcaBrowser/SiteMenu.swift`.
 
 ## Before this ships
 

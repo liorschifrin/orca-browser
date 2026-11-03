@@ -1,6 +1,6 @@
 import CoreGraphics
 import Testing
-@testable import MyApp
+@testable import OrcaBrowser
 
 struct StackMetricsTests {
     let metrics = StackMetrics(screen: CGSize(width: 402, height: 874), topInset: 62)

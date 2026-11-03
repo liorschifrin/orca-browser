@@ -1,7 +1,7 @@
 import Foundation
 import CoreGraphics
 import Testing
-@testable import MyApp
+@testable import OrcaBrowser
 
 struct VoiceQueryOptionsTests {
     @Test func disablingEveryOptionKeepsTheLastOne() {

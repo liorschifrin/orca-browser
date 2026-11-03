@@ -162,7 +162,7 @@ private struct CopyURLButton: View {
 
 /// Copies the address, then runs the "Add Video to Play" shortcut with it.
 /// Only shown on YouTube. iOS briefly switches to the Shortcuts app to run it,
-/// then Shortcuts hands control back through the app's arcbrowser:// address.
+/// then Shortcuts hands control back through the app's orcabrowser:// address.
 enum AddToPlay {
     /// Must match the shortcut's name in the Shortcuts app exactly.
     static let shortcutName = "Add Video to Play"
@@ -180,9 +180,9 @@ enum AddToPlay {
             URLQueryItem(name: "input", value: "text"),
             URLQueryItem(name: "text", value: url.absoluteString),
             // Shortcuts returns here when done (or cancelled).
-            URLQueryItem(name: "x-success", value: "arcbrowser://"),
-            URLQueryItem(name: "x-cancel", value: "arcbrowser://"),
-            URLQueryItem(name: "x-error", value: "arcbrowser://"),
+            URLQueryItem(name: "x-success", value: "orcabrowser://"),
+            URLQueryItem(name: "x-cancel", value: "orcabrowser://"),
+            URLQueryItem(name: "x-error", value: "orcabrowser://"),
         ]
         if let shortcutURL = components.url {
             UIApplication.shared.open(shortcutURL)

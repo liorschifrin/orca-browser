@@ -1,6 +1,6 @@
 import SwiftUI
 
-@main struct MyApp: App {
+@main struct OrcaBrowserApp: App {
     init() {
         BackgroundPlayback.configureAudioSession()
     }

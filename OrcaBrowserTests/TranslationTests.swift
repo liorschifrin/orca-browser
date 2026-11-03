@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import MyApp
+@testable import OrcaBrowser
 
 /// `isForeign` compares against the device's preferred languages, so these
 /// say what the answer should be for whatever the test device reads.
