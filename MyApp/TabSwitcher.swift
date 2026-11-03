@@ -235,13 +235,38 @@ struct TabSwitcher: View {
 
     /// Moves the deck with an animation, keeping the cards it starts among
     /// built until it arrives, so none vanish mid-slide.
-    private func move(to target: CGFloat, with animation: Animation, also change: () -> Void = {}) {
-        heldRange = shownRange(around: position)
-        withAnimation(animation) {
-            position = target
-            change()
-        } completion: {
-            heldRange = nil
+    ///
+    /// Cards near the destination are built *before* the animation starts, at
+    /// their places for the current position. A card first built inside the
+    /// animation has no earlier pose to travel from: it would fade in at its
+    /// final place while the rest of the deck is still sliding under it.
+    private func move(to target: CGFloat, with animation: Animation, also change: @escaping () -> Void = {}) {
+        let built = shownRange(around: position)
+        let destination = shownRange(around: target)
+        heldRange = min(built.lowerBound, destination.lowerBound)...max(built.upperBound, destination.upperBound)
+
+        let animate = {
+            withAnimation(animation) {
+                position = target
+                change()
+            } completion: {
+                heldRange = nil
+            }
+        }
+
+        guard destination.lowerBound < built.lowerBound || destination.upperBound > built.upperBound else {
+            animate()
+            return
+        }
+        Task {
+            // One frame, so the new cards are drawn at their starting places.
+            try? await Task.sleep(for: .milliseconds(20))
+            // A new drag took over in the meantime; it owns the position now.
+            guard isHorizontalDrag == nil else {
+                heldRange = nil
+                return
+            }
+            animate()
         }
     }
 
