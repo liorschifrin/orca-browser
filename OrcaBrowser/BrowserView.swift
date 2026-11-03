@@ -9,6 +9,8 @@ struct BrowserView: View {
 
     @State private var voiceQuery = VoiceQuery()
     @State private var barHeight: CGFloat = 0
+    /// How far the slide between tabs has gone, from 0 to 1.
+    @State private var slideProgress: CGFloat = 0
     // Search starts open only when there's no page to go back to (a blank tab).
     @State private var isSearching: Bool
     // Set when search was opened by tapping the address: the URL to show,
@@ -195,6 +197,17 @@ struct BrowserView: View {
             } else {
                 store.save()
                 HistoryStore.flushIfNeeded()
+                if scenePhase == .inactive { DomDump.run(on: store.selectedTab?.webView) }
+            }
+        }
+        .onChange(of: store.slide) {
+            guard store.slide != nil else { return }
+            slideProgress = 0
+            withAnimation(.easeOut(duration: 0.35)) {
+                slideProgress = 1
+            } completion: {
+                store.slide = nil
+                slideProgress = 0
             }
         }
         .onChange(of: settings.hideShorts) {
@@ -308,6 +321,16 @@ struct BrowserView: View {
         }
     }
 
+    /// The new tab comes in from the right while the old one moves a little
+    /// to the left, as when switching apps.
+    private func slideOffset(for tab: Tab) -> CGFloat {
+        guard let slide = store.slide else { return 0 }
+        let width = UIScreen.main.bounds.width
+        if tab.id == slide.incoming { return (1 - slideProgress) * width }
+        if tab.id == slide.outgoing { return -slideProgress * width * 0.3 }
+        return 0
+    }
+
     /// Every tab's web view, then error/start states. (The bars sit above.)
     private var page: some View {
         let isIncognito = store.selectedTab?.isIncognito == true
@@ -317,6 +340,7 @@ struct BrowserView: View {
                 WebViewHost(
                     webView: tab.webView!,
                     isActive: tab.id == store.selectedTabID,
+                    keepsVisible: tab.id == store.slide?.outgoing,
                     onPreviewLink: { url in
                         guard tab.id == store.selectedTabID else { return }
                         tab.openPeek(url)
@@ -327,6 +351,8 @@ struct BrowserView: View {
                 // on the page (header buttons, the end of an inner scrolling
                 // panel like comments) is hidden behind them.
                 .padding(.bottom, barHeight)
+                .offset(x: slideOffset(for: tab))
+                .zIndex(tab.id == store.slide?.incoming ? 1 : 0)
             }
 
             if let tab = store.selectedTab {

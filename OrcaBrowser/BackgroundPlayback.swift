@@ -29,6 +29,9 @@ enum BackgroundPlayback {
         }
     }
 
+    /// The script message handler the page reports picture in picture changes to.
+    nonisolated static let pictureInPictureMessageName = "orcaPictureInPicture"
+
     static var userScript: WKUserScript {
         WKUserScript(source: source, injectionTime: .atDocumentStart,
                      forMainFrameOnly: false, in: .page)
@@ -49,7 +52,16 @@ enum BackgroundPlayback {
       // Capture listeners on window run before any of the page's own, so
       // these events never reach YouTube. The system picture in picture
       // window doesn't depend on them.
-      const swallow = event => event.stopImmediatePropagation();
+      // The app is told when picture in picture opens or closes, so it can
+      // switch back to this tab when you return to the video.
+      const tellApp = () => {
+        const active = [...document.querySelectorAll('video')].some(inPictureInPicture);
+        window.webkit?.messageHandlers?.\(pictureInPictureMessageName)?.postMessage({ active });
+      };
+      const swallow = event => {
+        if (event.type === 'webkitpresentationmodechanged') tellApp();
+        event.stopImmediatePropagation();
+      };
       for (const type of ['visibilitychange', 'webkitvisibilitychange',
                           'webkitpresentationmodechanged',
                           'enterpictureinpicture', 'leavepictureinpicture']) {

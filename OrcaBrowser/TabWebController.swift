@@ -7,7 +7,7 @@ import WebKit
 /// The `Tab` is the record and outlives this: a tab that's unloaded to save
 /// memory drops its controller and web view, and gets new ones when it's
 /// shown again.
-final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
+final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
     let webView: WKWebView
     private weak var tab: Tab?
 
@@ -26,12 +26,19 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
         )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
+        configuration.userContentController.addUserScript(PlaybackToolbar.userScript)
         configuration.userContentController.addUserScript(
             RedditPrompt.userScript(enabled: AppSettings.shared.blockRedditPrompt)
         )
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         super.init()
+        // The page reports picture in picture changes in its own script world.
+        // A weak bridge, so the web view doesn't keep this controller alive.
+        configuration.userContentController.add(
+            WeakMessageHandler(self), contentWorld: .page,
+            name: BackgroundPlayback.pictureInPictureMessageName
+        )
 
         #if DEBUG
         // Lets Safari's Web Inspector on a Mac attach to pages in debug builds.
@@ -59,9 +66,29 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// Stops the page and cuts it loose from the tab, which is letting go of it.
     func detach() {
         observations = []
+        webView.configuration.userContentController.removeScriptMessageHandler(
+            forName: BackgroundPlayback.pictureInPictureMessageName, contentWorld: .page
+        )
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
+    }
+
+    // MARK: - WKScriptMessageHandler
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == BackgroundPlayback.pictureInPictureMessageName,
+              let body = message.body as? [String: Any], let active = body["active"] as? Bool
+        else { return }
+        tab?.pictureInPictureChanged(active: active)
+    }
+
+    private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
+        private weak var target: WKScriptMessageHandler?
+        init(_ target: WKScriptMessageHandler) { self.target = target }
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            target?.userContentController(userContentController, didReceive: message)
+        }
     }
 
     // MARK: - WKNavigationDelegate

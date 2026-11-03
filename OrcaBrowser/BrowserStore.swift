@@ -6,6 +6,14 @@ import SwiftUI
 final class BrowserStore {
     var tabs: [Tab]
     var selectedTabID: Tab.ID
+
+    /// A switch that slides the new tab in from the right, like moving to
+    /// the next app. The old tab stays on screen until the slide ends.
+    struct Slide: Equatable {
+        let incoming: Tab.ID
+        let outgoing: Tab.ID
+    }
+    var slide: Slide?
     /// How many tabs "Close All" has put away. They live on disk only.
     private(set) var closedTabCount = 0
     private(set) var archivedTabs: [ArchivedTab] = []
@@ -96,6 +104,11 @@ final class BrowserStore {
     private func watch(_ newTabs: [Tab]) {
         for tab in newTabs {
             tab.onChange = { [weak self] in self?.scheduleSave() }
+            tab.onPictureInPictureReturn = { [weak self, weak tab] in
+                guard let self, let tab, tab.id != selectedTabID else { return }
+                slide = Slide(incoming: tab.id, outgoing: selectedTabID)
+                select(tab)
+            }
         }
     }
 

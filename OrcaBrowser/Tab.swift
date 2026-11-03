@@ -535,6 +535,31 @@ final class Tab: Identifiable {
 
     /// A page finished loading: refresh the card picture. (The leaving-the-tab
     /// snapshot can be taken mid-load, which would leave a half-empty card.)
+    /// Set by the store: switch to this tab. Called when you return to its
+    /// video from the picture in picture window.
+    @ObservationIgnored var onPictureInPictureReturn: (() -> Void)?
+    @ObservationIgnored private var isInPictureInPicture = false
+
+    /// The page's video opened or closed picture in picture. Leaving it while
+    /// the app is on screen and the video still plays is the "return to app"
+    /// button; the close button pauses the video instead, and happens with the
+    /// app in the background. The check waits a moment because the app takes
+    /// a moment to come forward after that button.
+    func pictureInPictureChanged(active: Bool) {
+        let wasActive = isInPictureInPicture
+        isInPictureInPicture = active
+        guard wasActive, !active else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard let self, UIApplication.shared.applicationState != .background,
+                  let playing = try? await webView?.evaluateJavaScript(
+                      "[...document.querySelectorAll('video')].some(v => !v.paused)"
+                  ) as? Bool, playing
+            else { return }
+            onPictureInPictureReturn?()
+        }
+    }
+
     func pageDidFinish() {
         if isRestoring {
             restoreNavigationFinished = true

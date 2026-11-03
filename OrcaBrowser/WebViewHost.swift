@@ -13,6 +13,8 @@ import WebKit
 struct WebViewHost: UIViewRepresentable {
     let webView: WKWebView
     let isActive: Bool
+    /// Keeps a tab that isn't active on screen, while it slides away.
+    var keepsVisible = false
     var onPreviewLink: ((URL) -> Void)?
     var onVisible: (() -> Void)?
 
@@ -28,7 +30,7 @@ struct WebViewHost: UIViewRepresentable {
         context.coordinator.attach(to: webView)
         container.show(webView)
         // Hidden views take no touches and cost almost nothing to render.
-        webView.isHidden = !isActive
+        webView.isHidden = !(isActive || keepsVisible)
         context.coordinator.onPreviewLink = isActive ? onPreviewLink : nil
         if isActive { onVisible?() }
     }
