@@ -200,6 +200,8 @@ final class VoiceQuery {
     private var tracking = false
     private var activated = false
     private var ignored = false
+    private var awaitingFirstExit = true
+    private let selectionFeedback = UISelectionFeedbackGenerator()
 
     var center: CGPoint {
         CGPoint(x: screenSize.width / 2, y: min(screenSize.height * 0.55, buttonFrame.midY - 150))
@@ -244,6 +246,8 @@ final class VoiceQuery {
         guard !speech.isBusy else { return }
         destination = defaultDestination
         isCancelling = false
+        awaitingFirstExit = true
+        selectionFeedback.prepare()
         isPresented = true
         speech.begin(provider: settings.voiceSearchProvider)
         if !speech.isBusy { isPresented = false }
@@ -252,6 +256,18 @@ final class VoiceQuery {
     func updateSelection(at point: CGPoint) {
         // Returning near the launch button cancels. Only enabled targets
         // participate in selection; the first enabled option owns the center.
+        let previousDestination = destination
+        let wasCancelling = isCancelling
+        defer {
+            if awaitingFirstExit {
+                // Leaving the cancel zone at launch stays silent: the mic's
+                // own haptic is about to fire and the two would double up.
+                if !isCancelling { awaitingFirstExit = false }
+            } else if destination != previousDestination || isCancelling != wasCancelling {
+                selectionFeedback.selectionChanged()
+                selectionFeedback.prepare()
+            }
+        }
         isCancelling = point.y > buttonFrame.minY - 48
         if !isCancelling {
             let candidates = destinations.map { option -> (VoiceQueryDestination, CGFloat) in
@@ -338,7 +354,7 @@ struct VoiceNewTabButton: View {
             }
             .onEnded { value in
                 query.touchEnded(value.location, onTap: {
-                        UIImpactFeedbackGenerator(style: .soft).impactOccurred(intensity: 0.5)
+                        UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
                         onTap()
                     }, onSearch: onSearch)
             }

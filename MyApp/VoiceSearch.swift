@@ -162,7 +162,7 @@ final class VoiceSearch {
             }
             state = .recording
             // Recording really has started: say so.
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
             operation = nil
             recordingLimit = Task {
                 do {
@@ -186,6 +186,8 @@ final class VoiceSearch {
                 )
                 do {
                     try audioSession.setCategory(.record, mode: .measurement)
+                    // iOS mutes haptics while recording unless this is on.
+                    try audioSession.setAllowHapticsAndSystemSoundsDuringRecording(true)
                     try audioSession.setActive(true)
                     continuation.resume(returning: previous)
                 } catch {
@@ -200,6 +202,7 @@ final class VoiceSearch {
     nonisolated private static func restoreAudioSession(_ previous: AudioConfiguration) {
         audioQueue.async {
             let audioSession = AVAudioSession.sharedInstance()
+            try? audioSession.setAllowHapticsAndSystemSoundsDuringRecording(false)
             try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
             try? audioSession.setCategory(previous.category, mode: previous.mode, options: previous.options)
         }
