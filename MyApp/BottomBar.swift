@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The floating bar at the bottom of the screen.
 ///
-///     [ tabs ]  [      +      ]  [ mic ][ back ]
+///     [ tabs ]  [      +      ]  [ back ]
 ///     [ site name .......... settings reload ]
 ///
 /// Everything is within thumb reach on purpose.
@@ -39,7 +39,6 @@ struct BottomBar: View {
 
                     Spacer()
 
-                    MicButton(onSearch: onVoiceSearch)
                     HistoryBackButton(tab: tab, showHistory: $showHistory)
                         .onGeometryChange(for: CGRect.self) {
                             $0.frame(in: .named("browserToolbar"))

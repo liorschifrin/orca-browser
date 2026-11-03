@@ -17,9 +17,6 @@ struct SearchOverlay: View {
     @State private var text = ""
     @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
-    @State private var voiceSearch = VoiceSearch()
-    @Environment(\.scenePhase) private var scenePhase
-    private let settings = AppSettings.shared
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
     @FocusState private var isFocused: Bool
@@ -33,13 +30,6 @@ struct SearchOverlay: View {
                 .onTapGesture(perform: dismiss)
 
             VStack(spacing: 10) {
-                if let status = voiceSearch.status {
-                    Text(status)
-                        .font(.subheadline)
-                        .padding(12)
-                        .background(.regularMaterial, in: .capsule)
-                        .accessibilityAddTraits(.updatesFrequently)
-                }
                 if !clipboardText.isEmpty && clipboardText != text {
                     clipboardChip
                 }
@@ -57,7 +47,7 @@ struct SearchOverlay: View {
         .gesture(
             DragGesture(minimumDistance: 20)
                 .onEnded { value in
-                    if !voiceSearch.isBusy, value.translation.height > 40 { dismiss() }
+                    if value.translation.height > 40 { dismiss() }
                 }
         )
         .onAppear {
@@ -74,7 +64,6 @@ struct SearchOverlay: View {
                 isFocused = true
                 clipboardCache.refresh()
             } else {
-                voiceSearch.cancel()
                 isFocused = false
             }
         }
@@ -84,15 +73,6 @@ struct SearchOverlay: View {
             } else if !focused {
                 selection = nil
             }
-        }
-        .cancelsVoiceSearchWhenInterrupted(voiceSearch)
-        .alert("Voice search", isPresented: Binding(
-            get: { voiceSearch.errorMessage != nil },
-            set: { if !$0 { voiceSearch.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { voiceSearch.errorMessage = nil }
-        } message: {
-            Text(voiceSearch.errorMessage ?? "")
         }
     }
 
@@ -140,24 +120,9 @@ struct SearchOverlay: View {
                 .submitLabel(.go)
                 .onSubmit(submit)
 
-            if voiceSearch.state == .transcribing || voiceSearch.state == .downloading {
-                ProgressView()
-                    .frame(width: 44, height: 44)
-            } else {
-                VoiceSearchButton(
-                    isRecording: voiceSearch.state == .recording,
-                    isEnabled: isPresented,
-                    onPress: { voiceSearch.begin(provider: settings.voiceSearchProvider) },
-                    onRelease: finishVoiceSearch,
-                    onCancel: { voiceSearch.cancel() }
-                )
-                .frame(width: 44, height: 44)
-            }
-
-            // Always laid out so the microphone doesn't shift when it appears.
-            let showsClear = !text.isEmpty || voiceSearch.isBusy
+            // Always laid out so the field's width doesn't change when it appears.
+            let showsClear = !text.isEmpty
             Button {
-                voiceSearch.cancel()
                 text = ""
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -166,7 +131,7 @@ struct SearchOverlay: View {
             .opacity(showsClear ? 1 : 0)
             .disabled(!showsClear)
             .accessibilityHidden(!showsClear)
-            .accessibilityLabel(voiceSearch.isBusy ? "Cancel voice search" : "Clear")
+            .accessibilityLabel("Clear")
         }
         .padding(.horizontal, 16)
         .frame(height: 52)
@@ -175,7 +140,6 @@ struct SearchOverlay: View {
     }
 
     private func submit() {
-        voiceSearch.cancel()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
             dismiss()
@@ -194,18 +158,7 @@ struct SearchOverlay: View {
     }
 
     private func dismiss() {
-        voiceSearch.cancel()
         isFocused = false
         onDismiss()
-    }
-
-    private func finishVoiceSearch() {
-        voiceSearch.finish { transcript in
-            guard isPresented, scenePhase == .active,
-                  let url = Destination.searchURL(for: transcript) else { return }
-            text = transcript
-            isFocused = false
-            onSubmit(url.absoluteString)
-        }
     }
 }
