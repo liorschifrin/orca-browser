@@ -93,6 +93,7 @@ final class Tab: Identifiable {
     @ObservationIgnored private var metadataTask: Task<Void, Never>?
     @ObservationIgnored private var isCapturingSnapshot = false
     @ObservationIgnored private var restoreFinishTask: Task<Void, Never>?
+    @ObservationIgnored private var restoreTimeoutTask: Task<Void, Never>?
 
     /// The held link's page belongs to this tab, even while another tab is selected.
     struct Peek {
@@ -178,6 +179,7 @@ final class Tab: Identifiable {
         let view = makeWebView()
         guard restoreState, !isBlank else { return }
         isRestoring = true
+        startRestoreTimeout(for: view)
         if let url { ContentBlocker.shared.willNavigate(view.configuration.userContentController, to: url) }
         restoreNavigationFinished = false
         restoreFinishTask?.cancel()
@@ -210,7 +212,7 @@ final class Tab: Identifiable {
         detachWebView()
         isLoading = false
         progress = 0
-        isRestoring = false
+        endRestoring()
         restoreNavigationFinished = false
         restoreFinishTask?.cancel()
         restoreFinishTask = nil
@@ -233,8 +235,40 @@ final class Tab: Identifiable {
             defer { restoreFinishTask = nil }
             guard !Task.isCancelled, self.webView === view,
                   !view.isHidden, !view.isLoading else { return }
-            isRestoring = false
+            endRestoring()
         }
+    }
+
+    /// Removes the stand-in picture. Every way a restore can end comes through
+    /// here, so the timeout below is always cancelled with it.
+    private func endRestoring() {
+        isRestoring = false
+        restoreTimeoutTask?.cancel()
+        restoreTimeoutTask = nil
+    }
+
+    /// The picture sits on top of the live page, so a restore that never
+    /// reports "finished" (a still-loading page, a cancelled or dropped
+    /// navigation) would leave a tab that looks frozen. Give up on the picture
+    /// after a while, and if nothing was ever loaded, load the address.
+    private func startRestoreTimeout(for view: WKWebView) {
+        restoreTimeoutTask?.cancel()
+        restoreTimeoutTask = Task { [weak self, weak view] in
+            try? await Task.sleep(for: .seconds(Self.restoreTimeout))
+            guard let self, !Task.isCancelled, let view, webView === view, isRestoring else { return }
+            endRestoring()
+            loadIfNothingShowing(in: view)
+        }
+    }
+
+    private static let restoreTimeout = 6.0
+
+    /// A restored web view that has no page and isn't loading one gets the
+    /// tab's address.
+    private func loadIfNothingShowing(in view: WKWebView) {
+        guard !isReadingInteractionState, !view.isLoading, view.url == nil,
+              let url = url ?? loadError?.failedURL else { return }
+        view.load(URLRequest(url: url))
     }
 
     /// The state to write to disk: current if loaded, else what we kept.
@@ -315,6 +349,9 @@ final class Tab: Identifiable {
         recordHistory(urlChanged: urlChanged, titleChanged: title != previousTitle)
         if view.isLoading && !isLoading { snapshotIsStale = true }
         if view.isLoading != isLoading { isLoading = view.isLoading }
+        // The check after "finished" gives up while the page is still loading;
+        // try again once it stops.
+        if isRestoring, !view.isLoading { finishRestoringIfVisible() }
         if view.canGoBack != canGoBack { canGoBack = view.canGoBack }
         if view.canGoForward != canGoForward { canGoForward = view.canGoForward }
     }
@@ -370,7 +407,7 @@ final class Tab: Identifiable {
         restoreLoadTask?.cancel()
         isReadingInteractionState = false
         activate(restoreState: false)
-        isRestoring = false
+        endRestoring()
         webView?.load(URLRequest(url: url))
         onChange?()
     }
@@ -398,8 +435,10 @@ final class Tab: Identifiable {
         // URL that failed instead.
         if let failedURL = loadError?.failedURL {
             load(failedURL)
-        } else {
-            webView?.reload()
+        } else if let view = webView {
+            // Reloading is the user's way out of a restore that went wrong.
+            if isRestoring { endRestoring() }
+            if view.url == nil, let url { view.load(URLRequest(url: url)) } else { view.reload() }
         }
     }
 
@@ -460,6 +499,7 @@ final class Tab: Identifiable {
         faviconTask = nil
         scrollSnapshotTask?.cancel()
         restoreFinishTask?.cancel()
+        restoreTimeoutTask?.cancel()
         peek?.tab.teardown()
         peek = nil
         detachWebView()
@@ -572,7 +612,7 @@ final class Tab: Identifiable {
 
         restoreFinishTask?.cancel()
         restoreFinishTask = nil
-        isRestoring = false
+        endRestoring()
         loadError = LoadError(
             message: nsError.localizedDescription,
             failedURL: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL
