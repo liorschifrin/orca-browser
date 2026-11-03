@@ -122,12 +122,77 @@ class WebViewContainer: UIView {
         webView?.frame = bounds
     }
 
+    /// Puts back a web view that another container borrowed from this one.
+    fileprivate func takeBack(_ view: WKWebView) {
+        guard view === given, view.superview !== self else { return }
+        view.frame = bounds
+        addSubview(view)
+    }
+
     /// Every tab's container stays in the view tree, stacked on top of each
     /// other. One whose page is hidden must let touches through to the tab
     /// beneath it; an empty view still takes them.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let webView, !webView.isHidden else { return nil }
         return super.hitTest(point, with: event)
+    }
+}
+
+/// Shows a tab's own, running web view inside its switcher card, so a playing
+/// video keeps playing while the tabs are browsed. It borrows the web view
+/// from the browser's page and hands it back when the card lets go of it.
+/// Takes no touches: the card is tapped and dragged as a whole.
+struct LiveCardPage: UIViewRepresentable {
+    let webView: WKWebView
+
+    func makeUIView(context: Context) -> LiveCardViewport {
+        LiveCardViewport()
+    }
+
+    func updateUIView(_ viewport: LiveCardViewport, context: Context) {
+        viewport.borrow(webView)
+    }
+
+    static func dismantleUIView(_ viewport: LiveCardViewport, coordinator: ()) {
+        viewport.giveBack()
+    }
+
+    final class LiveCardViewport: WebViewContainer {
+        private weak var home: WebViewContainer?
+        private var savedInsetBehavior: UIScrollView.ContentInsetAdjustmentBehavior?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        func borrow(_ view: WKWebView) {
+            let lender = view.superview as? WebViewContainer
+            guard show(view) else { return }
+            if let previous = lender as? LiveCardViewport {
+                // A card rebuilt in place: the page's container is still the home.
+                home = previous.home
+                savedInsetBehavior = previous.savedInsetBehavior
+                previous.home = nil
+                previous.savedInsetBehavior = nil
+            } else {
+                home = lender
+                savedInsetBehavior = view.scrollView.contentInsetAdjustmentBehavior
+            }
+            // The card sits at an odd place and size on screen, which would
+            // otherwise make the page re-lay itself out around phantom insets.
+            view.scrollView.contentInsetAdjustmentBehavior = .never
+        }
+
+        func giveBack() {
+            guard let view = webView else { return }
+            if let savedInsetBehavior {
+                view.scrollView.contentInsetAdjustmentBehavior = savedInsetBehavior
+            }
+            home?.takeBack(view)
+        }
     }
 }
 
