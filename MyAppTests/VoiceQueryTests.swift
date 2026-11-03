@@ -96,6 +96,13 @@ struct VoiceQueryTests {
         #expect(transcript.text == "find music")
     }
 
+    @Test func queryTextDropsSentencePeriodsOnly() {
+        var transcript = SpeechTranscript()
+        transcript.replace(range: range(0, 1), text: "Best pizza near me. ")
+        transcript.replace(range: range(1, 1), text: "Open apple.com in 3.5 seconds.")
+        #expect(transcript.queryText == "Best pizza near me Open apple.com in 3.5 seconds")
+    }
+
     @MainActor @Test func targetSelectionAndCancel() {
         let query = VoiceQuery()
         query.screenSize = CGSize(width: 390, height: 800)

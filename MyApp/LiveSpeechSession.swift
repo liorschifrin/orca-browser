@@ -56,9 +56,9 @@ final class LiveSpeechSession {
                 for try await result in transcriber.results {
                     try Task.checkCancellation()
                     transcript.replace(range: result.range, text: String(result.text.characters))
-                    onPreview(transcript.text)
+                    onPreview(transcript.queryText)
                 }
-                return transcript.text
+                return transcript.queryText
             } catch {
                 if !Task.isCancelled { onError(error) }
                 throw error
