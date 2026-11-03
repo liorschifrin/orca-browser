@@ -23,4 +23,16 @@ struct ShortsFilterTests {
     func otherAddressesAreLeftAlone(address: String) {
         #expect(ShortsFilter.watchURL(forShorts: URL(string: address)!) == nil)
     }
+
+    @Test func openingShortsDefaultsToOffUnlessHidingWasOn() {
+        let fresh = UserDefaults(suiteName: "ShortsFilterTests-\(UUID())")!
+        #expect(AppSettings(defaults: fresh).opensShortsAsVideos == false)
+
+        let hiding = UserDefaults(suiteName: "ShortsFilterTests-\(UUID())")!
+        hiding.set(true, forKey: "hideShorts")
+        #expect(AppSettings(defaults: hiding).opensShortsAsVideos == true)
+
+        hiding.set(false, forKey: "opensShortsAsVideos")
+        #expect(AppSettings(defaults: hiding).opensShortsAsVideos == false)
+    }
 }

@@ -200,6 +200,9 @@ struct BrowserView: View {
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)
         }
+        .onChange(of: settings.opensShortsAsVideos) {
+            store.applyOpensShortsAsVideosSetting(settings.opensShortsAsVideos)
+        }
         .onChange(of: settings.blockRedditPrompt) {
             store.applyRedditPromptSetting(settings.blockRedditPrompt)
         }

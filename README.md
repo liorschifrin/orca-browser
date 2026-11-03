@@ -14,7 +14,7 @@ A fast, gesture-driven web browser for iPhone, built with SwiftUI and WebKit. In
 - **Incognito tabs**
 
 ### Site specific features
-- **YouTube** – background playback and picture in picture, and an option to hide Shorts.
+- **YouTube** – background playback and picture in picture, and options to hide Shorts and to open them in the normal player.
 - **Reddit** – blocks the "open in app" pop-up that prevents mobile site usage
 
 
