@@ -57,6 +57,9 @@ final class ClipboardHistory {
     static let shared = ClipboardHistory()
     /// So large it is only a guard against runaway growth.
     nonisolated static let defaultLimit = 10_000
+    /// Larger text isn't kept, so one copy can't swell `items.json`, which is
+    /// read at launch and rewritten on every change.
+    nonisolated static let maxTextBytes = 256 * 1024
 
     private(set) var items: [ClipboardItem]
     /// Feedback for an explicit copy or a failed insertion.
@@ -116,7 +119,8 @@ final class ClipboardHistory {
     /// items already in the history move; nothing new is kept.
     @discardableResult
     func record(text: String, addsNew: Bool = true) -> Bool {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              text.utf8.count <= Self.maxTextBytes else { return false }
         if let index = items.firstIndex(where: { $0.kind == .text && $0.text == text }) {
             moveToTop(index)
             return false

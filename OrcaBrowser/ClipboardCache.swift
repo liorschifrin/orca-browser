@@ -43,6 +43,10 @@ final class ClipboardCache {
     /// new read meanwhile goes into the history.
     var isPrivate = false
     @ObservationIgnored private var cachedChangeCount = -1
+    /// The latest clipboard change that happened while Incognito was showing.
+    /// A read may come later (background reads wait for permission), after
+    /// Incognito is gone, so the change itself is marked rather than the read.
+    @ObservationIgnored private var privateChangeCount = -1
     /// The clipboard as `ClipboardHistory` last wrote it. Already in the
     /// history, so reading it back must not record it again.
     @ObservationIgnored private var historyWriteCount = -1
@@ -92,6 +96,12 @@ final class ClipboardCache {
         if AppSettings.shared.savesClipboardHistory {
             ClipboardHistory.shared.record(text: url.absoluteString, addsNew: !isPrivate)
         }
+    }
+
+    /// The clipboard changed while the app was running.
+    func pasteboardChanged() {
+        if isPrivate { privateChangeCount = UIPasteboard.general.changeCount }
+        refresh()
     }
 
     /// `ClipboardHistory` just put one of its own items on the clipboard.
@@ -210,7 +220,10 @@ final class ClipboardCache {
         ) else { return }
         // While Incognito is showing, only items already in the history move
         // to the top (copying one back out of the panel); nothing new is kept.
-        let addsNew = Self.addsNew(wasPrivate: wasPrivate, isPrivate: isPrivate)
+        let addsNew = Self.addsNew(
+            wasPrivate: wasPrivate, isPrivate: isPrivate,
+            changeCount: snapshot.after, privateChangeCount: privateChangeCount
+        )
         if let image = snapshot.image {
             ClipboardHistory.shared.record(image: image, addsNew: addsNew)
         } else if let text = snapshot.text {
@@ -220,8 +233,9 @@ final class ClipboardCache {
 
     /// A read that began or ended in Incognito may be a private copy, whichever
     /// way the privacy state changed meanwhile, so it adds nothing new.
-    static func addsNew(wasPrivate: Bool, isPrivate: Bool) -> Bool {
-        !wasPrivate && !isPrivate
+    /// So does a change that was made while it was showing.
+    static func addsNew(wasPrivate: Bool, isPrivate: Bool, changeCount: Int, privateChangeCount: Int) -> Bool {
+        !wasPrivate && !isPrivate && changeCount != privateChangeCount
     }
 
     static func shouldRemember(isEnabled: Bool, isConcealed: Bool) -> Bool {

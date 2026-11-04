@@ -71,6 +71,13 @@ struct ClipboardHistoryTests {
         #expect(history.notice?.id == announced)
     }
 
+    @Test func hugeTextIsNotKept() {
+        let history = ClipboardHistory(directory: makeDirectory())
+        #expect(!history.record(text: String(repeating: "a", count: ClipboardHistory.maxTextBytes + 1)))
+        #expect(history.items.isEmpty)
+        #expect(history.record(text: String(repeating: "a", count: ClipboardHistory.maxTextBytes)))
+    }
+
     @Test func blankTextIsIgnored() {
         let history = ClipboardHistory(directory: makeDirectory())
         #expect(!history.record(text: " \n\t "))
@@ -135,10 +142,19 @@ struct ClipboardHistoryTests {
 
 struct ClipboardRecordingRulesTests {
     @Test func aReadThatTouchedIncognitoAddsNothingNew() {
-        #expect(ClipboardCache.addsNew(wasPrivate: false, isPrivate: false))
-        #expect(!ClipboardCache.addsNew(wasPrivate: true, isPrivate: false))
-        #expect(!ClipboardCache.addsNew(wasPrivate: false, isPrivate: true))
-        #expect(!ClipboardCache.addsNew(wasPrivate: true, isPrivate: true))
+        func adds(_ wasPrivate: Bool, _ isPrivate: Bool, count: Int = 5, privateCount: Int = -1) -> Bool {
+            ClipboardCache.addsNew(
+                wasPrivate: wasPrivate, isPrivate: isPrivate,
+                changeCount: count, privateChangeCount: privateCount
+            )
+        }
+        #expect(adds(false, false))
+        #expect(!adds(true, false))
+        #expect(!adds(false, true))
+        #expect(!adds(true, true))
+        // A copy made in Incognito stays private when it is read later.
+        #expect(!adds(false, false, count: 7, privateCount: 7))
+        #expect(adds(false, false, count: 8, privateCount: 7))
     }
 
     @Test func nothingIsKeptForSecretsOrWhenTurnedOff() {

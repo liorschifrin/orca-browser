@@ -380,7 +380,7 @@ struct BrowserView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
-            ClipboardCache.shared.refresh()
+            ClipboardCache.shared.pasteboardChanged()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             store.unloadBackgroundTabs()
