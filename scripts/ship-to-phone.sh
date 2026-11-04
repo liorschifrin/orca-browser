@@ -320,6 +320,7 @@ case "$mode" in
             echo "$branch holds no slot."
         fi
         rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true
+        trap - EXIT
         acquire_main_lock
         if [[ -f "$(slot_file main-holder)" && "$(slot_field main-holder worktree)" == "$root" && "$(slot_field main-holder branch)" == "$branch" ]]; then
             echo "released=1" >> "$(slot_file main-holder)"
@@ -341,12 +342,16 @@ if [[ $build_only -eq 0 ]]; then
                          and .connectionProperties.tunnelState == "connected")][0]
                 | .hardwareProperties.udid // empty' "$listing")"
             [[ -n "$device" || $attempt -eq 2 ]] && break
-            for udid in $(jq -r '.result.devices[]?
+            paired="$(jq -r '.result.devices[]?
                 | select(.hardwareProperties.reality == "physical"
                          and .connectionProperties.pairingState == "paired")
-                | .hardwareProperties.udid' "$listing"); do
-                xcrun devicectl device info details --device "$udid" >/dev/null 2>&1 || true
-            done
+                | .hardwareProperties.udid' "$listing")"
+            if [[ "$(grep -c . <<<"$paired")" -gt 1 ]]; then
+                rm -f "$listing"
+                echo "More than one paired iPhone and none connected. Pass --device." >&2
+                exit 1
+            fi
+            [[ -n "$paired" ]] && xcrun devicectl device info details --device "$paired" >/dev/null 2>&1 || true
         done
         rm -f "$listing"
         if [[ -z "$device" ]]; then
