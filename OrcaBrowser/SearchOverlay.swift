@@ -25,6 +25,7 @@ struct SearchOverlay: View {
     private let clipboardCache = ClipboardCache.shared
     private let settings = AppSettings.shared
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
     @FocusState private var isFocused: Bool
@@ -64,6 +65,9 @@ struct SearchOverlay: View {
                     accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
                     action: useClipboard
                 )
+                if clipboardCache.access == .needsPermission {
+                    pastePermissionChip
+                }
                 field
             }
                 .animation(.snappy(duration: 0.2), value: isShowingClipboard)
@@ -90,7 +94,7 @@ struct SearchOverlay: View {
                 text = initialText
                 hasEditedText = false
                 isFocused = true
-                clipboardCache.refresh()
+                clipboardCache.refresh(userInitiated: true)
             }
         }
         .onChange(of: isPresented) { _, nowPresented in
@@ -98,11 +102,15 @@ struct SearchOverlay: View {
                 text = initialText
                 hasEditedText = false
                 isFocused = true
-                clipboardCache.refresh()
+                clipboardCache.refresh(userInitiated: true)
             } else {
                 isFocused = false
                 isShowingClipboard = false
             }
+        }
+        // Back from Settings with search still open: pick up a changed choice.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, isPresented { clipboardCache.refresh(userInitiated: true) }
         }
         .onChange(of: isFocused) { _, focused in
             if focused, selectInitialText, !text.isEmpty {
@@ -135,6 +143,24 @@ struct SearchOverlay: View {
         } else {
             ClipboardHistory.typeIntoField(clipboardCache.text)
         }
+    }
+
+    /// Shown whenever pasting has been refused or prompted, until a quick read
+    /// shows "Paste from Other Apps" is set to Allow.
+    private var pastePermissionChip: some View {
+        Button(action: clipboardCache.openSettings) {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape")
+                Text("Always allow paste in Settings")
+                    .lineLimit(1)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(.regularMaterial, in: .capsule)
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityHint("Opens Settings so the clipboard can be read without asking each time")
     }
 
     private var field: some View {

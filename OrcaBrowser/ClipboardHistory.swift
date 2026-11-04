@@ -179,7 +179,7 @@ final class ClipboardHistory {
         }
         // It's already in the history; the pasteboard read that follows must
         // not treat it as something new.
-        ClipboardCache.shared.ignoreCurrentChange()
+        ClipboardCache.shared.noteHistoryWrite(text: item.kind == .text ? item.text : nil)
         if let index = items.firstIndex(where: { $0.id == item.id }) { moveToTop(index) }
         if announces { show(ClipboardNotice(title: title, item: item)) }
         return true
