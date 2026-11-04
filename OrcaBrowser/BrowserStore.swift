@@ -324,6 +324,13 @@ final class BrowserStore {
         }
     }
 
+    /// Applies the YouTube top bar settings to every tab with a live page.
+    func applyYouTubeSettings(_ settings: AppSettings) {
+        for tab in tabs where tab.isLoaded {
+            tab.applyYouTubeSettings(settings)
+        }
+    }
+
     /// Makes `tab` the current tab. If its video is in picture in picture, the
     /// video comes back into the page, unless the caller says it's already
     /// doing that.

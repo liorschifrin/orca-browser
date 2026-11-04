@@ -30,6 +30,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
         configuration.userContentController.addUserScript(PlaybackControl.userScript)
+        configuration.userContentController.addUserScript(YouTubeHeader.userScript(
+            hidesOpenApp: AppSettings.shared.hidesOpenApp, showsTools: AppSettings.shared.showsHeaderTools
+        ))
         configuration.userContentController.addUserScript(
             RedditPrompt.userScript(enabled: AppSettings.shared.blockRedditPrompt)
         )
@@ -86,6 +89,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     private static let messageNames = [
         BackgroundPlayback.pictureInPictureMessageName,
         PlaybackControl.messageName,
+        YouTubeHeader.chaptersMessageName,
     ]
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -96,6 +100,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         case PlaybackControl.messageName:
             guard let state = PlaybackControl.State(message: message.body) else { return }
             tab?.playback = state
+        case YouTubeHeader.chaptersMessageName:
+            tab?.isShowingChapters = true
         default:
             break
         }

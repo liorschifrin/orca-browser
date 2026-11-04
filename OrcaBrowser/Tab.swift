@@ -576,6 +576,23 @@ final class Tab: Identifiable {
     /// What the page's video is doing, reported by its script. The playback
     /// bar shows while a watch page video is available.
     var playback = PlaybackControl.State()
+    /// The chapters list is open (the top bar's chapters button was tapped).
+    var isShowingChapters = false
+
+    /// Where the video is now, in seconds.
+    func currentTime() async -> Double? {
+        let result = try? await webView?.callAsyncJavaScript(
+            "return window.__orcaPlayback?.time()", arguments: [:], in: nil, contentWorld: .page
+        )
+        return result as? Double
+    }
+
+    /// Applies the YouTube top bar settings to a page that is already open.
+    func applyYouTubeSettings(_ settings: AppSettings) {
+        webView?.evaluateJavaScript(YouTubeHeader.settingsScript(
+            hidesOpenApp: settings.hidesOpenApp, showsTools: settings.showsHeaderTools
+        ))
+    }
 
     func send(_ command: PlaybackControl.Command) {
         webView?.callAsyncJavaScript("return " + command.script, arguments: [:], in: nil, in: .page) { _ in }

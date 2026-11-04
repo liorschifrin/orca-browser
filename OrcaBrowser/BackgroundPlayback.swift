@@ -37,7 +37,7 @@ enum BackgroundPlayback {
                      forMainFrameOnly: false, in: .page)
     }
 
-    private static let source = """
+    static let source = """
     (() => {
       if (!/(^|\\.)youtube(-nocookie)?\\.com$/.test(location.hostname)) return;
 
@@ -58,18 +58,8 @@ enum BackgroundPlayback {
         const active = [...document.querySelectorAll('video')].some(inPictureInPicture);
         window.webkit?.messageHandlers?.\(pictureInPictureMessageName)?.postMessage({ active });
       };
-      // TEMPORARY: a short log of what the video did, read by the app's debug builds.
-      const events = window.__orcaEvents = [];
-      const note = what => {
-        events.push(Math.round(performance.now()) + ' ' + what);
-        if (events.length > 80) events.shift();
-      };
-      window.__orcaNote = note;
       const swallow = event => {
-        if (event.type === 'webkitpresentationmodechanged') {
-          note('presentation mode -> ' + realMode(event.target));
-          tellApp();
-        }
+        if (event.type === 'webkitpresentationmodechanged') tellApp();
         event.stopImmediatePropagation();
       };
       for (const type of ['visibilitychange', 'webkitvisibilitychange',
@@ -85,7 +75,6 @@ enum BackgroundPlayback {
       // page, below). A pause you chose yourself stays paused.
       const exit = { endedAt: 0, pausedAt: 0, restoredAt: 0, pausedVideo: null };
       const resume = element => {
-        note('resuming');
         for (const delay of [50, 250, 600, 1200]) {
           setTimeout(() => { if (element.paused && !element.ended) element.play().catch(() => {}); }, delay);
         }
@@ -98,16 +87,12 @@ enum BackgroundPlayback {
         exit.endedAt = exit.pausedAt = 0;
         resume(element);
       };
-      window.addEventListener('webkitbeginfullscreen', () => note('begin fullscreen'), true);
       window.addEventListener('webkitendfullscreen', event => {
-        note('end fullscreen');
         exit.endedAt = Date.now();
         resumeIfPausedByLeaving(event.target);
       }, true);
-      window.addEventListener('play', () => note('play'), true);
       window.addEventListener('pause', event => {
         if (!(event.target instanceof HTMLVideoElement)) return;
-        note('pause');
         exit.pausedAt = Date.now();
         exit.pausedVideo = event.target;
         resumeIfPausedByLeaving(event.target);
@@ -117,7 +102,6 @@ enum BackgroundPlayback {
       // picture window. Also asks the page to lay itself out again, since
       // YouTube is left with the wrong idea of the player's size.
       window.__orcaPictureInPictureRestoring = () => {
-        note('restore tapped');
         exit.restoredAt = Date.now();
         if (exit.pausedVideo && Date.now() - exit.pausedAt < 800) resumeIfPausedByLeaving(exit.pausedVideo);
         for (const delay of [400, 1200]) setTimeout(() => window.dispatchEvent(new Event('resize')), delay);

@@ -38,6 +38,12 @@ enum PlaybackControl {
         }
     }
 
+    struct Chapter: Equatable, Identifiable {
+        let start: Double
+        let title: String
+        var id: Double { start }
+    }
+
     struct State: Equatable {
         /// There's a watch page video to control.
         var isAvailable = false
@@ -52,6 +58,8 @@ enum PlaybackControl {
         var quality = PlaybackControl.autoQuality
         /// The quality actually playing, which is what Auto has picked.
         var playingQuality: String?
+        /// The video's chapters, in order.
+        var chapters: [Chapter] = []
 
         init() {}
 
@@ -65,11 +73,16 @@ enum PlaybackControl {
             qualities = body["qualities"] as? [String] ?? []
             quality = body["quality"] as? String ?? PlaybackControl.autoQuality
             playingQuality = body["playingQuality"] as? String
+            chapters = (body["chapters"] as? [[String: Any]] ?? []).compactMap { entry in
+                guard let start = entry["start"] as? Double, let title = entry["title"] as? String else { return nil }
+                return Chapter(start: start, title: title)
+            }
         }
     }
 
     enum Command {
         case seek(seconds: Double)
+        case seekTo(Double)
         case togglePlay
         case setRate(Double)
         case toggleCaptions
@@ -80,6 +93,7 @@ enum PlaybackControl {
         var script: String {
             switch self {
             case .seek(let seconds): "window.__orcaPlayback?.seek(\(seconds))"
+            case .seekTo(let seconds): "window.__orcaPlayback?.seekTo(\(seconds))"
             case .togglePlay: "window.__orcaPlayback?.togglePlay()"
             case .setRate(let rate): "window.__orcaPlayback?.setRate(\(rate))"
             case .toggleCaptions: "window.__orcaPlayback?.toggleCaptions()"
@@ -95,7 +109,7 @@ enum PlaybackControl {
                      forMainFrameOnly: true, in: .page)
     }
 
-    private static let source = """
+    static let source = """
     (() => {
       if (!/(^|\\.)youtube\\.com$/.test(location.hostname)) return;
 
@@ -114,6 +128,74 @@ enum PlaybackControl {
       // is the same player as the desktop one.
       const ytPlayer = () =>
         document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      // Chapters. YouTube sends them with the page and again, as JSON, each
+      // time you move to another video without a reload. Both are kept by
+      // video, and the description's timestamps are the fallback.
+      const chaptersByVideo = {};
+      let readInitialData = false;
+      const currentVideoId = () => new URLSearchParams(location.search).get('v');
+      const chaptersFrom = data => {
+        try {
+          const map = data?.playerOverlays?.playerOverlayRenderer?.decoratedPlayerBarRenderer
+            ?.decoratedPlayerBarRenderer?.playerBar?.multiMarkersPlayerBarRenderer?.markersMap;
+          if (!Array.isArray(map)) return null;
+          const entries = map.filter(entry => Array.isArray(entry?.value?.chapters));
+          const entry = entries.find(e => e.key === 'DESCRIPTION_CHAPTERS') || entries[0];
+          if (!entry) return null;
+          const list = entry.value.chapters
+            .map(item => item.chapterRenderer)
+            .filter(Boolean)
+            .map(chapter => ({
+              start: (chapter.timeRangeStartMillis || 0) / 1000,
+              title: chapter.title?.simpleText || (chapter.title?.runs || []).map(run => run.text).join(''),
+            }))
+            .filter(chapter => chapter.title);
+          return list.length ? list : null;
+        } catch (e) { return null; }
+      };
+      const rememberChapters = data => {
+        const list = chaptersFrom(data);
+        const id = data?.currentVideoEndpoint?.watchEndpoint?.videoId || currentVideoId();
+        if (list && id) chaptersByVideo[id] = list;
+      };
+      const parseTime = text => text.split(':').reduce((total, part) => total * 60 + Number(part), 0);
+      // Timestamps at the start of description lines, as YouTube reads them:
+      // at least three, the first at 0:00.
+      const chaptersFromDescription = () => {
+        try {
+          const text = ytPlayer()?.getPlayerResponse?.()?.videoDetails?.shortDescription || '';
+          const list = [];
+          for (const line of text.split('\\n')) {
+            const match = line.match(/^\\s*[(\\[]?((?:\\d{1,2}:)?\\d{1,2}:\\d{2})[)\\]]?[\\s\\-\\u2013\\u2014:|.\\u2022]*(.+?)\\s*$/);
+            if (match) list.push({ start: parseTime(match[1]), title: match[2] });
+          }
+          return list.length >= 3 && list[0].start === 0 ? list : null;
+        } catch (e) { return null; }
+      };
+      const chapters = () => {
+        // The page first holds this as a JSON string, and turns it into the
+        // object only once it has all arrived, so wait for the object.
+        if (!readInitialData && window.ytInitialData && typeof window.ytInitialData === 'object') {
+          readInitialData = true;
+          rememberChapters(window.ytInitialData);
+        }
+        return chaptersByVideo[currentVideoId()] || chaptersFromDescription() || [];
+      };
+      window.__orcaChapters = chapters;
+
+      const originalFetch = window.fetch;
+      if (originalFetch) {
+        window.fetch = function (...args) {
+          const result = originalFetch.apply(this, args);
+          try {
+            if (String(args[0]?.url || args[0] || '').includes('/youtubei/v1/next')) {
+              result.then(response => response.clone().json()).then(rememberChapters).catch(() => {});
+            }
+          } catch (e) {}
+          return result;
+        };
+      }
+
       // Lowest first.
       const QUALITY_ORDER = ['tiny', 'small', 'medium', 'large', 'hd720', 'hd1080',
                              'hd1440', 'hd2160', 'hd2880', 'highres'];
@@ -169,9 +251,10 @@ enum PlaybackControl {
           try { ytPlayer()?.loadModule?.('captions'); } catch (e) {}
         }
         const state = video
-          ? { available: true, paused: video.paused, rate: video.playbackRate, ...captionState(), ...qualityState() }
+          ? { available: true, paused: video.paused, rate: video.playbackRate, ...captionState(), ...qualityState(),
+              chapters: chapters() }
           : { available: false, paused: true, rate: 1, hasCaptions: false, captionsOn: false,
-              qualities: [], quality: 'auto', playingQuality: null };
+              qualities: [], quality: 'auto', playingQuality: null, chapters: [] };
         const text = JSON.stringify(state);
         if (text === lastReport) return;
         lastReport = text;
@@ -190,6 +273,8 @@ enum PlaybackControl {
           const end = isFinite(video.duration) ? video.duration : Infinity;
           video.currentTime = Math.max(0, Math.min(end, video.currentTime + seconds));
         }),
+        seekTo: seconds => withVideo(video => { video.currentTime = Math.max(0, seconds); }),
+        time: () => mainVideo()?.currentTime ?? 0,
         togglePlay: () => withVideo(video => { video.paused ? video.play() : video.pause(); }),
         setRate: rate => withVideo(video => { chosenRate = rate; video.playbackRate = rate; }),
         // Tries YouTube's toggle, then choosing a caption track directly, then
@@ -197,12 +282,8 @@ enum PlaybackControl {
         toggleCaptions: () => withVideo(() => {
           const player = ytPlayer();
           if (!player) return;
-          const note = window.__orcaNote || (() => {});
           const isOn = () => captionState().captionsOn;
           const wasOn = isOn();
-          note('captions: was ' + wasOn + '; ' + ['toggleSubtitles', 'toggleSubtitlesOn', 'isSubtitlesOn', 'setOption', 'getOption', 'loadModule']
-            .map(name => name + ' ' + typeof player[name]).join(', ')
-            + '; tracks ' + JSON.stringify(player.getOption?.('captions', 'tracklist'))?.slice(0, 120));
           const attempts = [
             // Pick a caption track directly (or an empty one to turn captions off).
             () => {
@@ -218,9 +299,8 @@ enum PlaybackControl {
           ];
           let next = 0;
           const step = () => {
-            if (isOn() !== wasOn || next >= attempts.length) { note('captions: now ' + isOn()); report(); return; }
-            note('captions: attempt ' + next);
-            try { attempts[next]?.(); } catch (e) { note('captions error: ' + e); }
+            if (isOn() !== wasOn || next >= attempts.length) { report(); return; }
+            try { attempts[next]?.(); } catch (e) {}
             next += 1;
             setTimeout(step, 400);
           };
@@ -229,7 +309,6 @@ enum PlaybackControl {
         setQuality: quality => withVideo(() => {
           chosenQuality = quality === 'auto' ? null : quality;
           applyQuality(chosenQuality);
-          (window.__orcaNote || (() => {}))('quality -> ' + quality + ' (levels: ' + qualityState().qualities.join(',') + ')');
         }),
         pictureInPicture: () => withVideo(video => {
           if (video.webkitSupportsPresentationMode?.('picture-in-picture')) {

@@ -214,8 +214,6 @@ struct BrowserView: View {
                 // Opening the app with this tab's video in picture in picture
                 // brings the video back into the page.
                 store.selectedTab?.exitPictureInPicture()
-                let eventLogView = store.selectedTab?.webView
-                Task { try? await Task.sleep(for: .seconds(4)); PiPEventLog.dump(from: eventLogView) }
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
@@ -224,6 +222,14 @@ struct BrowserView: View {
             }
         }
         .onChange(of: store.slide) { startSlideIfVisible() }
+        .onChange(of: settings.hidesOpenApp) { store.applyYouTubeSettings(settings) }
+        .onChange(of: settings.showsHeaderTools) { store.applyYouTubeSettings(settings) }
+        .sheet(isPresented: Binding(
+            get: { store.selectedTab?.isShowingChapters ?? false },
+            set: { store.selectedTab?.isShowingChapters = $0 }
+        )) {
+            if let tab = store.selectedTab { ChaptersSheet(tab: tab) }
+        }
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)
         }
@@ -341,7 +347,7 @@ struct BrowserView: View {
     /// Room the playback bar takes above the bottom bar: none unless the
     /// current tab is on a watch page.
     private var playbackBarHeight: CGFloat {
-        store.selectedTab?.playback.isAvailable == true ? PlaybackBar.height : 0
+        settings.showsPlaybackBar && store.selectedTab?.playback.isAvailable == true ? PlaybackBar.height : 0
     }
 
     /// Runs the slide between tabs, once the app is on screen to show it.
@@ -393,7 +399,7 @@ struct BrowserView: View {
                 .zIndex(tab.id == store.slide?.incoming ? 1 : 0)
             }
 
-            if let tab = store.selectedTab, tab.playback.isAvailable {
+            if let tab = store.selectedTab, tab.playback.isAvailable, settings.showsPlaybackBar {
                 PlaybackBar(tab: tab)
                     .padding(.bottom, barHeight)
             }
