@@ -40,6 +40,7 @@ final class BrowserStore {
     static let idleLimit: TimeInterval = 5 * 60
 
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var restoreObserver: NSObjectProtocol?
     private(set) var isRestoringSession = true
     @ObservationIgnored private var hasStartedRestoring = false
 
@@ -50,6 +51,11 @@ final class BrowserStore {
         selectedTabID = first.id
         watch([first])
         markUsed(first)
+        restoreObserver = NotificationCenter.default.addObserver(
+            forName: PictureInPictureRestoreHook.didTapRestore, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pictureInPictureRestoreTapped() }
+        }
     }
 
     func restoreSession() async {
@@ -101,13 +107,25 @@ final class BrowserStore {
         }
     }
 
+    /// Switches to the tab whose video you came back to, sliding it in.
+    private func returnToVideo(in tab: Tab) {
+        guard tab.id != selectedTabID else { return }
+        slide = Slide(incoming: tab.id, outgoing: selectedTabID)
+        select(tab)
+    }
+
+    /// You tapped "return to app" in the picture in picture window.
+    private func pictureInPictureRestoreTapped() {
+        guard let tab = tabs.first(where: \.isInPictureInPicture) else { return }
+        returnToVideo(in: tab)
+    }
+
     private func watch(_ newTabs: [Tab]) {
         for tab in newTabs {
             tab.onChange = { [weak self] in self?.scheduleSave() }
             tab.onPictureInPictureReturn = { [weak self, weak tab] in
-                guard let self, let tab, tab.id != selectedTabID else { return }
-                slide = Slide(incoming: tab.id, outgoing: selectedTabID)
-                select(tab)
+                guard let self, let tab else { return }
+                returnToVideo(in: tab)
             }
         }
     }
@@ -307,6 +325,7 @@ final class BrowserStore {
     func select(_ tab: Tab) {
         // A page left behind can't wait on a dialog nobody can see.
         if tab.id != selectedTabID {
+            selectedTab?.pauseVideos()
             selectedTab?.answerDialog(.cancel)
             selectedTab?.peek?.tab.answerDialog(.cancel)
         }

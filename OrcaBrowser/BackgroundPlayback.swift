@@ -73,6 +73,14 @@ enum BackgroundPlayback {
       const realMode = element => modeGetter ? modeGetter.call(element) : 'inline';
       const inPictureInPicture = element => realMode(element) === 'picture-in-picture';
 
+      // Called by the app when you switch to another tab: the video stops,
+      // unless it's in picture in picture, which carries on.
+      window.__orcaPauseVideos = () => {
+        for (const element of document.querySelectorAll('video')) {
+          if (!inPictureInPicture(element)) element.pause();
+        }
+      };
+
       // Report picture in picture as inline, so YouTube has nothing to undo.
       if (modeGetter) {
         Object.defineProperty(video, 'webkitPresentationMode', {

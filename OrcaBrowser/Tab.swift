@@ -551,7 +551,7 @@ final class Tab: Identifiable {
     /// Set by the store: switch to this tab. Called when you return to its
     /// video from the picture in picture window.
     @ObservationIgnored var onPictureInPictureReturn: (() -> Void)?
-    @ObservationIgnored private var isInPictureInPicture = false
+    @ObservationIgnored private(set) var isInPictureInPicture = false
 
     /// The page's video opened or closed picture in picture. Leaving it while
     /// the app is on screen and the video still plays is the "return to app"
@@ -563,7 +563,7 @@ final class Tab: Identifiable {
         isInPictureInPicture = active
         guard wasActive, !active else { return }
         Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await Task.sleep(for: .milliseconds(150))
             guard let self, UIApplication.shared.applicationState != .background,
                   let playing = try? await webView?.evaluateJavaScript(
                       "[...document.querySelectorAll('video')].some(v => !v.paused)"
@@ -571,6 +571,20 @@ final class Tab: Identifiable {
             else { return }
             onPictureInPictureReturn?()
         }
+    }
+
+    /// What the page's video is doing, reported by its script. The playback
+    /// bar shows while a watch page video is available.
+    var playback = PlaybackControl.State()
+
+    func send(_ command: PlaybackControl.Command) {
+        webView?.callAsyncJavaScript("return " + command.script, arguments: [:], in: nil, in: .page) { _ in }
+    }
+
+    /// Pauses a video on the page, unless it's in picture in picture. Used when
+    /// you switch away from the tab.
+    func pauseVideos() {
+        webView?.evaluateJavaScript("window.__orcaPauseVideos && window.__orcaPauseVideos()")
     }
 
     func pageDidFinish() {
@@ -597,6 +611,7 @@ final class Tab: Identifiable {
     /// The first bytes of a new page arrived, i.e. the old page is about to
     /// be replaced. A good moment to drop any old error.
     func pageDidCommit() {
+        playback = PlaybackControl.State()
         snapshotsStarted += 1
         scrollSnapshotTask?.cancel()
         loadError = nil

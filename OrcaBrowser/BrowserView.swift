@@ -11,6 +11,7 @@ struct BrowserView: View {
     @State private var barHeight: CGFloat = 0
     /// How far the slide between tabs has gone, from 0 to 1.
     @State private var slideProgress: CGFloat = 0
+    @State private var isSliding = false
     // Search starts open only when there's no page to go back to (a blank tab).
     @State private var isSearching: Bool
     // Set when search was opened by tapping the address: the URL to show,
@@ -185,6 +186,9 @@ struct BrowserView: View {
         .onChange(of: isSearching) { InteractionBudget.shared.isSearching = isSearching }
         .onChange(of: isSwitching) { InteractionBudget.shared.isSwitching = isSwitching }
         .onChange(of: scenePhase) {
+            // The switch can be decided while the app is still coming forward
+            // from the picture in picture window; slide once it's on screen.
+            startSlideIfVisible()
             InteractionBudget.shared.isForeground = scenePhase == .active
             if scenePhase == .active {
                 Task {
@@ -197,19 +201,9 @@ struct BrowserView: View {
             } else {
                 store.save()
                 HistoryStore.flushIfNeeded()
-                if scenePhase == .inactive { DomDump.run(on: store.selectedTab?.webView) }
             }
         }
-        .onChange(of: store.slide) {
-            guard store.slide != nil else { return }
-            slideProgress = 0
-            withAnimation(.easeOut(duration: 0.35)) {
-                slideProgress = 1
-            } completion: {
-                store.slide = nil
-                slideProgress = 0
-            }
-        }
+        .onChange(of: store.slide) { startSlideIfVisible() }
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)
         }
@@ -324,6 +318,26 @@ struct BrowserView: View {
         }
     }
 
+    /// Room the playback bar takes above the bottom bar: none unless the
+    /// current tab is on a watch page.
+    private var playbackBarHeight: CGFloat {
+        store.selectedTab?.playback.isAvailable == true ? PlaybackBar.height : 0
+    }
+
+    /// Runs the slide between tabs, once the app is on screen to show it.
+    private func startSlideIfVisible() {
+        guard store.slide != nil, scenePhase == .active, !isSliding else { return }
+        isSliding = true
+        slideProgress = 0
+        withAnimation(.easeOut(duration: 0.3)) {
+            slideProgress = 1
+        } completion: {
+            store.slide = nil
+            slideProgress = 0
+            isSliding = false
+        }
+    }
+
     /// The new tab comes in from the right while the old one moves a little
     /// to the left, as when switching apps.
     private func slideOffset(for tab: Tab) -> CGFloat {
@@ -350,12 +364,18 @@ struct BrowserView: View {
                     },
                     onVisible: tab.finishRestoringIfVisible
                 )
-                // Sit between the status bar and the floating bar, so nothing
-                // on the page (header buttons, the end of an inner scrolling
-                // panel like comments) is hidden behind them.
-                .padding(.bottom, barHeight)
+                // Sit between the status bar and the floating bar (and the
+                // playback bar above it), so nothing on the page (header
+                // buttons, the end of an inner scrolling panel like comments)
+                // is hidden behind them.
+                .padding(.bottom, barHeight + playbackBarHeight)
                 .offset(x: slideOffset(for: tab))
                 .zIndex(tab.id == store.slide?.incoming ? 1 : 0)
+            }
+
+            if let tab = store.selectedTab, tab.playback.isAvailable {
+                PlaybackBar(tab: tab)
+                    .padding(.bottom, barHeight)
             }
 
             if let tab = store.selectedTab {

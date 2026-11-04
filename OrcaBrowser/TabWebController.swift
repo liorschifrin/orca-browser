@@ -29,7 +29,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             ShortsFilter.redirectUserScript(enabled: AppSettings.shared.opensShortsAsVideos)
         )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
-        configuration.userContentController.addUserScript(PlaybackToolbar.userScript)
+        configuration.userContentController.addUserScript(PlaybackControl.userScript)
         configuration.userContentController.addUserScript(
             RedditPrompt.userScript(enabled: AppSettings.shared.blockRedditPrompt)
         )
@@ -38,10 +38,11 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         super.init()
         // The page reports picture in picture changes in its own script world.
         // A weak bridge, so the web view doesn't keep this controller alive.
-        configuration.userContentController.add(
-            WeakMessageHandler(self), contentWorld: .page,
-            name: BackgroundPlayback.pictureInPictureMessageName
-        )
+        for name in Self.messageNames {
+            configuration.userContentController.add(
+                WeakMessageHandler(self), contentWorld: .page, name: name
+            )
+        }
 
         #if DEBUG
         // Lets Safari's Web Inspector on a Mac attach to pages in debug builds.
@@ -69,9 +70,11 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// Stops the page and cuts it loose from the tab, which is letting go of it.
     func detach() {
         observations = []
-        webView.configuration.userContentController.removeScriptMessageHandler(
-            forName: BackgroundPlayback.pictureInPictureMessageName, contentWorld: .page
-        )
+        for name in Self.messageNames {
+            webView.configuration.userContentController.removeScriptMessageHandler(
+                forName: name, contentWorld: .page
+            )
+        }
         webView.stopLoading()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
@@ -79,11 +82,23 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     // MARK: - WKScriptMessageHandler
 
+    /// What the page's scripts report to the app.
+    private static let messageNames = [
+        BackgroundPlayback.pictureInPictureMessageName,
+        PlaybackControl.messageName,
+    ]
+
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == BackgroundPlayback.pictureInPictureMessageName,
-              let body = message.body as? [String: Any], let active = body["active"] as? Bool
-        else { return }
-        tab?.pictureInPictureChanged(active: active)
+        switch message.name {
+        case BackgroundPlayback.pictureInPictureMessageName:
+            guard let body = message.body as? [String: Any], let active = body["active"] as? Bool else { return }
+            tab?.pictureInPictureChanged(active: active)
+        case PlaybackControl.messageName:
+            guard let state = PlaybackControl.State(message: message.body) else { return }
+            tab?.playback = state
+        default:
+            break
+        }
     }
 
     private final class WeakMessageHandler: NSObject, WKScriptMessageHandler {
