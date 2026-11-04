@@ -6,7 +6,8 @@ description: Open a PR for the current branch if there isn't one, answer CodeRab
 # Watch PR
 
 Follow steps 1 to 4 of the `merge-pr` skill (`../merge-pr/SKILL.md`): open, watch,
-respond, rebuild, repeat.
+respond, rebuild, repeat. Don't take step 4's "go to step 5" or merge from step 5
+until the user confirms below; Confirm is the only merge gate here.
 
 **Confirm.** Once CodeRabbit has reviewed the latest push, nothing is unresolved
 and checks pass, call `unwatch_pull_request`, tell the user it's ready, and ask

@@ -215,7 +215,7 @@ main_held_by_other() {
 
 # --main and --as-main both install the regular app, so they take turns from
 # checking the hold through installing.
-lock_main() {
+acquire_main_lock() {
     local tries=0
     until mkdir "$SLOTS_DIR/.main-lock" 2>/dev/null; do
         tries=$((tries + 1))
@@ -226,6 +226,10 @@ lock_main() {
         sleep 0.5
     done
     trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
+}
+
+lock_main() {
+    acquire_main_lock
     if main_held_by_other; then refuse_main_held; fi
 }
 
@@ -315,6 +319,8 @@ case "$mode" in
         else
             echo "$branch holds no slot."
         fi
+        rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true
+        acquire_main_lock
         if [[ -f "$(slot_file main-holder)" && "$(slot_field main-holder worktree)" == "$root" && "$(slot_field main-holder branch)" == "$branch" ]]; then
             echo "released=1" >> "$(slot_file main-holder)"
             echo "Released the regular app (it keeps this build on the phone until --main rebuilds it)."
