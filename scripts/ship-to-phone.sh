@@ -10,7 +10,10 @@
 #                                         --changed/--test lines
 #   scripts/ship-to-phone.sh --as-main    install THIS branch over the regular Orca Browser app
 #                                         (invisible stamp, like main) instead of a test slot.
-#                                         Temporary: --main puts main back. Pass --changed/--test
+#                                         Temporary: --main puts main back. Pass --changed/--test.
+#                                         Exits 4 instead if another branch's --as-main build is
+#                                         still there (until its PR is merged or closed); --main
+#                                         refuses the same way
 #   scripts/ship-to-phone.sh --release    free this branch's test slot (after merging)
 #   scripts/ship-to-phone.sh --takeover N replace whatever is in slot N (ask the user first)
 #   scripts/ship-to-phone.sh --status     show who holds each slot
@@ -73,13 +76,15 @@ while [[ $# -gt 0 ]]; do
         --changed) changed+=("$2"); shift ;;
         --test) tests+=("$2"); shift ;;
         --thread) thread="$2"; shift ;;
-        -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
 done
 
 root="$(git rev-parse --show-toplevel)"
+caller_root="$root"
+caller_branch="$(git symbolic-ref --quiet --short HEAD || basename "$root")"
 if [[ "$mode" == main ]]; then
     # Build in whichever checkout has main, so this works from any worktree.
     root="$(git worktree list --porcelain \
@@ -191,6 +196,26 @@ slot_pr_is_done() {
     [[ "$state" == MERGED || "$state" == CLOSED ]]
 }
 
+# The regular app is held while a branch's --as-main build is on it, which
+# --as-main records in main-holder. True if another checkout holds it and its
+# branch is still in flight.
+main_held_by_other() {
+    local f=main-holder
+    [[ -f "$(slot_file $f)" ]] || return 1
+    [[ "$(slot_field $f worktree)" == "$caller_root" && "$(slot_field $f branch)" == "$caller_branch" ]] && return 1
+    slot_is_stale $f && return 1
+    slot_pr_is_done $f && return 1
+    return 0
+}
+
+refuse_main_held() {
+    local f=main-holder built
+    built="$(slot_field $f built_epoch)"
+    echo "The regular Orca Browser app is holding $(slot_field $f branch) \"$(slot_field $f label)\" for testing (last built $(format_age $(( $(date +%s) - ${built:-0} ))) ago). Not overwriting it." >&2
+    echo "Report this to the user and let them decide. It frees when that branch's PR is merged or closed, or when it runs --main." >&2
+    exit 4
+}
+
 # "5m", "3h" or "2d" for a number of seconds.
 format_age() {
     local s="$1"
@@ -210,6 +235,12 @@ print_status() {
             echo "Orca $n  free"
         fi
     done
+    if [[ -f "$(slot_file main-holder)" ]]; then
+        built="$(slot_field main-holder built_epoch)"
+        echo "Orca Browser  testing \"$(slot_field main-holder label)\"  $(slot_field main-holder branch) @ $(slot_field main-holder commit)  last built $(format_age $(( $(date +%s) - ${built:-0} ))) ago  ($(slot_field main-holder worktree))"
+    else
+        echo "Orca Browser  main"
+    fi
 }
 
 find_slot_for_this_checkout() {
@@ -261,6 +292,10 @@ case "$mode" in
         else
             echo "$branch holds no slot."
         fi
+        if [[ -f "$(slot_file main-holder)" && "$(slot_field main-holder worktree)" == "$root" && "$(slot_field main-holder branch)" == "$branch" ]]; then
+            rm -f "$(slot_file main-holder)"
+            echo "Released the regular app (it keeps this build on the phone until --main rebuilds it)."
+        fi
         exit 0
         ;;
 esac
@@ -297,6 +332,7 @@ if [[ "$mode" == main ]]; then
         sleep 0.5
     done
     trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
+    if main_held_by_other; then refuse_main_held; fi
 
     # No notes given: show the latest 5 updates, with the rest behind a
     # "more" button, unless nothing new has landed since the last main build.
@@ -325,6 +361,11 @@ elif [[ "$mode" == asmain ]]; then
     slot_name=main
     bundle_id="$BASE_ID"
     [[ -n "$label" ]] || label="$(default_label)"
+    with_lock
+    if main_held_by_other; then refuse_main_held; fi
+    write_slot main-holder
+    rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true
+    trap - EXIT
     settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
     add_notes_settings || echo "No --changed or --test notes given, so the app won't show a what's-new panel for this build." >&2
     echo "Installing this branch over the regular Orca Browser app. Run --main afterwards to put main back." >&2
@@ -398,6 +439,7 @@ else
     echo "Done: $slot_name ($branch_label @ $commit) is on the phone."
     if [[ "$mode" == main ]]; then
         printf 'commit=%s\nbuilt_epoch=%s\n' "$(git rev-parse HEAD)" "$(date +%s)" > "$main_state"
+        rm -f "$(slot_file main-holder)"
     fi
 fi
 
