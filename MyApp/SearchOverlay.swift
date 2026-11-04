@@ -19,6 +19,7 @@ struct SearchOverlay: View {
     @State private var activeProvider: SearchProvider?
     // Exiting mode must not immediately reactivate a query like “a book”.
     @State private var suppressActivation = false
+    @State private var shouldMatchShortcut = false
     @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
     @State private var voiceSearch = VoiceSearch()
@@ -44,26 +45,7 @@ struct SearchOverlay: View {
                         .background(.regularMaterial, in: .capsule)
                         .accessibilityAddTraits(.updatesFrequently)
                 }
-                if !clipboardText.isEmpty && clipboardText != text {
-                    clipboardChip
-                }
-                if let provider = activeProvider {
-                    HStack {
-                        Text("Searching \(provider.name)").font(.subheadline.weight(.medium))
-                        Button {
-                            activeProvider = nil
-                            suppressActivation = true
-                            isFocused = true
-                        } label: {
-                            Image(systemName: "xmark.circle.fill").frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Leave \(provider.name) search and keep query")
-                    }
-                    .padding(.leading, 14)
-                    .background(.regularMaterial, in: .capsule)
-                } else {
-                    providerSuggestions
-                }
+                suggestionRow
                 field
             }
                 .padding(.horizontal, 16)
@@ -99,6 +81,13 @@ struct SearchOverlay: View {
                 isFocused = false
             }
         }
+        .onChange(of: text) { _, _ in
+            guard shouldMatchShortcut else { return }
+            shouldMatchShortcut = false
+            // Let TextField finish its edit before replacing the shortcut with
+            // a token, so UIKit never inserts subsequent characters at a stale cursor.
+            activateShortcutIfNeeded()
+        }
         .onChange(of: isFocused) { _, focused in
             if focused, selectInitialText, !text.isEmpty {
                 selection = TextSelection(range: text.startIndex..<text.endIndex)
@@ -119,6 +108,7 @@ struct SearchOverlay: View {
 
     private func resetInput() {
         suppressActivation = false
+        shouldMatchShortcut = false
         activeProvider = settings.searchProviders.first { $0.id == initialProviderID && $0.isEnabled }
         // Restoring a remembered ordinary query must not reinterpret it as a shortcut.
         text = initialText
@@ -132,31 +122,52 @@ struct SearchOverlay: View {
         selection = TextSelection(insertionPoint: text.endIndex)
     }
 
-    private var providerSuggestions: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack {
-                ForEach(SearchProvider.suggestions(for: text, in: settings.searchProviders)) { provider in
-                    Button {
-                        // Consume the matched first token, preserving any query after it.
-                        let trimmed = text.drop(while: \.isWhitespace)
-                        let end = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
-                        text = String(trimmed[end...].drop(while: \.isWhitespace))
-                        activeProvider = provider
-                        suppressActivation = false
-                        isFocused = true
-                        selection = TextSelection(insertionPoint: text.endIndex)
-                    } label: {
-                        Text("Search \(provider.name)")
-                            .font(.subheadline)
-                            .padding(.horizontal, 14)
-                            .frame(height: 44)
-                            .background(.regularMaterial, in: .capsule)
+    private var suggestedProvider: SearchProvider? {
+        guard activeProvider == nil else { return nil }
+        return SearchProvider.bestSuggestion(for: text, in: settings.searchProviders)
+    }
+
+    private var showsClipboard: Bool { !clipboardText.isEmpty && clipboardText != text }
+
+    @ViewBuilder
+    private var suggestionRow: some View {
+        if suggestedProvider != nil || showsClipboard {
+            HStack(spacing: 8) {
+                if let provider = suggestedProvider {
+                    Button { selectProvider(provider) } label: {
+                        SearchProviderChip(provider: provider)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Search \(provider.name)")
+                    .accessibilityHint("Selects this provider and keeps the query after the first word")
+                    .accessibilityIdentifier("search-provider-suggestion")
+                    .layoutPriority(1)
                 }
+                if showsClipboard {
+                    clipboardChip
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer(minLength: 0)
             }
         }
-        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func selectProvider(_ provider: SearchProvider) {
+        // Replace the shortcut (or matched first word) with the inline chip.
+        let trimmed = text.drop(while: \.isWhitespace)
+        let end = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
+        text = String(trimmed[end...].drop(while: \.isWhitespace))
+        activeProvider = provider
+        suppressActivation = false
+        isFocused = true
+        selection = TextSelection(insertionPoint: text.endIndex)
+    }
+
+    private func leaveProvider() {
+        activeProvider = nil
+        suppressActivation = true
+        isFocused = true
+        selection = TextSelection(insertionPoint: text.endIndex)
     }
 
     private var clipboardText: String {
@@ -174,41 +185,33 @@ struct SearchOverlay: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
-            .font(.subheadline)
-            .padding(.horizontal, 14)
-            .frame(height: 38)
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 12)
+            .frame(height: 32)
             .background(.regularMaterial, in: .capsule)
+            .frame(minHeight: 44)
+            .contentShape(.capsule)
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel("Go to copied text: \(clipboardText)")
     }
 
     private var field: some View {
-        HStack(spacing: 10) {
-            Button(action: appendToSearch) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Add to search")
-            .accessibilityHint("Moves the cursor to the end with a space ready for more text")
-
-            TextField(activeProvider.map { "Search \($0.name)" } ?? "Search or enter address", text: Binding(
-                get: { text },
-                set: {
-                    text = $0
-                    if text.isEmpty { suppressActivation = false }
-                    activateShortcutIfNeeded()
+        HStack(spacing: 8) {
+            if let provider = activeProvider {
+                Button(action: leaveProvider) {
+                    SearchProviderChip(provider: provider, showsClose: true)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
-            ), selection: $selection)
-                .focused($isFocused)
-                .keyboardType(.webSearch)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .submitLabel(.go)
-                .onSubmit(submit)
+                .buttonStyle(.plain)
+                .accessibilityLabel("Leave \(provider.name) search and keep query")
+                .accessibilityIdentifier("search-provider-active")
+            } else {
+                appendButton
+            }
+
+            queryField
+                .frame(minWidth: 64)
 
             if voiceSearch.state == .transcribing || voiceSearch.state == .downloading {
                 ProgressView()
@@ -224,25 +227,62 @@ struct SearchOverlay: View {
                 .frame(width: 44, height: 44)
             }
 
-            // Always laid out so the microphone doesn't shift when it appears.
-            let showsClear = !text.isEmpty || voiceSearch.isBusy
-            Button {
-                voiceSearch.cancel()
-                text = ""
-                suppressActivation = false
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.secondary)
-            }
-            .opacity(showsClear ? 1 : 0)
-            .disabled(!showsClear)
-            .accessibilityHidden(!showsClear)
-            .accessibilityLabel(voiceSearch.isBusy ? "Cancel voice search" : "Clear")
+            clearButton
         }
-        .padding(.horizontal, 16)
-        .frame(height: 52)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 52)
         .background(.regularMaterial, in: .capsule)
         .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+    }
+
+    private var appendButton: some View {
+        Button(action: appendToSearch) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Add to search")
+        .accessibilityHint("Moves the cursor to the end with a space ready for more text")
+    }
+
+    private var queryField: some View {
+        TextField(activeProvider.map { "Search \($0.name)" } ?? "Search or enter address", text: Binding(
+            get: { text },
+            set: {
+                text = $0
+                if text.isEmpty { suppressActivation = false }
+                shouldMatchShortcut = true
+            }
+        ), selection: $selection)
+            .focused($isFocused)
+            .keyboardType(.webSearch)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.go)
+            .onSubmit(submit)
+            .accessibilityIdentifier("search-query")
+    }
+
+    private var clearButton: some View {
+        // Always laid out so the microphone doesn't shift when it appears.
+        let showsClear = !text.isEmpty || voiceSearch.isBusy
+        return Button {
+            voiceSearch.cancel()
+            text = ""
+            suppressActivation = false
+        } label: {
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .opacity(showsClear ? 1 : 0)
+        .disabled(!showsClear)
+        .accessibilityHidden(!showsClear)
+        .accessibilityLabel(voiceSearch.isBusy ? "Cancel voice search" : "Clear")
     }
 
     private func submit() {

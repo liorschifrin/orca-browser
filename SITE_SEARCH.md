@@ -1,6 +1,6 @@
 # Site search
 
-Type an exact shortcut followed by a space (for example `yt lofi beats`), or tap a provider suggestion while typing the first word. Matching ignores case and surrounding whitespace. A provider label appears above the field; tap its × to return to ordinary search while keeping the query. After exiting, automatic activation stays off until the field is cleared or reopened; suggestion chips still work.
+Type an exact shortcut followed by a space (for example `yt lofi beats`), or tap a provider suggestion while typing the first word. Matching ignores case and surrounding whitespace. The single best matching provider appears in a compact brand-colored chip to the left of the clipboard suggestion (when present). Selecting it places an icon, name, and × chip inside the search field in place of the shortcut and following whitespace; tap its × to return to ordinary search while keeping the query. After exiting, automatic activation stays off until the field is cleared or reopened; suggestion chips still work.
 
 Automatic activation requires the complete shortcut and a whitespace boundary: `ytmusic` and `yt.com` remain ordinary inputs. Short aliases intentionally take priority when followed by a space: `a book` activates Amazon. Exit the provider label to search that query normally, or disable/change the shortcut in settings. Selecting a provider consumes the first token; it does not send an empty query. Clipboard navigation and voice searches outside provider mode retain their previous behavior. Voice input inside provider mode searches that provider.
 
@@ -23,4 +23,4 @@ Tests cover built-ins, template rendering and validation, UTF-8 encoding and lit
 
 Endpoint checks on November 2, 2026 returned HTTP 200 for YouTube, Wikipedia, Amazon, Google Images, and Translate. Wikipedia redirected an exact match to its article; Google Images redirected `udm=2` to `tbm=isch`. Reddit returned 403 and IMDb returned 202 to automated requests, so their interactive results were not verified.
 
-Network query suggestions, downloaded favicons, brand colors, and dedicated language/region controls are deliberately omitted. Provider suggestions are entirely local.
+Network query suggestions, runtime favicon fetching, and dedicated language/region controls are deliberately omitted. Provider suggestions and bundled brand icons are entirely local; custom providers use a generic globe.

@@ -49,6 +49,10 @@ final class SearchProviderTests: XCTestCase {
         XCTAssertEqual(SearchProvider.suggestions(for: "YOU", in: providers + [exact]).map(\.id), [exact.id, "youtube"])
         XCTAssertEqual(SearchProvider.suggestions(for: "youtube.com", in: providers).first?.id, "youtube")
         XCTAssertTrue(SearchProvider.suggestions(for: "  ", in: providers).isEmpty)
+        XCTAssertEqual(SearchProvider.bestSuggestion(for: "YOU", in: providers + [exact])?.id, exact.id)
+        XCTAssertEqual(SearchProvider.bestSuggestion(for: "g", in: providers)?.id, "google-images")
+        XCTAssertNil(SearchProvider.bestSuggestion(for: "unmatched", in: providers))
+        XCTAssertNil(SearchProvider.bestSuggestion(for: "  ", in: providers))
     }
 
     func testTemplateValidation() {

@@ -8,8 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		000000000000000200000001 /* ContentBlockerConverter in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000300000001 /* ContentBlockerConverter */; };
-		ABCDEF000000000000000014 = {isa = PBXBuildFile; fileRef = ABCDEF00000000000000000A; };
-		ABCDEF000000000000000015 = {isa = PBXBuildFile; fileRef = ABCDEF00000000000000000B; };
+		ABCDEF000000000000000014 /* MyApp/SearchProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCDEF00000000000000000A /* MyApp/SearchProvider.swift */; };
+		ABCDEF000000000000000015 /* MyApp/Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = ABCDEF00000000000000000B /* MyApp/Destination.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -24,10 +24,10 @@
 
 /* Begin PBXFileReference section */
 		000000000000000000000120 /* MyApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		ABCDEF000000000000000002 = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = SearchProvidersTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		ABCDEF00000000000000000A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyApp/SearchProvider.swift; sourceTree = SOURCE_ROOT; };
-		ABCDEF00000000000000000B = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyApp/Destination.swift; sourceTree = SOURCE_ROOT; };
 		000000000000000000000121 /* MyAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MyAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		ABCDEF000000000000000002 /* SearchProvidersTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = SearchProvidersTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		ABCDEF00000000000000000A /* MyApp/SearchProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyApp/SearchProvider.swift; sourceTree = SOURCE_ROOT; };
+		ABCDEF00000000000000000B /* MyApp/Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyApp/Destination.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -36,10 +36,14 @@
 			path = MyApp;
 			sourceTree = "<group>";
 		};
-		ABCDEF000000000000000003 = {isa = PBXFileSystemSynchronizedRootGroup; path = SearchProvidersTests; sourceTree = "<group>"; };
 		000000000000000000000011 /* MyAppTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = MyAppTests;
+			sourceTree = "<group>";
+		};
+		ABCDEF000000000000000003 /* SearchProvidersTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SearchProvidersTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -51,8 +55,12 @@
 				000000000000000200000001 /* ContentBlockerConverter in Frameworks */,
 			);
 		};
-		ABCDEF000000000000000005 = {isa = PBXFrameworksBuildPhase; files = (); };
 		000000000000000530000000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		ABCDEF000000000000000005 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
 			);
@@ -64,9 +72,10 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000010 /* MyApp */,
-                ABCDEF000000000000000003,
+				ABCDEF000000000000000003 /* SearchProvidersTests */,
 				000000000000000000000011 /* MyAppTests */,
 				000000000000000000000020 /* Products */,
+				9F0AA38730992E78005B1EB8 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -74,10 +83,19 @@
 			isa = PBXGroup;
 			children = (
 				000000000000000000000120 /* MyApp.app */,
-                ABCDEF000000000000000002,
+				ABCDEF000000000000000002 /* SearchProvidersTests.xctest */,
 				000000000000000000000121 /* MyAppTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		9F0AA38730992E78005B1EB8 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				ABCDEF00000000000000000A /* MyApp/SearchProvider.swift */,
+				ABCDEF00000000000000000B /* MyApp/Destination.swift */,
+			);
+			name = "Recovered References";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -104,18 +122,6 @@
 			productReference = 000000000000000000000120 /* MyApp.app */;
 			productType = "com.apple.product-type.application";
 		};
-		ABCDEF000000000000000001 = {
-            isa = PBXNativeTarget;
-            buildConfigurationList = ABCDEF000000000000000006;
-            buildPhases = (ABCDEF000000000000000004, ABCDEF000000000000000005);
-            buildRules = ();
-            dependencies = ();
-            fileSystemSynchronizedGroups = (ABCDEF000000000000000003);
-            name = SearchProvidersTests;
-            productName = SearchProvidersTests;
-            productReference = ABCDEF000000000000000002;
-            productType = "com.apple.product-type.bundle.unit-test";
-        };
 		000000000000000500000000 /* MyAppTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 000000000000000510000000 /* Build configuration list for PBXNativeTarget "MyAppTests" */;
@@ -135,6 +141,23 @@
 			name = MyAppTests;
 			productName = MyAppTests;
 			productReference = 000000000000000000000121 /* MyAppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		ABCDEF000000000000000001 /* SearchProvidersTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = ABCDEF000000000000000006 /* Build configuration list for PBXNativeTarget "SearchProvidersTests" */;
+			buildPhases = (
+				ABCDEF000000000000000004 /* Sources */,
+				ABCDEF000000000000000005 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				ABCDEF000000000000000003 /* SearchProvidersTests */,
+			);
+			name = SearchProvidersTests;
+			productName = SearchProvidersTests;
+			productReference = ABCDEF000000000000000002 /* SearchProvidersTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
@@ -174,7 +197,7 @@
 			projectRoot = "";
 			targets = (
 				000000000000000100000000 /* MyApp */,
-                ABCDEF000000000000000001,
+				ABCDEF000000000000000001 /* SearchProvidersTests */,
 				000000000000000500000000 /* MyAppTests */,
 			);
 		};
@@ -199,10 +222,16 @@
 			files = (
 			);
 		};
-		ABCDEF000000000000000004 = {isa = PBXSourcesBuildPhase; files = (ABCDEF000000000000000014, ABCDEF000000000000000015); };
 		000000000000000520000000 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
+			);
+		};
+		ABCDEF000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+				ABCDEF000000000000000014 /* MyApp/SearchProvider.swift in Sources */,
+				ABCDEF000000000000000015 /* MyApp/Destination.swift in Sources */,
 			);
 		};
 /* End PBXSourcesBuildPhase section */
@@ -430,34 +459,6 @@
 			};
 			name = Release;
 		};
-		ABCDEF000000000000000007 = {
-            isa = XCBuildConfiguration;
-            buildSettings = {
-                CODE_SIGNING_ALLOWED = NO;
-                GENERATE_INFOPLIST_FILE = YES;
-                MACOSX_DEPLOYMENT_TARGET = 14.0;
-                PRODUCT_BUNDLE_IDENTIFIER = com.liorschifrin.SearchProvidersTests;
-                PRODUCT_NAME = "$(TARGET_NAME)";
-                SDKROOT = macosx;
-                SUPPORTED_PLATFORMS = macosx;
-                SWIFT_VERSION = 5.0;
-            };
-            name = Debug;
-        };
-		ABCDEF000000000000000008 = {
-            isa = XCBuildConfiguration;
-            buildSettings = {
-                CODE_SIGNING_ALLOWED = NO;
-                GENERATE_INFOPLIST_FILE = YES;
-                MACOSX_DEPLOYMENT_TARGET = 14.0;
-                PRODUCT_BUNDLE_IDENTIFIER = com.liorschifrin.SearchProvidersTests;
-                PRODUCT_NAME = "$(TARGET_NAME)";
-                SDKROOT = macosx;
-                SUPPORTED_PLATFORMS = macosx;
-                SWIFT_VERSION = 5.0;
-            };
-            name = Release;
-        };
 		000000000000000511000000 /* Debug configuration for PBXNativeTarget "MyAppTests" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -504,6 +505,34 @@
 			};
 			name = Release;
 		};
+		ABCDEF000000000000000007 /* Debug configuration for PBXNativeTarget "SearchProvidersTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.liorschifrin.SearchProvidersTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		ABCDEF000000000000000008 /* Release configuration for PBXNativeTarget "SearchProvidersTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGNING_ALLOWED = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.liorschifrin.SearchProvidersTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -523,12 +552,19 @@
 			);
 			defaultConfigurationName = Release;
 		};
-		ABCDEF000000000000000006 = {isa = XCConfigurationList; buildConfigurations = (ABCDEF000000000000000007, ABCDEF000000000000000008); defaultConfigurationName = Release; };
 		000000000000000510000000 /* Build configuration list for PBXNativeTarget "MyAppTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				000000000000000511000000 /* Debug configuration for PBXNativeTarget "MyAppTests" */,
 				000000000000000512000000 /* Release configuration for PBXNativeTarget "MyAppTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		ABCDEF000000000000000006 /* Build configuration list for PBXNativeTarget "SearchProvidersTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ABCDEF000000000000000007 /* Debug configuration for PBXNativeTarget "SearchProvidersTests" */,
+				ABCDEF000000000000000008 /* Release configuration for PBXNativeTarget "SearchProvidersTests" */,
 			);
 			defaultConfigurationName = Release;
 		};

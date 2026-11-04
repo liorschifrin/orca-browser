@@ -18,7 +18,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         .init(id: "imdb", name: "IMDb", shortcuts: ["imdb"], template: "https://www.imdb.com/find/?q=%s"),
     ]
 
-    static func normalize(_ text: String) -> String {
+    nonisolated static func normalize(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
@@ -107,6 +107,11 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         guard let separator = input.firstIndex(where: \.isWhitespace),
               let provider = matchingShortcut(String(input[..<separator]), in: providers) else { return nil }
         return (provider, String(input[separator...].drop(while: \.isWhitespace)))
+    }
+
+    /// A single offer keeps the clipboard row compact; existing ranking breaks ties.
+    static func bestSuggestion(for input: String, in providers: [Self]) -> Self? {
+        suggestions(for: input, in: providers).first
     }
 
     static func suggestions(for input: String, in providers: [Self]) -> [Self] {
