@@ -8,6 +8,9 @@
 #                                         from any worktree. Its what's-new panel lists the
 #                                         commits since the last main build, or your
 #                                         --changed/--test lines
+#   scripts/ship-to-phone.sh --as-main    install THIS branch over the regular Orca Browser app
+#                                         (invisible stamp, like main) instead of a test slot.
+#                                         Temporary: --main puts main back. Pass --changed/--test
 #   scripts/ship-to-phone.sh --release    free this branch's test slot (after merging)
 #   scripts/ship-to-phone.sh --takeover N replace whatever is in slot N (ask the user first)
 #   scripts/ship-to-phone.sh --status     show who holds each slot
@@ -25,9 +28,12 @@
 #   --label "words"     what the branch is about, shown under the slot in the
 #                       app (kept for later builds; defaults to the branch name)
 #   --changed "line"    what this build changes (repeatable)
-#   --test "line"       what to try in it (repeatable). The app shows both in a
+#   --test "line"       what to try, only when it isn't obvious from the changes
+#                       (repeatable). The app shows both in a
 #                       panel the first time this build opens, and when its
-#                       stamp is tapped. Pass them on every build: notes are not kept.
+#                       stamp is held. Pass them on every build: notes are not kept.
+#   --thread ID         your T3 Code thread id: the panel gets an "Open Thread in
+#                       T3 Code" row linking to t3code://threads/<environment>/<id>
 #   --build-only        build but don't install
 #   --configuration X   Debug (default) or Release
 #   --device X          device name or UDID (default: the connected iPhone)
@@ -37,6 +43,9 @@ set -euo pipefail
 SLOT_COUNT=2
 BASE_ID="com.liorschifrin.OrcaBrowser"
 SLOTS_DIR="${ORCA_SLOTS_DIR:-$HOME/.orca-slots}"
+# This Mac's T3 Code environment, for thread links (t3_environment_read shows it).
+RECENT_UPDATES=5
+T3_ENVIRONMENT_ID="${ORCA_T3_ENVIRONMENT_ID:-a42a529c-33c0-4e18-bacb-574b2bbe4c42}"
 
 mode=ship
 configuration=Debug
@@ -45,10 +54,15 @@ label=""
 takeover=""
 changed=()
 tests=()
+older=()
+notes_heading=""
+new_count=0
+thread=""
 build_only=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --main) mode=main ;;
+        --as-main) mode=asmain ;;
         --release) mode=release ;;
         --status) mode=status ;;
         --build-only) build_only=1 ;;
@@ -58,7 +72,8 @@ while [[ $# -gt 0 ]]; do
         --takeover) takeover="$2"; shift ;;
         --changed) changed+=("$2"); shift ;;
         --test) tests+=("$2"); shift ;;
-        -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --thread) thread="$2"; shift ;;
+        -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -100,15 +115,38 @@ default_label() {
     echo "$text" | tr '_-' '  ' | awk '{ for (i = 1; i <= NF && i <= 4; i++) printf "%s%s", $i, (i < NF && i < 4 ? " " : ""); print "" }'
 }
 
+# Prints one line per update on main, newest first: the title of each pull
+# request, from squash commits ("Title (#12)") and "Merge pull request" commits.
+# Older commits made directly on main or merged as plain branches are skipped.
+list_updates() {
+    local sha subject range="${1:-HEAD}"
+    while IFS=$'\t' read -r sha subject; do
+        if [[ "$subject" =~ ^(.+)\ \(#[0-9]+\)$ ]]; then
+            echo "${BASH_REMATCH[1]}"
+        elif [[ "$subject" == "Merge pull request #"* ]]; then
+            git log -1 --format=%b "$sha" | sed -n '/./{p;q;}'
+        fi
+    done < <(git log --first-parent --format=$'%H\t%s' "$range")
+}
+
 # Sets the build ID and the what's-new notes (from --changed and --test) for the app.
 add_notes_settings() {
     settings+=("ORCA_BUILD_ID=$(date +%s)")
-    if [[ ${#changed[@]} -gt 0 || ${#tests[@]} -gt 0 ]]; then
-        local notes_json
+    if [[ ${#changed[@]} -gt 0 || ${#tests[@]} -gt 0 || -n "$thread" ]]; then
+        local notes_json thread_url=""
+        [[ -n "$thread" ]] && thread_url="t3code://threads/$T3_ENVIRONMENT_ID/$thread"
         notes_json="$(jq -cn \
             --argjson c "$(json_array ${changed[@]+"${changed[@]}"})" \
             --argjson t "$(json_array ${tests[@]+"${tests[@]}"})" \
-            '{changed: $c, test: $t}')"
+            --argjson m "$(json_array ${older[@]+"${older[@]}"})" \
+            --arg heading "$notes_heading" \
+            --argjson n "$new_count" \
+            --arg thread "$thread_url" \
+            '{changed: $c, test: $t}
+             + (if ($m | length) == 0 then {} else {more: $m} end)
+             + (if $heading == "" then {} else {heading: $heading} end)
+             + (if $n == 0 then {} else {newCount: $n} end)
+             + (if $thread == "" then {} else {thread: $thread} end)')"
         settings+=("ORCA_BUILD_NOTES=$(printf '%s' "$notes_json" | base64 | tr -d '\n')")
         return 0
     fi
@@ -260,25 +298,36 @@ if [[ "$mode" == main ]]; then
     done
     trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
 
-    # No notes given: list what landed on main since the last main build.
+    # No notes given: show the latest 5 updates, with the rest behind a
+    # "more" button, unless nothing new has landed since the last main build.
     main_state="$SLOTS_DIR/main"
     last_main="$(grep '^commit=' "$main_state" 2>/dev/null | cut -d= -f2- || true)"
     if [[ ${#changed[@]} -eq 0 && ${#tests[@]} -eq 0 ]]; then
-        if [[ -n "$last_main" ]] && git cat-file -e "$last_main^{commit}" 2>/dev/null; then
-            range=("$last_main..HEAD")
-        else
-            range=(-n 10)
-        fi
-        while IFS= read -r line; do
-            [[ -n "$line" ]] && changed+=("$line")
-        done < <(git log --no-merges --format=%s "${range[@]}")
-        if [[ ${#changed[@]} -gt 15 ]]; then
-            extra=$(( ${#changed[@]} - 15 ))
-            changed=("${changed[@]:0:15}" "...and $extra more")
+        if [[ "$last_main" != "$(git rev-parse HEAD)" ]]; then
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                if [[ ${#changed[@]} -lt $RECENT_UPDATES ]]; then changed+=("$line"); else older+=("$line"); fi
+            done < <(list_updates)
+            notes_heading="Recent updates"
+            # The updates since the last main build are the new ones; the rest are earlier.
+            if [[ -n "$last_main" ]] && git cat-file -e "$last_main^{commit}" 2>/dev/null; then
+                new_count="$(list_updates "$last_main..HEAD" | grep -c . || true)"
+            else
+                new_count=1
+            fi
         fi
     fi
     settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=What's new")
-    add_notes_settings || echo "No new commits on main since the last main build, so no what's-new panel." >&2
+    add_notes_settings || echo "Nothing new on main since the last main build, so no what's-new panel." >&2
+elif [[ "$mode" == asmain ]]; then
+    # This branch in the regular app: same bundle ID and icon as main, so the
+    # test uses the real app and its data, with main's invisible stamp.
+    slot_name=main
+    bundle_id="$BASE_ID"
+    [[ -n "$label" ]] || label="$(default_label)"
+    settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
+    add_notes_settings || echo "No --changed or --test notes given, so the app won't show a what's-new panel for this build." >&2
+    echo "Installing this branch over the regular Orca Browser app. Run --main afterwards to put main back." >&2
 else
     with_lock
     if [[ -z "$label" ]]; then
@@ -353,7 +402,7 @@ else
 fi
 
 # Remember what's in the slot, so --status and other branches can see it.
-if [[ "$mode" != main ]]; then
+if [[ "$mode" == ship ]]; then
     with_lock
     write_slot "$slot"
 fi

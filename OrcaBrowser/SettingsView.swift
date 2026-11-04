@@ -48,14 +48,11 @@ struct SettingsView: View {
                     Text("Alerts, confirmations and prompts that pages show. When off, pages carry on as if you'd tapped Cancel. You can also switch them off for one site from its site menu.")
                 }
                 Section {
-                    Toggle("Hide YouTube Shorts", isOn: $settings.hideShorts)
+                    YouTubeToggles(settings: settings)
+                } header: {
+                    Text("YouTube")
                 } footer: {
-                    Text("Hides Shorts shelves and cards on YouTube pages.")
-                }
-                Section {
-                    Toggle("Open Shorts as regular videos", isOn: $settings.opensShortsAsVideos)
-                } footer: {
-                    Text("Tapping a Short, or opening a Shorts link, plays it in the normal YouTube player instead of the Shorts page.")
+                    Text(YouTubeToggles.footnote)
                 }
                 #if DEBUG
                 Section("Debug") {

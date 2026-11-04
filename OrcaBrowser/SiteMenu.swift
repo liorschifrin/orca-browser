@@ -28,6 +28,8 @@ struct SiteMenu: View {
             ?? PageDialogPermissions.shared.allows(target.site))
     }
 
+    private var isYouTube: Bool { target.site == "youtube.com" }
+
     private var adsActive: Bool { settings.blockAds && blocksAds }
     private var trackersActive: Bool { settings.blockTrackers && blocksTrackers }
     private var bannersActive: Bool { settings.blockCookieBanners && blocksBanners }
@@ -102,6 +104,22 @@ struct SiteMenu: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+
+            if isYouTube {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("YouTube")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 4)
+                    VStack(spacing: 0) {
+                        YouTubeToggles(settings: settings, separated: true)
+                    }
+                    .background(.thinMaterial, in: .rect(cornerRadius: 14))
+                    Text("These are the same as the YouTube settings in Settings, and apply to every YouTube tab.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 28)
@@ -113,7 +131,7 @@ struct SiteMenu: View {
                 PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
             }
         }
-        .presentationDetents([.height(540)])
+        .presentationDetents(isYouTube ? [.large] : [.height(540)])
         .presentationDragIndicator(.visible)
     }
 
