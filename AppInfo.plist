@@ -29,6 +29,10 @@
 	<string>$(ORCA_BUILD_COMMIT)</string>
 	<key>OrcaBuildLabel</key>
 	<string>$(ORCA_BUILD_LABEL)</string>
+	<key>OrcaBuildID</key>
+	<string>$(ORCA_BUILD_ID)</string>
+	<key>OrcaBuildNotes</key>
+	<string>$(ORCA_BUILD_NOTES)</string>
 	<!-- Registers orcabrowser:// so Shortcuts can hand control back to the app
 	     after "Add Video to Play" finishes. -->
 	<key>CFBundleURLTypes</key>
