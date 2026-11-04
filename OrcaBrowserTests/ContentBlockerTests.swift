@@ -9,10 +9,18 @@ struct ContentBlockerTests {
     }
 
     @Test func cookieNoticesFilterIsListed() {
-        let filter = ContentBlocker.filters.first { $0.category == .cookieBanners }
-        #expect(filter?.id == 18)
-        #expect(filter?.url.absoluteString == "https://filters.adtidy.org/ios/filters/18_optimized.txt")
+        let filter = ContentBlocker.filters.first { $0.id == 18 }
+        #expect(filter?.category == .cookieBanners)
+        #expect(filter?.url?.absoluteString == "https://filters.adtidy.org/ios/filters/18_optimized.txt")
         #expect(ContentBlocker.shared.category(ofList: "orcabrowser.adguard.18") == .cookieBanners)
+    }
+
+    @Test func builtInBannerRulesAreValidAndNamedAfterTheirContent() throws {
+        let rules = try #require(JSONSerialization.jsonObject(with: Data(CookieBanners.hideRulesJSON.utf8)) as? [[String: Any]])
+        #expect(!rules.isEmpty)
+        let builtIn = ContentBlocker.filters.filter { if case .builtIn = $0.source { true } else { false } }
+        #expect(builtIn.allSatisfy { $0.url == nil && $0.identifier.hasPrefix(ContentBlocker.Filter.builtInPrefix) })
+        #expect(builtIn.first?.identifier != ContentBlocker.Filter(id: 1001, category: .cookieBanners, name: "x", source: .builtIn(json: "[]")).identifier)
     }
 
     @Test func cookieBannerSettingIsOnByDefaultAndSurvivesRelaunch() throws {

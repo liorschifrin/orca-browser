@@ -55,6 +55,7 @@ struct SettingsView: View {
                 Section("Debug") {
                     Toggle("Show FPS, memory and build", isOn: $settings.showDebugStats)
                 }
+                BlockingListsSection()
                 #endif
                 Section {
                     Button("Clear History…", role: .destructive) { isConfirmingClearHistory = true }
@@ -137,3 +138,63 @@ struct SettingsView: View {
         }
     }
 }
+
+#if DEBUG
+/// What the blocking lists are doing, with a button to fetch them now instead
+/// of waiting for the quiet moment the app normally picks.
+private struct BlockingListsSection: View {
+    private let status = ContentBlocker.shared.status
+
+    var body: some View {
+        Section {
+            ForEach(status.entries) { entry in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.name)
+                    Text(detail(entry))
+                        .font(.footnote)
+                        .foregroundStyle(isFailed(entry) ? .red : .secondary)
+                }
+            }
+            Button(status.isUpdating ? "Downloading…" : "Download lists now") {
+                ContentBlocker.shared.updateNow()
+            }
+            .disabled(status.isUpdating)
+        } header: {
+            Text("Blocking lists")
+        } footer: {
+            if let checked = status.lastCheck {
+                Text("Last full check \(checked.formatted(.relative(presentation: .named))).")
+            } else {
+                Text("Not checked yet. Lists download in the background once the app is quiet.")
+            }
+        }
+    }
+
+    private func isFailed(_ entry: ContentBlocker.Status.Entry) -> Bool {
+        if case .failed = entry.phase { true } else { false }
+    }
+
+    private func detail(_ entry: ContentBlocker.Status.Entry) -> String {
+        switch entry.phase {
+        case .waiting: return "Waiting for a quiet moment…"
+        case .downloading: return "Downloading…"
+        case .converting: return "Converting…"
+        case .compiling: return "Compiling…"
+        case .failed(let reason): return "Failed: \(reason)"
+        case .idle: break
+        }
+        guard entry.isLoaded else {
+            return entry.updated == nil ? "Not downloaded" : "Downloaded, not loaded yet"
+        }
+        var parts = ["Active"]
+        if let rules = entry.rules { parts.append("\(rules.formatted()) rules") }
+        if let bytes = entry.bytes { parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
+        if let updated = entry.updated { parts.append(updated.formatted(.relative(presentation: .named))) }
+        return parts.joined(separator: " · ")
+    }
+}
+#else
+private struct BlockingListsSection: View {
+    var body: some View { EmptyView() }
+}
+#endif

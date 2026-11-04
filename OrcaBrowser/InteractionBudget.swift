@@ -20,12 +20,16 @@ final class InteractionBudget {
         quietDeadline = .now.advanced(by: .milliseconds(500))
     }
 
+    func isIdle(allowSwitcher: Bool = false) -> Bool {
+        let now = ContinuousClock.now
+        return isForeground && !isSearching && (allowSwitcher || !isSwitching)
+            && now >= startupDeadline && now >= quietDeadline
+    }
+
     func waitForIdle(allowSwitcher: Bool = false) async throws {
         while true {
             try Task.checkCancellation()
-            let now = ContinuousClock.now
-            if isForeground, !isSearching, (allowSwitcher || !isSwitching),
-               now >= startupDeadline, now >= quietDeadline { return }
+            if isIdle(allowSwitcher: allowSwitcher) { return }
             try await Task.sleep(for: .milliseconds(100))
         }
     }
