@@ -20,10 +20,13 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         if let store = tab.privateDataStore { configuration.websiteDataStore = store }
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
-        ContentBlocker.shared.install(on: configuration.userContentController)
+        ContentBlocker.shared.install(on: configuration.userContentController, privateRules: tab.privateRules)
         configuration.userContentController.addUserScript(LinkPress.userScript)
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
+        )
+        configuration.userContentController.addUserScript(
+            ShortsFilter.redirectUserScript(enabled: AppSettings.shared.opensShortsAsVideos)
         )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
         configuration.userContentController.addUserScript(
@@ -70,11 +73,12 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         tab?.pageDidFinish()
     }
 
-    /// Turns youtube.com/shorts/ID addresses into the normal watch page while
-    /// Shorts are hidden.
+    /// Turns youtube.com/shorts/ID addresses into the normal watch page when
+    /// Shorts are set to open as videos. This covers full page loads; taps
+    /// inside YouTube are caught by the page script.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let isMainFrame = action.targetFrame?.isMainFrame ?? true
-        if AppSettings.shared.hideShorts,
+        if AppSettings.shared.opensShortsAsVideos,
            isMainFrame,
            let url = action.request.url,
            let watchURL = ShortsFilter.watchURL(forShorts: url) {
@@ -106,7 +110,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.pageDidCommit()
         // Hidden banners often leave the page unable to scroll.
-        if ContentBlocker.shared.hidesBanners(on: webView.url) {
+        if ContentBlocker.shared.hidesBanners(on: webView.url, privateRules: tab?.privateRules) {
             webView.evaluateJavaScript(CookieBanners.unlockScrollScript)
         }
     }
@@ -130,7 +134,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func present(_ kind: PageDialog.Kind, _ message: String, respond: @escaping (PageDialog.Response) -> Void) {
         let site = ContentBlocker.site(for: webView.url)
         guard let tab, !webView.isHidden, webView.window != nil,
-              PageDialogPermissions.shared.mayShow(on: site) else {
+              PageDialogPermissions.shared.mayShow(on: site, privateRules: tab.privateRules) else {
             respond(.cancel)
             return
         }

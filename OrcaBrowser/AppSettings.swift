@@ -2,7 +2,7 @@ import Foundation
 
 /// The user's preferences, saved between launches.
 ///
-/// Shared, because tabs read `hideShorts` when they create a web view and the
+/// Shared, because tabs read `hideShorts` and `opensShortsAsVideos` when they create a web view and the
 /// settings page writes it.
 @Observable
 final class AppSettings {
@@ -19,6 +19,7 @@ final class AppSettings {
     }
 
     private static let hideShortsKey = "hideShorts"
+    private static let opensShortsAsVideosKey = "opensShortsAsVideos"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
     private static let blockCookieBannersKey = "blockCookieBanners"
@@ -49,6 +50,11 @@ final class AppSettings {
     /// Hides YouTube Shorts in every tab. Off by default.
     var hideShorts: Bool {
         didSet { defaults.set(hideShorts, forKey: Self.hideShortsKey) }
+    }
+
+    /// Opens Shorts links as regular videos. Off by default.
+    var opensShortsAsVideos: Bool {
+        didSet { defaults.set(opensShortsAsVideos, forKey: Self.opensShortsAsVideosKey) }
     }
 
     /// Blocks ads in every tab. On by default.
@@ -83,7 +89,11 @@ final class AppSettings {
             .flatMap { try? JSONDecoder().decode(VoiceQueryOptions.self, from: $0) } ?? .defaults
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)
-        hideShorts = defaults.bool(forKey: Self.hideShortsKey)
+        let hidesShorts = defaults.bool(forKey: Self.hideShortsKey)
+        hideShorts = hidesShorts
+        // Hiding Shorts used to open them as videos too, so keep that for
+        // anyone who already had it on.
+        opensShortsAsVideos = defaults.object(forKey: Self.opensShortsAsVideosKey) as? Bool ?? hidesShorts
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
         blockCookieBanners = defaults.object(forKey: Self.blockCookieBannersKey) as? Bool ?? true

@@ -20,10 +20,12 @@ struct SiteMenu: View {
 
     init(target: SiteMenuTarget) {
         self.target = target
-        _blocksAds = State(initialValue: ContentBlocker.shared.isBlocking(.ads, on: target.site))
-        _blocksTrackers = State(initialValue: ContentBlocker.shared.isBlocking(.trackers, on: target.site))
-        _blocksBanners = State(initialValue: ContentBlocker.shared.isBlocking(.cookieBanners, on: target.site))
-        _allowsDialogs = State(initialValue: PageDialogPermissions.shared.allows(target.site))
+        let rules = target.tab.privateRules
+        _blocksAds = State(initialValue: ContentBlocker.shared.isBlocking(.ads, on: target.site, privateRules: rules))
+        _blocksTrackers = State(initialValue: ContentBlocker.shared.isBlocking(.trackers, on: target.site, privateRules: rules))
+        _blocksBanners = State(initialValue: ContentBlocker.shared.isBlocking(.cookieBanners, on: target.site, privateRules: rules))
+        _allowsDialogs = State(initialValue: rules?.allowsDialogs(on: target.site)
+            ?? PageDialogPermissions.shared.allows(target.site))
     }
 
     private var adsActive: Bool { settings.blockAds && blocksAds }
@@ -36,7 +38,7 @@ struct SiteMenu: View {
                 Text(target.site)
                     .font(.title3.weight(.semibold))
                     .lineLimit(1)
-                Text(target.tab.isIncognito ? "Site preferences cannot be saved in incognito." : "Applies to every page on this site")
+                Text(target.tab.isIncognito ? "Applies to this site in every incognito tab and is forgotten when the last one leaves it" : "Applies to every page on this site")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -49,17 +51,17 @@ struct SiteMenu: View {
 
             VStack(spacing: 0) {
                 Toggle("Block ads", isOn: $blocksAds)
-                    .disabled(!settings.blockAds || target.tab.isIncognito)
+                    .disabled(!settings.blockAds)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
                 Divider().padding(.leading, 16)
                 Toggle("Block trackers", isOn: $blocksTrackers)
-                    .disabled(!settings.blockTrackers || target.tab.isIncognito)
+                    .disabled(!settings.blockTrackers)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
                 Divider().padding(.leading, 16)
                 Toggle("Hide cookie banners", isOn: $blocksBanners)
-                    .disabled(!settings.blockCookieBanners || target.tab.isIncognito)
+                    .disabled(!settings.blockCookieBanners)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
             }
@@ -70,7 +72,7 @@ struct SiteMenu: View {
                 .foregroundStyle(.secondary)
 
             Toggle("Allow dialogs", isOn: $allowsDialogs)
-                .disabled(!settings.allowsPageDialogs || target.tab.isIncognito)
+                .disabled(!settings.allowsPageDialogs)
                 .padding(.horizontal, 16)
                 .frame(minHeight: 48)
                 .background(.thinMaterial, in: .rect(cornerRadius: 14))
@@ -88,7 +90,11 @@ struct SiteMenu: View {
         .onChange(of: blocksTrackers) { change(.trackers, to: blocksTrackers) }
         .onChange(of: blocksBanners) { change(.cookieBanners, to: blocksBanners) }
         .onChange(of: allowsDialogs) {
-            PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
+            if let rules = target.tab.privateRules {
+                rules.setAllowsDialogs(allowsDialogs, on: target.site)
+            } else {
+                PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
+            }
         }
         .presentationDetents([.height(540)])
         .presentationDragIndicator(.visible)
@@ -97,7 +103,11 @@ struct SiteMenu: View {
     /// Remembers the choice for the site, then reloads so the page is
     /// fetched again under the new rules.
     private func change(_ category: ContentBlocker.Category, to enabled: Bool) {
-        ContentBlocker.shared.setBlocking(enabled, category, on: target.site)
+        if let rules = target.tab.privateRules {
+            ContentBlocker.shared.setBlocking(enabled, category, on: target.site, privateRules: rules)
+        } else {
+            ContentBlocker.shared.setBlocking(enabled, category, on: target.site)
+        }
         target.tab.reload()
     }
 

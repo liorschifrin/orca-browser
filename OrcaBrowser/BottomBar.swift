@@ -39,6 +39,10 @@ struct BottomBar: View {
 
                     Spacer()
 
+                    if let stamp = BuildStamp.current, showsBuildStamp {
+                        BuildStampLabel(stamp: stamp)
+                    }
+
                     HistoryBackButton(tab: tab, showHistory: $showHistory)
                         .onGeometryChange(for: CGRect.self) {
                             $0.frame(in: .named("browserToolbar"))
@@ -80,6 +84,16 @@ struct BottomBar: View {
                 },
             including: showHistory ? .subviews : .all
         )
+    }
+
+    /// Follows the debug settings switch. Release builds have no switch, so a
+    /// stamped one always shows it.
+    private var showsBuildStamp: Bool {
+        #if DEBUG
+        AppSettings.shared.showDebugStats
+        #else
+        true
+        #endif
     }
 
     private var siteCapsule: some View {
