@@ -20,6 +20,8 @@ same branch can leave it off. The bottom bar of a test build shows the slot
 each app contains. A `*` after the commit means uncommitted changes. In Debug
 builds the stamp is part of the Settings > Debug "Show FPS, memory and build"
 switch, so the user can hide it.
+Each test slot also has its own app icon (the `AppIconDev1` and `AppIconDev2`
+sets in the asset catalog, with a DEV banner), chosen by the script at build time.
 
 - If both slots are held by other branches, the script exits with code 3 and
   builds nothing. Report to the user which branch holds each slot, its label,

@@ -15,8 +15,8 @@
 # two branches in flight never overwrite each other. When both slots are taken
 # the script stops and says who holds them.
 #
-# Nothing here touches tracked files. The slot name, bundle ID and branch/commit
-# stamp are passed to xcodebuild as build settings, so a build from Xcode (or
+# Nothing here touches tracked files. The slot name, bundle ID, icon (the
+# AppIconDev1/2 sets in the asset catalog) and commit stamp are passed to xcodebuild as build settings, so a build from Xcode (or
 # the code on GitHub) looks the same as before.
 #
 # Other options:
@@ -257,7 +257,7 @@ else
     fi
     slot_name="dev $slot"
     bundle_id="$BASE_ID.dev$slot"
-    settings+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id" "INFOPLIST_KEY_CFBundleDisplayName=Orca $slot")
+    settings+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id" "INFOPLIST_KEY_CFBundleDisplayName=Orca $slot" "ASSETCATALOG_COMPILER_APPICON_NAME=AppIconDev$slot")
     settings+=("ORCA_BUILD_SLOT=$slot_name" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
 
     # Slot claimed: the rest can run without holding the lock.
