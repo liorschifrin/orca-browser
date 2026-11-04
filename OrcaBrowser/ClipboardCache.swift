@@ -7,8 +7,10 @@ import UIKit
 /// iOS has no API for the "Paste from Other Apps" setting, and reading text
 /// another app copied can raise an Allow Paste prompt. So the cache learns
 /// what it can from how reads behave and remembers it across launches:
-/// - `allowed`: a quick read of text we didn't copy ourselves. Safe to read in
-///   the background, so the clipboard chip is ready the instant search opens.
+/// - `allowed`: a quick read of new text we didn't copy ourselves. Safe to read
+///   in the background, so the clipboard chip is ready the instant search opens.
+///   Rereading text that was already read, or copied by us, proves nothing: iOS
+///   doesn't ask again for text it has already let us read.
 /// - `needsPermission`: a read was refused, or took long enough that a prompt
 ///   was most likely shown. Reads wait until search opens, and the search
 ///   panel keeps offering a way to Settings until a quick read proves it's on.
@@ -31,13 +33,21 @@ final class ClipboardCache {
     /// about the same contents every time it opens.
     @ObservationIgnored private var deniedChangeCount = -1
     /// The clipboard as we last wrote it, so our own copies can't be mistaken
-    /// for proof that pasting from other apps is allowed.
-    @ObservationIgnored private var ownChangeCount = -1
+    /// for proof that pasting from other apps is allowed. Kept across launches,
+    /// since the clipboard is too.
+    @ObservationIgnored private var ownChangeCount =
+        UserDefaults.standard.object(forKey: ClipboardCache.ownCountKey) as? Int ?? -1
+    /// The clipboard as we last read it, also kept across launches.
+    @ObservationIgnored private var lastReadChangeCount =
+        UserDefaults.standard.object(forKey: ClipboardCache.lastReadCountKey) as? Int ?? -1
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
-    private static let accessKey = "clipboardAccess"
+    // The "2" restarts from `unknown`: earlier builds could wrongly save `allowed`.
+    private static let accessKey = "clipboardAccess2"
+    private static let ownCountKey = "clipboardOwnChangeCount"
+    private static let lastReadCountKey = "clipboardLastReadChangeCount"
     /// A read slower than this was probably waiting on the Allow Paste prompt.
-    private static let promptThreshold = 0.4
+    private static let promptThreshold = 0.3
 
     private init() {}
 
@@ -45,6 +55,7 @@ final class ClipboardCache {
     func copy(_ url: URL) {
         UIPasteboard.general.url = url
         ownChangeCount = UIPasteboard.general.changeCount
+        UserDefaults.standard.set(ownChangeCount, forKey: Self.ownCountKey)
     }
 
     /// Opens this app's page in Settings, where "Paste from Other Apps" lives.
@@ -102,9 +113,14 @@ final class ClipboardCache {
     }
 
     private func learnAccess(from snapshot: Snapshot, afterRefusal: Bool) {
-        if afterRefusal || (access != .allowed && snapshot.duration > Self.promptThreshold) {
+        let isNew = snapshot.after != lastReadChangeCount
+        lastReadChangeCount = snapshot.after
+        UserDefaults.standard.set(snapshot.after, forKey: Self.lastReadCountKey)
+        // A slow read means a prompt, even if we thought pasting was allowed:
+        // reading in the background must stop, and the chip must show.
+        if afterRefusal || snapshot.duration > Self.promptThreshold {
             setAccess(.needsPermission)
-        } else if snapshot.after != ownChangeCount {
+        } else if isNew, snapshot.after != ownChangeCount {
             setAccess(.allowed)
         }
     }
