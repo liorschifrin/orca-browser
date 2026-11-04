@@ -59,7 +59,8 @@ sets in the asset catalog, with a DEV banner), chosen by the script at build tim
   its slot, then `scripts/ship-to-phone.sh --main`. That pulls main from GitHub
   in the main checkout and reinstalls the regular app from it, so the phone
   always has what is on main. The main build's panel lists the latest 5
-  updates, with a button for the full history. An update is a pull request:
+  updates, with a button for the full history. The ones new since the previous
+  main build stand out (bold, with a sparkle) and the earlier ones are dimmed. An update is a pull request:
   its squash commit subject, or the title of an older "Merge pull request"
   commit. So write PR titles for the user to read on the phone. Commits made
   directly on main don't appear. Pass `--changed`/`--test` to `--main` to write
