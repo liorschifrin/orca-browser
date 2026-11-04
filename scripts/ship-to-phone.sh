@@ -184,7 +184,7 @@ slot_is_stale() {
     [[ -f "$(slot_file "$n")" ]] || return 1
     w="$(slot_field "$n" worktree)"; b="$(slot_field "$n" branch)"
     [[ ! -d "$w" ]] && return 0
-    git show-ref --verify --quiet "refs/heads/$b" || return 0
+    git -C "$w" show-ref --verify --quiet "refs/heads/$b" || return 0
     return 1
 }
 
@@ -197,15 +197,35 @@ slot_pr_is_done() {
 }
 
 # The regular app is held while a branch's --as-main build is on it, which
-# --as-main records in main-holder. True if another checkout holds it and its
-# branch is still in flight.
-main_held_by_other() {
-    local f=main-holder
-    [[ -f "$(slot_file $f)" ]] || return 1
-    [[ "$(slot_field $f worktree)" == "$caller_root" && "$(slot_field $f branch)" == "$caller_branch" ]] && return 1
-    slot_is_stale $f && return 1
-    slot_pr_is_done $f && return 1
+# --as-main records in main-holder. The hold lasts while that branch is in flight.
+main_hold_is_active() {
+    [[ -f "$(slot_file main-holder)" ]] || return 1
+    slot_is_stale main-holder && return 1
+    slot_pr_is_done main-holder && return 1
     return 0
+}
+
+# True if another checkout holds the regular app.
+main_held_by_other() {
+    main_hold_is_active || return 1
+    [[ "$(slot_field main-holder worktree)" == "$caller_root" && "$(slot_field main-holder branch)" == "$caller_branch" ]] && return 1
+    return 0
+}
+
+# --main and --as-main both install the regular app, so they take turns from
+# checking the hold through installing.
+lock_main() {
+    local tries=0
+    until mkdir "$SLOTS_DIR/.main-lock" 2>/dev/null; do
+        tries=$((tries + 1))
+        if [[ $tries -gt 600 ]]; then
+            echo "Another main build seems stuck; remove $SLOTS_DIR/.main-lock if none is running." >&2
+            exit 1
+        fi
+        sleep 0.5
+    done
+    trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
+    if main_held_by_other; then refuse_main_held; fi
 }
 
 refuse_main_held() {
@@ -235,9 +255,11 @@ print_status() {
             echo "Orca $n  free"
         fi
     done
-    if [[ -f "$(slot_file main-holder)" ]]; then
+    if main_hold_is_active; then
         built="$(slot_field main-holder built_epoch)"
         echo "Orca Browser  testing \"$(slot_field main-holder label)\"  $(slot_field main-holder branch) @ $(slot_field main-holder commit)  last built $(format_age $(( $(date +%s) - ${built:-0} ))) ago  ($(slot_field main-holder worktree))"
+    elif [[ -f "$(slot_file main-holder)" ]]; then
+        echo "Orca Browser  free (still has $(slot_field main-holder branch)'s build, whose branch is done; --main puts main back)"
     else
         echo "Orca Browser  main"
     fi
@@ -321,18 +343,7 @@ settings=()
 if [[ "$mode" == main ]]; then
     slot_name=main
     bundle_id="$BASE_ID"
-    # Two threads rebuilding main at once would trample the same build folder.
-    tries=0
-    until mkdir "$SLOTS_DIR/.main-lock" 2>/dev/null; do
-        tries=$((tries + 1))
-        if [[ $tries -gt 600 ]]; then
-            echo "Another main build seems stuck; remove $SLOTS_DIR/.main-lock if none is running." >&2
-            exit 1
-        fi
-        sleep 0.5
-    done
-    trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
-    if main_held_by_other; then refuse_main_held; fi
+    lock_main
 
     # No notes given: show the latest 5 updates, with the rest behind a
     # "more" button, unless nothing new has landed since the last main build.
@@ -361,11 +372,7 @@ elif [[ "$mode" == asmain ]]; then
     slot_name=main
     bundle_id="$BASE_ID"
     [[ -n "$label" ]] || label="$(default_label)"
-    with_lock
-    if main_held_by_other; then refuse_main_held; fi
-    write_slot main-holder
-    rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true
-    trap - EXIT
+    lock_main
     settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
     add_notes_settings || echo "No --changed or --test notes given, so the app won't show a what's-new panel for this build." >&2
     echo "Installing this branch over the regular Orca Browser app. Run --main afterwards to put main back." >&2
@@ -440,6 +447,8 @@ else
     if [[ "$mode" == main ]]; then
         printf 'commit=%s\nbuilt_epoch=%s\n' "$(git rev-parse HEAD)" "$(date +%s)" > "$main_state"
         rm -f "$(slot_file main-holder)"
+    elif [[ "$mode" == asmain ]]; then
+        write_slot main-holder
     fi
 fi
 

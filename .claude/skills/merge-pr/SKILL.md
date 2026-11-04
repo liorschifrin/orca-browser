@@ -25,7 +25,8 @@ Run from the branch's worktree. Where a step says stop, tell the user and stop.
    the regular app only if you're already on it via `--as-main`). Run
    `scripts/ship-to-phone.sh --status` first. If you no longer hold it, or the
    script exits 3 or 4, don't take over: tell the user and carry on without
-   rebuilding. Notes cover just this fix. Then back to step 2.
+   rebuilding. Notes cover just this fix. Then go to step 5 if its condition is
+   met, otherwise end your turn and keep watching.
 5. **Merge** once CodeRabbit has reviewed the latest push, nothing is unresolved
    and checks pass: `gh pr merge <n> --squash --subject "<title> (#<n>)"`. No
    `--delete-branch`.
