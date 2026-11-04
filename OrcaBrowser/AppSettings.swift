@@ -23,6 +23,7 @@ final class AppSettings {
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
     private static let blockCookieBannersKey = "blockCookieBanners"
+    private static let rejectConsentKey = "rejectConsent"
     private static let blockRedditPromptKey = "blockRedditPrompt"
     private static let voiceSearchProviderKey = "voiceSearchProvider"
     private static let allowsPageDialogsKey = "allowsPageDialogs"
@@ -72,6 +73,12 @@ final class AppSettings {
         didSet { defaults.set(blockCookieBanners, forKey: Self.blockCookieBannersKey) }
     }
 
+    /// Says no to cookie consent where a banner offers a plain reject. On by
+    /// default; the site's own cookie banner switch also applies.
+    var rejectConsent: Bool {
+        didSet { defaults.set(rejectConsent, forKey: Self.rejectConsentKey) }
+    }
+
     /// Removes Reddit's "get the app" pop-up. On by default.
     var blockRedditPrompt: Bool {
         didSet { defaults.set(blockRedditPrompt, forKey: Self.blockRedditPromptKey) }
@@ -97,6 +104,7 @@ final class AppSettings {
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
         blockCookieBanners = defaults.object(forKey: Self.blockCookieBannersKey) as? Bool ?? true
+        rejectConsent = defaults.object(forKey: Self.rejectConsentKey) as? Bool ?? true
         blockRedditPrompt = defaults.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true
         allowsPageDialogs = defaults.object(forKey: Self.allowsPageDialogsKey) as? Bool ?? true
         voiceSearchProvider = VoiceSearchProvider(

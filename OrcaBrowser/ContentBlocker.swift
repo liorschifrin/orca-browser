@@ -260,6 +260,13 @@ final class ContentBlocker {
         return isBlocking(.cookieBanners, on: site, privateRules: privateRules)
     }
 
+    /// Whether the page at `url` may have cookie consent rejected for it:
+    /// switched on globally, and cookie banners not switched off for its site.
+    func rejectsConsent(on url: URL?, privateRules: PrivateSiteRules? = nil) -> Bool {
+        guard settings.rejectConsent, let site = Self.site(for: url) else { return false }
+        return isBlocking(.cookieBanners, on: site, privateRules: privateRules)
+    }
+
     /// Switches one category on or off for a site, in every tab. Pages already
     /// open keep what they loaded until they are reloaded.
     func setBlocking(_ enabled: Bool, _ category: Category, on site: String) {

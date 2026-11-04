@@ -38,7 +38,7 @@ struct ContentBlockerTests {
         #expect(tab.adsBlocked == 1)
     }
 
-    @Test func cookieBannerSettingIsOnByDefaultAndSurvivesRelaunch() throws {
+    @Test func cookieBannerSettingsAreOnByDefaultAndSurviveRelaunch() throws {
         let suite = "ContentBlockerTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
@@ -46,5 +46,8 @@ struct ContentBlockerTests {
         #expect(AppSettings(defaults: defaults).blockCookieBanners)
         AppSettings(defaults: defaults).blockCookieBanners = false
         #expect(!AppSettings(defaults: defaults).blockCookieBanners)
+        #expect(AppSettings(defaults: defaults).rejectConsent)
+        AppSettings(defaults: defaults).rejectConsent = false
+        #expect(!AppSettings(defaults: defaults).rejectConsent)
     }
 }

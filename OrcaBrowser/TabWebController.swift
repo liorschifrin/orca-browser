@@ -21,6 +21,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
         ContentBlocker.shared.install(on: configuration.userContentController, privateRules: tab.privateRules)
+        ConsentReject.install(on: configuration.userContentController) { [weak tab] message in
+            ContentBlocker.shared.rejectsConsent(on: message.webView?.url, privateRules: tab?.privateRules)
+        }
         configuration.userContentController.addUserScript(LinkPress.userScript)
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)

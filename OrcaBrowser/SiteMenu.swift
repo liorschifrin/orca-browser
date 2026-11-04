@@ -61,7 +61,7 @@ struct SiteMenu: View {
                     .frame(minHeight: 48)
                 Divider().padding(.leading, 16)
                 Toggle("Hide cookie banners", isOn: $blocksBanners)
-                    .disabled(!settings.blockCookieBanners)
+                    .disabled(!settings.blockCookieBanners && !settings.rejectConsent)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
             }

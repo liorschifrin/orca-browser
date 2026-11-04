@@ -26,10 +26,11 @@ struct SettingsView: View {
                     Toggle("Block ads", isOn: $settings.blockAds)
                     Toggle("Block trackers", isOn: $settings.blockTrackers)
                     Toggle("Hide cookie banners", isOn: $settings.blockCookieBanners)
+                    Toggle("Reject cookie consent", isOn: $settings.rejectConsent)
                 } header: {
                     Text("Blocking")
                 } footer: {
-                    Text("Uses AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Changes apply to pages you open next.")
+                    Text("Ads, trackers and banners use AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Rejecting consent clicks \"reject\" for you on banners that offer one; it runs only on pages that show such a banner. Changes apply to pages you open next.")
                 }
                 Section {
                     Toggle("Block Reddit app pop-up", isOn: $settings.blockRedditPrompt)
