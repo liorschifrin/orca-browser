@@ -17,8 +17,11 @@ struct SearchOverlay: View {
     let onDismiss: () -> Void
 
     @State private var text = ""
+    @State private var hasEditedText = false
+    @State private var isShowingClipboard = false
     @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
+    private let settings = AppSettings.shared
     @Environment(\.colorScheme) private var systemColorScheme
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
@@ -46,11 +49,22 @@ struct SearchOverlay: View {
             }
 
             VStack(spacing: 10) {
-                if !clipboardText.isEmpty && clipboardText != text {
-                    clipboardChip
+                if settings.savesClipboardHistory {
+                    if isShowingClipboard {
+                        ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
+                            .transition(.opacity.combined(with: .offset(y: 12)))
+                    }
                 }
+                ClipboardControls(
+                    isOpen: $isShowingClipboard,
+                    showsHistory: settings.savesClipboardHistory,
+                    text: clipboardText,
+                    accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
+                    action: useClipboard
+                )
                 field
             }
+                .animation(.snappy(duration: 0.2), value: isShowingClipboard)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .offset(y: isPresented ? 0 : 24)
@@ -72,6 +86,7 @@ struct SearchOverlay: View {
             // Presented at launch: grab the keyboard right away.
             if isPresented {
                 text = initialText
+                hasEditedText = false
                 isFocused = true
                 clipboardCache.refresh()
             }
@@ -79,10 +94,12 @@ struct SearchOverlay: View {
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
                 text = initialText
+                hasEditedText = false
                 isFocused = true
                 clipboardCache.refresh()
             } else {
                 isFocused = false
+                isShowingClipboard = false
             }
         }
         .onChange(of: isFocused) { _, focused in
@@ -92,30 +109,30 @@ struct SearchOverlay: View {
                 selection = nil
             }
         }
+        .onChange(of: text) { _, newText in
+            if newText != initialText { hasEditedText = true }
+        }
     }
 
     private var clipboardText: String {
         clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Shows what was copied; tapping goes straight to it.
-    private var clipboardChip: some View {
-        Button {
+    private var shouldNavigateClipboard: Bool {
+        Self.shouldNavigateClipboard(text: text, hasEditedText: hasEditedText)
+    }
+
+    static func shouldNavigateClipboard(text: String, hasEditedText: Bool) -> Bool {
+        text.isEmpty || !hasEditedText
+    }
+
+    private func useClipboard() {
+        isShowingClipboard = false
+        if shouldNavigateClipboard {
             onSubmit(clipboardText)
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "doc.on.clipboard")
-                Text(clipboardText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            .font(.subheadline)
-            .padding(.horizontal, 14)
-            .frame(height: 38)
-            .background(.regularMaterial, in: .capsule)
+        } else {
+            ClipboardHistory.typeIntoField(clipboardCache.text)
         }
-        .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel("Go to copied text: \(clipboardText)")
     }
 
     private var field: some View {
@@ -203,6 +220,13 @@ struct SearchOverlay: View {
         if !text.isEmpty { text.append(" ") }
         isFocused = true
         selection = TextSelection(insertionPoint: text.endIndex)
+    }
+
+    /// Types the item where the cursor is, without submitting, and puts it
+    /// back on the clipboard at the top of the history.
+    private func insertFromHistory(_ item: ClipboardItem) {
+        isShowingClipboard = false
+        ClipboardHistory.shared.insert(item)
     }
 
     private func dismiss() {
