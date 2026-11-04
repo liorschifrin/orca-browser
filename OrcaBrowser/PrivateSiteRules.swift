@@ -1,7 +1,7 @@
 import Foundation
 
-/// Per-site choices made in incognito: ad and tracker blocking, and page
-/// dialogs.
+/// Per-site choices made in incognito: ad, tracker and cookie banner
+/// blocking, and page dialogs.
 ///
 /// Normal tabs remember such choices on disk (`ContentBlocker`,
 /// `PageDialogPermissions`). Incognito must not leave the sites it visited

@@ -25,6 +25,9 @@ final class AppSettings {
     private static let showsHeaderToolsKey = "showsHeaderTools"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
+    private static let blockCookieBannersKey = "blockCookieBanners"
+    private static let googleInEnglishKey = "googleInEnglish"
+    private static let rejectConsentKey = "rejectConsent"
     private static let blockRedditPromptKey = "blockRedditPrompt"
     private static let voiceSearchProviderKey = "voiceSearchProvider"
     private static let allowsPageDialogsKey = "allowsPageDialogs"
@@ -85,6 +88,23 @@ final class AppSettings {
         didSet { defaults.set(blockTrackers, forKey: Self.blockTrackersKey) }
     }
 
+    /// Hides cookie consent banners in every tab. On by default.
+    var blockCookieBanners: Bool {
+        didSet { defaults.set(blockCookieBanners, forKey: Self.blockCookieBannersKey) }
+    }
+
+    /// Opens Google Search and its home page in English (`GoogleLanguage`). On
+    /// by default.
+    var googleInEnglish: Bool {
+        didSet { defaults.set(googleInEnglish, forKey: Self.googleInEnglishKey) }
+    }
+
+    /// Says no to cookie consent where a banner offers a plain reject. On by
+    /// default; the site's own cookie banner switch also applies.
+    var rejectConsent: Bool {
+        didSet { defaults.set(rejectConsent, forKey: Self.rejectConsentKey) }
+    }
+
     /// Removes Reddit's "get the app" pop-up. On by default.
     var blockRedditPrompt: Bool {
         didSet { defaults.set(blockRedditPrompt, forKey: Self.blockRedditPromptKey) }
@@ -112,6 +132,9 @@ final class AppSettings {
         showsHeaderTools = defaults.object(forKey: Self.showsHeaderToolsKey) as? Bool ?? true
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
+        blockCookieBanners = defaults.object(forKey: Self.blockCookieBannersKey) as? Bool ?? true
+        googleInEnglish = defaults.object(forKey: Self.googleInEnglishKey) as? Bool ?? true
+        rejectConsent = defaults.object(forKey: Self.rejectConsentKey) as? Bool ?? true
         blockRedditPrompt = defaults.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true
         allowsPageDialogs = defaults.object(forKey: Self.allowsPageDialogsKey) as? Bool ?? true
         voiceSearchProvider = VoiceSearchProvider(

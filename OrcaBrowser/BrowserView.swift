@@ -241,6 +241,7 @@ struct BrowserView: View {
         }
         .onChange(of: settings.blockAds) { ContentBlocker.shared.settingsChanged() }
         .onChange(of: settings.blockTrackers) { ContentBlocker.shared.settingsChanged() }
+        .onChange(of: settings.blockCookieBanners) { ContentBlocker.shared.settingsChanged() }
         .onChange(of: settings.autoArchiveTabs) { archiveInactiveTabs() }
         .onChange(of: settings.autoArchiveDays) { archiveInactiveTabs() }
         .sheet(isPresented: $isShowingArchive, onDismiss: {

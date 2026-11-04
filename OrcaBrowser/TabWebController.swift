@@ -21,6 +21,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         // Play videos inline (in the page) instead of forcing fullscreen.
         configuration.allowsInlineMediaPlayback = true
         ContentBlocker.shared.install(on: configuration.userContentController, privateRules: tab.privateRules)
+        ConsentReject.install(on: configuration.userContentController) { [weak tab] message in
+            ContentBlocker.shared.rejectsConsent(on: message.webView?.url, privateRules: tab?.privateRules)
+        }
         configuration.userContentController.addUserScript(LinkPress.userScript)
         configuration.userContentController.addUserScript(
             ShortsFilter.userScript(enabled: AppSettings.shared.hideShorts)
@@ -134,6 +137,17 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             tab?.load(watchURL)
             return
         }
+        // Google Search and its home page open in English. Only plain page loads:
+        // a form that sends data keeps its request as it is.
+        if AppSettings.shared.googleInEnglish,
+           isMainFrame,
+           action.request.httpMethod?.uppercased() ?? "GET" == "GET",
+           let url = action.request.url,
+           let english = GoogleLanguage.englishURL(for: url) {
+            decisionHandler(.cancel)
+            tab?.load(english)
+            return
+        }
         // Before the page's requests go out, give it the right blocking lists:
         // a site can have ad or tracker blocking switched off.
         if isMainFrame, let url = action.request.url {
@@ -150,13 +164,17 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     func webView(_ webView: WKWebView, contentRuleListWithIdentifier identifier: String, performedAction action: NSObject, forURL url: URL) {
         guard (action.value(forKey: "blockedLoad") as? Bool) == true,
               let category = ContentBlocker.shared.category(ofList: identifier) else { return }
-        tab?.countBlocked(category)
+        tab?.countBlocked(category, url: url)
     }
 
     /// Called once the first bytes of a new page arrive, i.e. the old page is
     /// about to be replaced.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.pageDidCommit()
+        // Hidden banners often leave the page unable to scroll.
+        if ContentBlocker.shared.hidesBanners(on: webView.url, privateRules: tab?.privateRules) {
+            webView.evaluateJavaScript(CookieBanners.unlockScrollScript)
+        }
     }
 
     /// Failure before anything arrived (offline, bad host, ...).
