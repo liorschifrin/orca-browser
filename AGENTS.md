@@ -13,7 +13,7 @@ single install:
   build and keeps it, so rebuilding never touches the other slot.
 
 When a change is ready to try, run
-`scripts/ship-to-phone.sh --label "two to four words" --changed "..."`
+`scripts/ship-to-phone.sh --label "two to four words" --changed "..." --thread <thread id>`
 from the worktree. The label says what the change is (for example
 `--label "hide shorts toggle"`). It builds, installs and launches the app, and
 prints which slot it used. The label is remembered, so later builds from the
@@ -33,6 +33,12 @@ branch history, so the user sees just what is new to test. There is no length
 limit and the panel scrolls, so include what the user needs and no more. If
 the app is closed before the panel is dismissed, it opens again next launch.
 Light Markdown works (`**bold**`, `code`).
+
+`--thread` is your own T3 Code thread id (the `currentThreadId` that the
+`t3_thread_list` tool returns). It adds an "Open Thread in T3 Code" row to the
+panel that opens `t3code://threads/<environment id>/<thread id>` in the T3 Code
+iPhone app, so the user can jump back to you from the build. Pass it on every
+build. If you can't find your thread id, leave it off.
 
 The bottom bar of a test build shows the slot (dev 1 or dev 2), a small commit stamp and the label, so the user can tell what
 each app contains. A `*` after the commit means uncommitted changes. In Debug

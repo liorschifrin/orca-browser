@@ -46,14 +46,17 @@ struct BuildStamp {
     }
 }
 
-/// What the build changed and what to try, written by whoever shipped it.
+/// What the build changed and what to try, written by whoever shipped it, and
+/// a link to the T3 Code thread that made it.
 struct BuildNotes: Equatable {
     var changed: [String]
     var test: [String]
+    var threadURL: URL?
 
     private struct Payload: Decodable {
         var changed: [String]?
         var test: [String]?
+        var thread: String?
     }
 
     /// The script sends the notes as base64-encoded JSON, so any text survives
@@ -61,8 +64,12 @@ struct BuildNotes: Equatable {
     static func decode(base64: String) -> BuildNotes? {
         guard let data = Data(base64Encoded: base64),
               let payload = try? JSONDecoder().decode(Payload.self, from: data) else { return nil }
-        let notes = BuildNotes(changed: payload.changed ?? [], test: payload.test ?? [])
-        return notes.changed.isEmpty && notes.test.isEmpty ? nil : notes
+        let notes = BuildNotes(
+            changed: payload.changed ?? [],
+            test: payload.test ?? [],
+            threadURL: payload.thread.flatMap { URL(string: $0) }
+        )
+        return notes.changed.isEmpty && notes.test.isEmpty && notes.threadURL == nil ? nil : notes
     }
 }
 
@@ -144,13 +151,21 @@ struct BuildNotesPeek: View {
     @State private var contentHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    @State private var threadOpenFailed = false
+
     private static let headerHeight: CGFloat = 44
+    /// The thread link, laid out like an action in the link peek.
+    private static let threadRowHeight: CGFloat = PeekLayout.rowHeight
+
+    private var threadRowHeight: CGFloat {
+        notes.threadURL == nil ? 0 : Self.threadRowHeight + 1
+    }
 
     var body: some View {
         GeometryReader { geometry in
             let available = max(1, geometry.size.height - bottomInset - 2 * PeekLayout.margin)
             let width = max(1, min(380, geometry.size.width - 2 * PeekLayout.margin))
-            let maxBodyHeight = max(0, available - Self.headerHeight)
+            let maxBodyHeight = max(0, available - Self.headerHeight - threadRowHeight)
             let bodyHeight = min(contentHeight, maxBodyHeight)
             ZStack {
                 Color.black.opacity(isVisible ? 0.35 : 0)
@@ -173,6 +188,10 @@ struct BuildNotesPeek: View {
                     .scrollBounceBehavior(.basedOnSize)
                     .scrollDisabled(contentHeight <= maxBodyHeight)
                     .frame(height: bodyHeight)
+                    if let url = notes.threadURL {
+                        Divider()
+                        threadRow(url)
+                    }
                 }
                 .frame(width: width)
                 .background(.regularMaterial)
@@ -212,6 +231,25 @@ struct BuildNotesPeek: View {
             .accessibilityLabel("Close build notes")
         }
         .frame(height: Self.headerHeight)
+    }
+
+    private func threadRow(_ url: URL) -> some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
+            UIApplication.shared.open(url) { opened in
+                threadOpenFailed = !opened
+            }
+        } label: {
+            HStack {
+                Text(threadOpenFailed ? "T3 Code didn't open" : "Open Thread in T3 Code")
+                Spacer()
+                Image(systemName: "arrow.up.forward.app")
+            }
+            .padding(.horizontal, 16)
+            .frame(height: Self.threadRowHeight)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var notesContent: some View {

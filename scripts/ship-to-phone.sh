@@ -32,6 +32,8 @@
 #                       (repeatable). The app shows both in a
 #                       panel the first time this build opens, and when its
 #                       stamp is held. Pass them on every build: notes are not kept.
+#   --thread ID         your T3 Code thread id: the panel gets an "Open Thread in
+#                       T3 Code" row linking to t3code://threads/<environment>/<id>
 #   --build-only        build but don't install
 #   --configuration X   Debug (default) or Release
 #   --device X          device name or UDID (default: the connected iPhone)
@@ -41,6 +43,8 @@ set -euo pipefail
 SLOT_COUNT=2
 BASE_ID="com.liorschifrin.OrcaBrowser"
 SLOTS_DIR="${ORCA_SLOTS_DIR:-$HOME/.orca-slots}"
+# This Mac's T3 Code environment, for thread links (t3_environment_read shows it).
+T3_ENVIRONMENT_ID="${ORCA_T3_ENVIRONMENT_ID:-a42a529c-33c0-4e18-bacb-574b2bbe4c42}"
 
 mode=ship
 configuration=Debug
@@ -49,6 +53,7 @@ label=""
 takeover=""
 changed=()
 tests=()
+thread=""
 build_only=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -63,7 +68,8 @@ while [[ $# -gt 0 ]]; do
         --takeover) takeover="$2"; shift ;;
         --changed) changed+=("$2"); shift ;;
         --test) tests+=("$2"); shift ;;
-        -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --thread) thread="$2"; shift ;;
+        -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -108,12 +114,14 @@ default_label() {
 # Sets the build ID and the what's-new notes (from --changed and --test) for the app.
 add_notes_settings() {
     settings+=("ORCA_BUILD_ID=$(date +%s)")
-    if [[ ${#changed[@]} -gt 0 || ${#tests[@]} -gt 0 ]]; then
-        local notes_json
+    if [[ ${#changed[@]} -gt 0 || ${#tests[@]} -gt 0 || -n "$thread" ]]; then
+        local notes_json thread_url=""
+        [[ -n "$thread" ]] && thread_url="t3code://threads/$T3_ENVIRONMENT_ID/$thread"
         notes_json="$(jq -cn \
             --argjson c "$(json_array ${changed[@]+"${changed[@]}"})" \
             --argjson t "$(json_array ${tests[@]+"${tests[@]}"})" \
-            '{changed: $c, test: $t}')"
+            --arg thread "$thread_url" \
+            '{changed: $c, test: $t} + (if $thread == "" then {} else {thread: $thread} end)')"
         settings+=("ORCA_BUILD_NOTES=$(printf '%s' "$notes_json" | base64 | tr -d '\n')")
         return 0
     fi
