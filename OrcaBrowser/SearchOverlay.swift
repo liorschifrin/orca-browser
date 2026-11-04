@@ -11,6 +11,8 @@ struct SearchOverlay: View {
     var initialText = ""
     var selectInitialText = false
     var showsIncognitoToggle = false
+    /// Everything typed there is private already, so there's nothing to toggle.
+    var isInIncognitoWindow = false
     @Binding var isIncognito: Bool
     let onAppend: () -> Void
     let onSubmit: (String) -> Void
@@ -155,7 +157,7 @@ struct SearchOverlay: View {
                 .submitLabel(.go)
                 .onSubmit(submit)
 
-            if showsIncognitoToggle || isIncognito {
+            if !isInIncognitoWindow, showsIncognitoToggle || isIncognito {
                 incognitoToggle
             }
 

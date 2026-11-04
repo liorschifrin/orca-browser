@@ -26,10 +26,17 @@ struct SettingsView: View {
                 Section {
                     Toggle("Block ads", isOn: $settings.blockAds)
                     Toggle("Block trackers", isOn: $settings.blockTrackers)
+                    Toggle("Hide cookie banners", isOn: $settings.blockCookieBanners)
+                    Toggle("Reject cookie consent", isOn: $settings.rejectConsent)
                 } header: {
                     Text("Blocking")
                 } footer: {
-                    Text("Uses AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Changes apply to pages you open next.")
+                    Text("Ads, trackers and banners use AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Rejecting consent clicks \"reject\" for you on banners that offer one; it runs only on pages that show such a banner. Changes apply to pages you open next.")
+                }
+                Section {
+                    Toggle("Google in English", isOn: $settings.googleInEnglish)
+                } footer: {
+                    Text("Opens Google Search and Google's home page in English, which helps when you're abroad or in an incognito tab. Searches you type here and ones you start from Google's own page both get it.")
                 }
                 Section {
                     Toggle("Block Reddit app pop-up", isOn: $settings.blockRedditPrompt)
@@ -53,6 +60,7 @@ struct SettingsView: View {
                     Toggle("Show FPS, memory and build", isOn: $settings.showDebugStats)
                     ClipboardTypesReadout()
                 }
+                BlockingListsSection()
                 #endif
                 Section {
                     Toggle("Save clipboard history", isOn: $settings.savesClipboardHistory)
@@ -172,5 +180,65 @@ private struct ClipboardTypesReadout: View {
             }
         }
     }
+}
+#endif
+
+#if DEBUG
+/// What the blocking lists are doing, with a button to fetch them now instead
+/// of waiting for the quiet moment the app normally picks.
+private struct BlockingListsSection: View {
+    private let status = ContentBlocker.shared.status
+
+    var body: some View {
+        Section {
+            ForEach(status.entries) { entry in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.name)
+                    Text(detail(entry))
+                        .font(.footnote)
+                        .foregroundStyle(isFailed(entry) ? .red : .secondary)
+                }
+            }
+            Button(status.isUpdating ? "Downloading…" : "Download lists now") {
+                ContentBlocker.shared.updateNow()
+            }
+            .disabled(status.isUpdating)
+        } header: {
+            Text("Blocking lists")
+        } footer: {
+            if let checked = status.lastCheck {
+                Text("Last full check \(checked.formatted(.relative(presentation: .named))).")
+            } else {
+                Text("Not checked yet. Lists download in the background once the app is quiet.")
+            }
+        }
+    }
+
+    private func isFailed(_ entry: ContentBlocker.Status.Entry) -> Bool {
+        if case .failed = entry.phase { true } else { false }
+    }
+
+    private func detail(_ entry: ContentBlocker.Status.Entry) -> String {
+        switch entry.phase {
+        case .waiting: return "Waiting for a quiet moment…"
+        case .downloading: return "Downloading…"
+        case .converting: return "Converting…"
+        case .compiling: return "Compiling…"
+        case .failed(let reason): return "Failed: \(reason)"
+        case .idle: break
+        }
+        guard entry.isLoaded else {
+            return entry.updated == nil ? "Not downloaded" : "Downloaded, not loaded yet"
+        }
+        var parts = ["Active"]
+        if let rules = entry.rules { parts.append("\(rules.formatted()) rules") }
+        if let bytes = entry.bytes { parts.append(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)) }
+        if let updated = entry.updated { parts.append(updated.formatted(.relative(presentation: .named))) }
+        return parts.joined(separator: " · ")
+    }
+}
+#else
+private struct BlockingListsSection: View {
+    var body: some View { EmptyView() }
 }
 #endif

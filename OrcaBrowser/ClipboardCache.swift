@@ -27,6 +27,14 @@ final class ClipboardCache {
 
     private init() {}
 
+    /// Forgets what was on the clipboard, for when it has just been emptied.
+    func clear() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        text = ""
+        cachedChangeCount = -1
+    }
+
     func refresh() {
         // Opening search or receiving another clipboard notification must not
         // cancel an in-flight Universal Clipboard fetch and start it over.

@@ -23,14 +23,14 @@ struct TabSwitcher: View {
     /// 0 = the browser's bottom bar is showing, 1 = the switcher's. Owned by
     /// `BrowserView`, which draws both bars, so they can cross-fade.
     @Binding var barMix: Double
-    /// Incremented by the bar's left button; means "go back to the current tab".
-    let doneTrigger: Int
     /// Incremented when the store's tabs change outside the switcher; means
     /// "show the tabs as they are now".
     let reloadTrigger: Int
     let onSelect: (Tab) -> Void
     let onClose: (Tab) -> Void
-    let onDone: () -> Void
+    /// Flips between the normal tabs and the incognito window.
+    let onToggleIncognito: () -> Void
+    let onCloseIncognito: () -> Void
     /// Called the moment the exit animation starts.
     let onLeaveStart: () -> Void
 
@@ -105,21 +105,21 @@ struct TabSwitcher: View {
         store: BrowserStore,
         barHeight: CGFloat,
         barMix: Binding<Double>,
-        doneTrigger: Int,
         reloadTrigger: Int,
         onSelect: @escaping (Tab) -> Void,
         onClose: @escaping (Tab) -> Void,
-        onDone: @escaping () -> Void,
+        onToggleIncognito: @escaping () -> Void,
+        onCloseIncognito: @escaping () -> Void,
         onLeaveStart: @escaping () -> Void
     ) {
         self.store = store
         self.barHeight = barHeight
         _barMix = barMix
-        self.doneTrigger = doneTrigger
         self.reloadTrigger = reloadTrigger
         self.onSelect = onSelect
         self.onClose = onClose
-        self.onDone = onDone
+        self.onToggleIncognito = onToggleIncognito
+        self.onCloseIncognito = onCloseIncognito
         self.onLeaveStart = onLeaveStart
 
         let ordered = store.tabsByRecency
@@ -135,22 +135,73 @@ struct TabSwitcher: View {
 
             ZStack {
                 Color(.systemGroupedBackground)
+                    .overlay(Color.black.opacity(store.space == .incognito ? 0.6 : 0))
                     .opacity(backdrop)
 
                 deck(metrics)
                     .allowsHitTesting(opened && leavingID == nil)
             }
+            .overlay(alignment: .top) {
+                // Normal tabs go into the window from the bottom bar.
+                if store.space == .incognito {
+                    spaceBar
+                        .padding(.top, Self.windowTopInset + 8)
+                        .opacity(opened && leavingID == nil ? 1 : 0)
+                        .animation(.easeOut(duration: 0.15), value: opened && leavingID == nil)
+                }
+            }
         }
         .ignoresSafeArea()
         .task { await open() }
         .onChange(of: reloadTrigger) { reload() }
-        .onChange(of: doneTrigger) {
-            if let current = store.selectedTab {
-                leave(to: current) { onDone() }
-            } else {
-                onDone()
+    }
+
+    // MARK: - Normal tabs and the incognito window
+
+    /// Shown in the incognito window: a way back to the normal tabs, and a way
+    /// to close all of its tabs.
+    private var spaceBar: some View {
+        let inWindow = store.space == .incognito
+        return ZStack {
+            HStack(spacing: 0) {
+                spaceSegment("Tabs", systemImage: "square.on.square", isSelected: !inWindow)
+                spaceSegment("Incognito", systemImage: "eye.slash.fill", isSelected: inWindow)
+            }
+            .padding(3)
+            .background(.thinMaterial, in: .capsule)
+
+            if inWindow {
+                HStack {
+                    Spacer()
+                    Button(action: onCloseIncognito) {
+                        Image(systemName: "trash")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.thinMaterial, in: .circle)
+                    }
+                    .buttonStyle(PressableButtonStyle())
+                    .accessibilityLabel("Close all incognito tabs")
+                }
+                .padding(.horizontal, 20)
             }
         }
+    }
+
+    private func spaceSegment(_ title: String, systemImage: String, isSelected: Bool) -> some View {
+        Button {
+            if !isSelected { onToggleIncognito() }
+        } label: {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(isSelected ? Color.primary.opacity(0.14) : .clear, in: .capsule)
+                .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: - The deck
@@ -402,7 +453,7 @@ struct TabSwitcher: View {
     }
 }
 
-/// The switcher's bottom bar: a "done" button on the left, a centered capsule
+/// The switcher's bottom bar: an incognito button on the left, a centered capsule
 /// "+", and history and settings buttons on the right. Drawn by `BrowserView` (not by
 /// `TabSwitcher`) so it can sit above the cards and cross-fade with the
 /// browser's own bar.
@@ -414,22 +465,35 @@ struct SwitcherBar: View {
     /// The browser bar's measured height.
     let height: CGFloat
     let plusButtonWidth: CGFloat
-    let onDone: () -> Void
     let onNewTab: () -> Void
     let voiceQuery: VoiceQuery
     let onVoiceSearch: (URL) -> Void
+    /// The incognito window has no archive or history of its own, and the
+    /// normal ones don't belong in it.
+    let isInIncognitoWindow: Bool
+    let onToggleIncognito: () -> Void
     let onArchive: () -> Void
     let onHistory: () -> Void
     let onSettings: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
-            BarButton(systemName: "display", label: "Back to page", action: onDone)
-            BarButton(systemName: "archivebox", label: "Archive", action: onArchive)
+            // The same place flips between the two spaces: the incognito window
+            // from normal tabs, and back to them from the window.
+            if isInIncognitoWindow {
+                BarButton(systemName: "square.on.square", label: "Normal tabs", action: onToggleIncognito)
+            } else {
+                BarButton(systemName: "eye.slash", label: "Incognito window", action: onToggleIncognito)
+            }
+            if !isInIncognitoWindow {
+                BarButton(systemName: "archivebox", label: "Archive", action: onArchive)
+            }
 
             Spacer()
 
-            BarButton(systemName: "clock", label: "History", action: onHistory)
+            if !isInIncognitoWindow {
+                BarButton(systemName: "clock", label: "History", action: onHistory)
+            }
             BarButton(systemName: "gearshape", label: "Settings", action: onSettings)
         }
         // Centered on the bar, whatever sits on either side of it.
