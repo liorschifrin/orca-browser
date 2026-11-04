@@ -179,6 +179,26 @@ struct ClipboardHistoryRecoveryTests {
         #expect(try Data(contentsOf: directory.appending(path: "items.unreadable.json")) == garbled)
     }
 
+    @Test func anUnreadableListIsNotSavedOverWhenItCannotBeKeptAside() throws {
+        let directory = try makeDirectory()
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let garbled = Data("not json".utf8)
+        let file = directory.appending(path: "items.json")
+        try garbled.write(to: file)
+        // A folder that can't be changed makes moving the file aside fail.
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: directory.path)
+        let history = ClipboardHistory(directory: directory)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.path)
+
+        history.record(text: "fresh")
+        history.save()
+        history.waitForWrites()
+        #expect(try Data(contentsOf: file) == garbled)
+    }
+
     @Test func copyingAnImageWhoseFileIsMissingFailsAndLeavesTheOrderAlone() throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

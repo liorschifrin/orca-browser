@@ -104,7 +104,8 @@ final class ClipboardHistory {
             // Keep it for recovery rather than saving over it.
             let aside = directory.appending(path: "items.unreadable.json")
             try? FileManager.default.removeItem(at: aside)
-            try? FileManager.default.moveItem(at: file, to: aside)
+            // If it can't be kept aside, don't risk saving over it either.
+            if (try? FileManager.default.moveItem(at: file, to: aside)) == nil { canSave = false }
         }
     }
 
