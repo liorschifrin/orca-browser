@@ -22,6 +22,10 @@
 # Other options:
 #   --label "words"     what the branch is about, shown under the slot in the
 #                       app (kept for later builds; defaults to the branch name)
+#   --changed "line"    what this build changes (repeatable)
+#   --test "line"       what to try in it (repeatable). The app shows both in a
+#                       panel the first time this build opens, and when its
+#                       stamp is tapped. Pass them on every build: notes are not kept.
 #   --build-only        build but don't install
 #   --configuration X   Debug (default) or Release
 #   --device X          device name or UDID (default: the connected iPhone)
@@ -37,6 +41,8 @@ configuration=Debug
 device="${ORCA_DEVICE:-}"
 label=""
 takeover=""
+changed=()
+tests=()
 build_only=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -48,7 +54,9 @@ while [[ $# -gt 0 ]]; do
         --device) device="$2"; shift ;;
         --label) label="$2"; shift ;;
         --takeover) takeover="$2"; shift ;;
-        -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --changed) changed+=("$2"); shift ;;
+        --test) tests+=("$2"); shift ;;
+        -h|--help) sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -88,6 +96,10 @@ default_label() {
     local text="$branch_label"
     [[ "$text" =~ ^[0-9a-f]{8}$ ]] && text="$(git log -1 --format=%s)"
     echo "$text" | tr '_-' '  ' | awk '{ for (i = 1; i <= NF && i <= 4; i++) printf "%s%s", $i, (i < NF && i < 4 ? " " : ""); print "" }'
+}
+
+json_array() {
+    if [[ $# -eq 0 ]]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -cs .; fi
 }
 
 slot_file() { echo "$SLOTS_DIR/$1"; }
@@ -259,6 +271,16 @@ else
     bundle_id="$BASE_ID.dev$slot"
     settings+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id" "INFOPLIST_KEY_CFBundleDisplayName=Orca $slot" "ASSETCATALOG_COMPILER_APPICON_NAME=AppIconDev$slot")
     settings+=("ORCA_BUILD_SLOT=$slot_name" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
+    settings+=("ORCA_BUILD_ID=$(date +%s)")
+    if [[ ${#changed[@]} -gt 0 || ${#tests[@]} -gt 0 ]]; then
+        notes_json="$(jq -cn \
+            --argjson c "$(json_array ${changed[@]+"${changed[@]}"})" \
+            --argjson t "$(json_array ${tests[@]+"${tests[@]}"})" \
+            '{changed: $c, test: $t}')"
+        settings+=("ORCA_BUILD_NOTES=$(printf '%s' "$notes_json" | base64 | tr -d '\n')")
+    else
+        echo "No --changed or --test notes given, so the app won't show a what's-new panel for this build." >&2
+    fi
 
     # Slot claimed: the rest can run without holding the lock.
     rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true
