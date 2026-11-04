@@ -45,7 +45,7 @@ struct BrowserView: View {
     @State private var dialogText = ""
     @State private var siteMenu: SiteMenuTarget?
     /// The notes for a test build, shown the first time it opens and when its
-    /// stamp is tapped.
+    /// stamp is held.
     @State private var isShowingBuildNotes = BuildStamp.current?.hasUnseenNotes ?? false
     private let settings = AppSettings.shared
     /// Height of the "Incognito" strip under the status bar.
