@@ -35,6 +35,23 @@ struct SiteMenu: View {
     private var bannersActive: Bool { settings.blockCookieBanners && blocksBanners }
 
     var body: some View {
+        // Scrolls when large text or a short screen leaves the sheet too small.
+        ScrollView {
+            content
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .onChange(of: allowsDialogs) {
+            if let rules = target.tab.privateRules {
+                rules.setAllowsDialogs(allowsDialogs, on: target.site)
+            } else {
+                PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
+            }
+        }
+        .presentationDetents(isYouTube ? [.large] : [.height(540)])
+        .presentationDragIndicator(.visible)
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
@@ -123,16 +140,7 @@ struct SiteMenu: View {
         }
         .padding(.horizontal, 20)
         .padding(.top, 28)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .onChange(of: allowsDialogs) {
-            if let rules = target.tab.privateRules {
-                rules.setAllowsDialogs(allowsDialogs, on: target.site)
-            } else {
-                PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
-            }
-        }
-        .presentationDetents(isYouTube ? [.large] : [.height(540)])
-        .presentationDragIndicator(.visible)
+        .padding(.bottom, 16)
     }
 
     /// A switch that remembers its choice for the site and reloads.
