@@ -41,6 +41,9 @@ struct BrowserView: View {
     /// What's typed into a page's text prompt.
     @State private var dialogText = ""
     @State private var siteMenu: SiteMenuTarget?
+    /// The notes for a test build, shown the first time it opens and when its
+    /// stamp is tapped.
+    @State private var isShowingBuildNotes = BuildStamp.current?.hasUnseenNotes ?? false
     private let settings = AppSettings.shared
     /// Height of the "Incognito" strip under the status bar.
     private static let incognitoBarHeight: CGFloat = 16
@@ -149,6 +152,18 @@ struct BrowserView: View {
                 },
                 onDismiss: closeSearch
             )
+
+            if isShowingBuildNotes, let stamp = BuildStamp.current, let notes = stamp.notes {
+                BuildNotesPeek(
+                    stamp: stamp,
+                    notes: notes,
+                    bottomInset: barHeight,
+                    onDismiss: {
+                        stamp.markNotesSeen()
+                        isShowingBuildNotes = false
+                    }
+                )
+            }
 
             // Hides the screen in the iOS app switcher, but only when what was
             // last on screen is private.
@@ -411,6 +426,7 @@ struct BrowserView: View {
                             siteMenu = SiteMenuTarget(tab: tab, site: site)
                         },
                         onShowTabs: openSwitcher,
+                        onShowBuildNotes: { isShowingBuildNotes = true },
                         onVoiceSearch: openVoiceQuery
                     )
                     // Put the address strip just above the physical bottom edge.

@@ -12,15 +12,28 @@ single install:
   build and keeps it, so rebuilding never touches the other slot.
 
 When a change is ready to try, run
-`scripts/ship-to-phone.sh --label "two to four words"` from the worktree, with
-words that say what the change is (for example `--label "hide shorts toggle"`).
-It builds, installs and launches the app, and prints which slot it used. The label is remembered, so later builds from the
-same branch can leave it off. The bottom bar of a test build shows the slot
-(dev 1 or dev 2), a small commit stamp and the label, so the user can tell what
+`scripts/ship-to-phone.sh --label "two to four words" --changed "..." --test "..."`
+from the worktree. The label says what the change is (for example
+`--label "hide shorts toggle"`). It builds, installs and launches the app, and
+prints which slot it used. The label is remembered, so later builds from the
+same branch can leave it off.
+
+`--changed` and `--test` (each repeatable, one short line per flag) become a
+panel the app shows over the page the first time that build opens. The user
+can reopen it by tapping the stamp. Pass them on every build, since they are
+not remembered, and the app shows no panel without them. Keep them concise:
+`--changed` lines say what is different, `--test` lines say what to try and
+what the right result looks like. Cover only what changed since the previous
+build of this branch (the whole change for its first build), not the full
+branch history, so the user sees just what is new to test. There is no length
+limit and the panel scrolls, so include what the user needs and no more. If
+the app is closed before the panel is dismissed, it opens again next launch.
+Light Markdown works (`**bold**`, `code`).
+
+The bottom bar of a test build shows the slot (dev 1 or dev 2), a small commit stamp and the label, so the user can tell what
 each app contains. A `*` after the commit means uncommitted changes. In Debug
 builds the stamp is part of the Settings > Debug "Show FPS, memory and build"
-switch, so the user can hide it.
-Each test slot also has its own app icon (the `AppIconDev1` and `AppIconDev2`
+switch, so the user can hide it. Each test slot also has its own app icon (the `AppIconDev1` and `AppIconDev2`
 sets in the asset catalog, with a DEV banner), chosen by the script at build time.
 
 - If both slots are held by other branches, the script exits with code 3 and
