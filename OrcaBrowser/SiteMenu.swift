@@ -12,13 +12,17 @@ struct SiteMenuTarget: Identifiable {
 /// and lets you switch ad and tracker blocking off for the whole site.
 struct SiteMenu: View {
     let target: SiteMenuTarget
+    /// In the incognito window, handing the page to Chrome is asked about first.
+    var confirmsOpeningChrome = false
     private let settings = AppSettings.shared
     @State private var blocksAds: Bool
     @State private var blocksTrackers: Bool
     @State private var allowsDialogs: Bool
+    @State private var isConfirmingChrome = false
 
-    init(target: SiteMenuTarget) {
+    init(target: SiteMenuTarget, confirmsOpeningChrome: Bool = false) {
         self.target = target
+        self.confirmsOpeningChrome = confirmsOpeningChrome
         let rules = target.tab.privateRules
         _blocksAds = State(initialValue: ContentBlocker.shared.isBlocking(.ads, on: target.site, privateRules: rules))
         _blocksTrackers = State(initialValue: ContentBlocker.shared.isBlocking(.trackers, on: target.site, privateRules: rules))
@@ -91,6 +95,25 @@ struct SiteMenu: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            if let url = target.tab.url, Translation.canOpenInChrome(url) {
+                Button {
+                    if confirmsOpeningChrome { isConfirmingChrome = true } else { Translation.openInChrome(url) }
+                } label: {
+                    Label("Open in Chrome", systemImage: "arrow.up.forward.app")
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(.thinMaterial, in: .rect(cornerRadius: 14))
+                        .contentShape(.rect(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .confirmationDialog(
+                    "Chrome will get this page’s address, and it won’t be private there.",
+                    isPresented: $isConfirmingChrome,
+                    titleVisibility: .visible
+                ) {
+                    Button("Open in Chrome") { Translation.openInChrome(url) }
+                }
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 28)
@@ -104,7 +127,7 @@ struct SiteMenu: View {
                 PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
             }
         }
-        .presentationDetents(isYouTube ? [.large] : [.height(480)])
+        .presentationDetents(isYouTube ? [.large] : [.height(540)])
         .presentationDragIndicator(.visible)
     }
 

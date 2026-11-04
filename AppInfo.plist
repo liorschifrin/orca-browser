@@ -4,6 +4,8 @@
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Swipe up from + or hold the microphone to dictate a search. With OpenAI selected, the recording is sent to OpenAI for transcription when you release.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID unlocks your incognito tabs when you come back to them.</string>
 	<!-- Lets the app ask whether Google Chrome is installed, for the translate
 	     button on pages in another language. -->
 	<key>LSApplicationQueriesSchemes</key>

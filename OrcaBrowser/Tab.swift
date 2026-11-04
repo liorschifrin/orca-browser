@@ -21,10 +21,15 @@ import WebKit
 final class Tab: Identifiable {
     let id: UUID
     let isIncognito: Bool
+    /// Set for tabs of the incognito window, which share one session. Other
+    /// incognito tabs each have a session of their own.
+    @ObservationIgnored let session: PrivateSession?
+    var isInIncognitoWindow: Bool { session != nil }
     /// Retained across memory-pressure unloading; never backed by disk.
     @ObservationIgnored private(set) var privateDataStore: WKWebsiteDataStore?
-    /// Site choices (blocking, dialogs) made in incognito, shared by all
-    /// incognito tabs. In memory only; nil for normal tabs, which save theirs.
+    /// Site choices (blocking, dialogs) made in incognito, shared by the
+    /// incognito tabs that are not in the window (the window has its own).
+    /// In memory only; nil for normal tabs, which save theirs.
     @ObservationIgnored let privateRules: PrivateSiteRules?
     @ObservationIgnored private var isClosed = false
     /// nil while the tab is unloaded.
@@ -38,7 +43,7 @@ final class Tab: Identifiable {
             // Incognito site choices last while some tab is still on the site.
             // (A nil address is only teardown, which forgets the tab itself.)
             guard isIncognito, let url, url != oldValue else { return }
-            PrivateSiteRules.shared.tab(id, isOn: ContentBlocker.site(for: url))
+            privateRules?.tab(id, isOn: ContentBlocker.site(for: url))
         }
     }
     /// The last search or submitted address, retained when following links.
@@ -134,11 +139,14 @@ final class Tab: Identifiable {
     @ObservationIgnored var onChange: (() -> Void)?
 
     /// Empty tabs are lightweight records; create WebKit only for navigation.
-    init(url: URL? = nil, input: String? = nil, isIncognito: Bool = false) {
+    /// A `session` makes the tab one of the incognito window's.
+    init(url: URL? = nil, input: String? = nil, isIncognito: Bool = false, session: PrivateSession? = nil) {
         id = UUID()
+        let isIncognito = isIncognito || session != nil
         self.isIncognito = isIncognito
-        privateDataStore = isIncognito ? .nonPersistent() : nil
-        privateRules = isIncognito ? .shared : nil
+        self.session = session
+        privateDataStore = session?.dataStore ?? (isIncognito ? .nonPersistent() : nil)
+        privateRules = session?.rules ?? (isIncognito ? .shared : nil)
         fileOwner = (id, false)
 
         if let url {
@@ -151,6 +159,7 @@ final class Tab: Identifiable {
     init(restoring saved: SavedTab, owner: (id: UUID, isPeek: Bool)? = nil, hasSnapshot: Bool, favicon: UIImage?, peekHasSnapshot: Bool = false) {
         id = saved.id
         isIncognito = false
+        session = nil
         privateRules = nil
         fileOwner = owner ?? (saved.id, false)
 
@@ -292,7 +301,7 @@ final class Tab: Identifiable {
 
     func openPeek(_ url: URL) {
         guard !isClosed, peek == nil else { return }
-        let peekTab = Tab(isIncognito: isIncognito)
+        let peekTab = Tab(isIncognito: isIncognito, session: session)
         peekTab.fileOwner = (id, true)
         peekTab.onChange = { [weak self] in self?.onChange?() }
         peek = Peek(url: url, tab: peekTab)
@@ -525,7 +534,8 @@ final class Tab: Identifiable {
             title = nil
             searchText = ""
             loadError = nil
-            if let store = privateDataStore {
+            // The window's tabs share their store; the window wipes it.
+            if session == nil, let store = privateDataStore {
                 store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
             }
             privateDataStore = nil

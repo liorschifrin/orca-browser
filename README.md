@@ -11,7 +11,8 @@ A fast, gesture-driven web browser for iPhone, built with SwiftUI and WebKit. In
 - **Ad and tracker blocking** – native WebKit content rules built from AdGuard filters, with per-site controls and blocked counts in the site menu.
 - **Quick search** - One tap to search clipboard contents
 - **Auto tab archive**
-- **Incognito tabs**
+- **Incognito tabs** - private tabs among your normal ones, each with its own throwaway storage
+- **Incognito window** - a separate space of private tabs that share one session, kept only in memory. Open it with the incognito button at the bottom left of the tab switcher; inside, a Tabs / Incognito toggle at the top goes back. Leaving the app or switching back to normal tabs locks it; coming back offers Continue (behind Face ID) or Start Fresh (no Face ID, since it erases the tabs). The bottom-left button of the switcher flips between the two spaces. No translate button there, and Open in Chrome (in the site menu) asks first. Anything copied while inside is cleared from the clipboard when you leave
 
 ### Site specific features
 - **YouTube**
