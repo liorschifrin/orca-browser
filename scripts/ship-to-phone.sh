@@ -9,11 +9,10 @@
 #                                         commits since the last main build, or your
 #                                         --changed/--test lines
 #   scripts/ship-to-phone.sh --as-main    install THIS branch over the regular Orca Browser app
-#                                         (invisible stamp, like main) instead of a test slot.
-#                                         Temporary: --main puts main back. Pass --changed/--test.
-#                                         Exits 4 instead if another branch's --as-main build is
-#                                         still there (until its PR is merged or closed); --main
-#                                         refuses the same way
+#                                         (with a visible "as-main" stamp and what's-new panel)
+#                                         instead of a test slot. Temporary: --main puts main back.
+#                                         Pass --changed/--test. Exits 4 if another branch holds
+#                                         the regular app; --main refuses the same way.
 #   scripts/ship-to-phone.sh --release    free this branch's test slot (after merging)
 #   scripts/ship-to-phone.sh --takeover N replace whatever is in slot N (ask the user first)
 #   scripts/ship-to-phone.sh --status     show who holds each slot
@@ -391,12 +390,13 @@ if [[ "$mode" == main ]]; then
     add_notes_settings || echo "Nothing new on main since the last main build, so no what's-new panel." >&2
 elif [[ "$mode" == asmain ]]; then
     # This branch in the regular app: same bundle ID and icon as main, so the
-    # test uses the real app and its data, with main's invisible stamp.
-    slot_name=main
+    # test uses the real app and its data. The slot is "as-main", not "main",
+    # so the app shows the stamp (main's is invisible) and the notes panel.
+    slot_name=as-main
     bundle_id="$BASE_ID"
     [[ -n "$label" ]] || label="$(default_label)"
     lock_main
-    settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
+    settings+=("ORCA_BUILD_SLOT=as-main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
     add_notes_settings || echo "No --changed or --test notes given, so the app won't show a what's-new panel for this build." >&2
     echo "Installing this branch over the regular Orca Browser app. Run --main afterwards to put main back." >&2
 else

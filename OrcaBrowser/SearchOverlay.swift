@@ -22,6 +22,7 @@ struct SearchOverlay: View {
     @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
     @FocusState private var isFocused: Bool
@@ -51,6 +52,9 @@ struct SearchOverlay: View {
                 if !clipboardText.isEmpty && clipboardText != text {
                     clipboardChip
                 }
+                if clipboardCache.access == .needsPermission {
+                    pastePermissionChip
+                }
                 field
             }
                 .padding(.horizontal, 16)
@@ -75,17 +79,21 @@ struct SearchOverlay: View {
             if isPresented {
                 text = initialText
                 isFocused = true
-                clipboardCache.refresh()
+                clipboardCache.refresh(userInitiated: true)
             }
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
                 text = initialText
                 isFocused = true
-                clipboardCache.refresh()
+                clipboardCache.refresh(userInitiated: true)
             } else {
                 isFocused = false
             }
+        }
+        // Back from Settings with search still open: pick up a changed choice.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, isPresented { clipboardCache.refresh(userInitiated: true) }
         }
         .onChange(of: isFocused) { _, focused in
             if focused, selectInitialText, !text.isEmpty {
@@ -118,6 +126,24 @@ struct SearchOverlay: View {
         }
         .buttonStyle(PressableButtonStyle())
         .accessibilityLabel("Go to copied text: \(clipboardText)")
+    }
+
+    /// Shown whenever pasting has been refused or prompted, until a quick read
+    /// shows "Paste from Other Apps" is set to Allow.
+    private var pastePermissionChip: some View {
+        Button(action: clipboardCache.openSettings) {
+            HStack(spacing: 8) {
+                Image(systemName: "gearshape")
+                Text("Always allow paste in Settings")
+                    .lineLimit(1)
+            }
+            .font(.subheadline)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
+            .background(.regularMaterial, in: .capsule)
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityHint("Opens Settings so the clipboard can be read without asking each time")
     }
 
     private var field: some View {

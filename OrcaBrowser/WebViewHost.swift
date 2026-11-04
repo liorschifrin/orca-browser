@@ -541,7 +541,7 @@ struct LinkPreview: View {
         case .newTab: promote(inBackground: false)
         case .backgroundTab: promote(inBackground: true)
         case .copyLink:
-            UIPasteboard.general.url = currentURL
+            ClipboardCache.shared.copy(currentURL)
             close(onDismiss)
         case .addToPlay:
             AddToPlay.run(with: currentURL)
