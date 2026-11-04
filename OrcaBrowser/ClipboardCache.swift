@@ -37,14 +37,19 @@ final class ClipboardCache {
     /// since the clipboard is too.
     @ObservationIgnored private var ownChangeCount =
         UserDefaults.standard.object(forKey: ClipboardCache.ownCountKey) as? Int ?? -1
+    /// What we last copied, compared by content too because the change count
+    /// can move more than once for a single write.
+    @ObservationIgnored private var ownCopiedText =
+        UserDefaults.standard.string(forKey: ClipboardCache.ownTextKey)
     /// The clipboard as we last read it, also kept across launches.
     @ObservationIgnored private var lastReadChangeCount =
         UserDefaults.standard.object(forKey: ClipboardCache.lastReadCountKey) as? Int ?? -1
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
 
-    // The "2" restarts from `unknown`: earlier builds could wrongly save `allowed`.
-    private static let accessKey = "clipboardAccess2"
+    // The number restarts from `unknown`: earlier builds could wrongly save `allowed`.
+    private static let accessKey = "clipboardAccess3"
     private static let ownCountKey = "clipboardOwnChangeCount"
+    private static let ownTextKey = "clipboardOwnCopiedText"
     private static let lastReadCountKey = "clipboardLastReadChangeCount"
     /// A read slower than this was probably waiting on the Allow Paste prompt.
     private static let promptThreshold = 0.3
@@ -62,6 +67,8 @@ final class ClipboardCache {
     /// Copies a link and remembers that the clipboard change was ours.
     func copy(_ url: URL) {
         UIPasteboard.general.url = url
+        ownCopiedText = url.absoluteString
+        UserDefaults.standard.set(ownCopiedText, forKey: Self.ownTextKey)
         // The count may only go up at the end of this run loop pass, so also
         // record it on the next one.
         recordOwnChange()
@@ -155,7 +162,7 @@ final class ClipboardCache {
         // reading in the background must stop, and the chip must show.
         if afterPrompt || snapshot.duration > Self.promptThreshold {
             setAccess(.needsPermission)
-        } else if isNew, snapshot.after != ownChangeCount {
+        } else if isNew, snapshot.after != ownChangeCount, snapshot.text != ownCopiedText {
             setAccess(.allowed)
         }
     }
