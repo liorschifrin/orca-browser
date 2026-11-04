@@ -153,3 +153,45 @@ struct SearchClipboardBehaviorTests {
         #expect(!SearchOverlay.shouldNavigateClipboard(text: "https://example.com", hasEditedText: true))
     }
 }
+
+@MainActor
+struct ClipboardHistoryRecoveryTests {
+    private func makeDirectory() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    @Test func anUnreadableListIsKeptAsideInsteadOfOverwritten() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let garbled = Data("not json".utf8)
+        try garbled.write(to: directory.appending(path: "items.json"))
+
+        let history = ClipboardHistory(directory: directory)
+        #expect(history.items.isEmpty)
+        #expect(try Data(contentsOf: directory.appending(path: "items.unreadable.json")) == garbled)
+
+        history.record(text: "fresh")
+        history.save()
+        history.waitForWrites()
+        #expect(ClipboardHistory(directory: directory).items.map(\.text) == ["fresh"])
+        #expect(try Data(contentsOf: directory.appending(path: "items.unreadable.json")) == garbled)
+    }
+
+    @Test func copyingAnImageWhoseFileIsMissingFailsAndLeavesTheOrderAlone() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let history = ClipboardHistory(directory: directory)
+        history.record(image: ClipboardImage(data: Data([5]), type: "public.png"))
+        history.record(text: "newer")
+        history.waitForWrites()
+        let image = try #require(history.items.last)
+        try FileManager.default.removeItem(at: directory.appending(path: "\(image.id.uuidString).img"))
+
+        #expect(!history.copyToPasteboard(image, announces: false))
+        #expect(!history.insert(image))
+        #expect(history.items.map(\.id) == [history.items[0].id, image.id])
+        #expect(history.items[0].text == "newer")
+    }
+}

@@ -66,6 +66,9 @@ final class ClipboardHistory {
     @ObservationIgnored private let maxItems: Int
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    /// False when `items.json` exists but couldn't be read, so an empty list
+    /// never replaces it.
+    @ObservationIgnored private var canSave = true
     /// Writes happen one after another, off the main thread.
     @ObservationIgnored private let ioQueue = DispatchQueue(label: "ClipboardHistory.io", qos: .utility)
     @ObservationIgnored private let thumbnails: NSCache<NSString, UIImage> = {
@@ -88,8 +91,21 @@ final class ClipboardHistory {
     ) {
         self.directory = directory
         self.maxItems = maxItems
-        items = (try? Data(contentsOf: directory.appending(path: "items.json")))
-            .flatMap { try? JSONDecoder().decode([ClipboardItem].self, from: $0) } ?? []
+        let file = directory.appending(path: "items.json")
+        items = []
+        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        guard let data = try? Data(contentsOf: file) else {
+            canSave = false
+            return
+        }
+        if let saved = try? JSONDecoder().decode([ClipboardItem].self, from: data) {
+            items = saved
+        } else {
+            // Keep it for recovery rather than saving over it.
+            let aside = directory.appending(path: "items.unreadable.json")
+            try? FileManager.default.removeItem(at: aside)
+            try? FileManager.default.moveItem(at: file, to: aside)
+        }
     }
 
     // MARK: Adding
@@ -147,13 +163,18 @@ final class ClipboardHistory {
     // MARK: Using
 
     /// Puts the item back on the clipboard and at the top of the history.
-    func copyToPasteboard(_ item: ClipboardItem, announces: Bool = true, title: String = "Copied") {
+    /// False, with a chip saying so, if a picture's file can't be read.
+    @discardableResult
+    func copyToPasteboard(_ item: ClipboardItem, announces: Bool = true, title: String = "Copied") -> Bool {
         switch item.kind {
         case .text:
             UIPasteboard.general.string = item.text
         case .image:
             guard let type = item.imageType,
-                  let data = try? Data(contentsOf: imageFile(for: item)) else { return }
+                  let data = try? Data(contentsOf: imageFile(for: item)) else {
+                show(ClipboardNotice(title: "Couldn’t copy that image", item: nil))
+                return false
+            }
             UIPasteboard.general.setData(data, forPasteboardType: type)
         }
         // It's already in the history; the pasteboard read that follows must
@@ -161,6 +182,7 @@ final class ClipboardHistory {
         ClipboardCache.shared.ignoreCurrentChange()
         if let index = items.firstIndex(where: { $0.id == item.id }) { moveToTop(index) }
         if announces { show(ClipboardNotice(title: title, item: item)) }
+        return true
     }
 
     /// Copies the item and types it into the field that has the keyboard.
@@ -168,7 +190,7 @@ final class ClipboardHistory {
     /// If nothing can take it, it stays copied and the chip says so.
     @discardableResult
     func insert(_ item: ClipboardItem) -> Bool {
-        copyToPasteboard(item, announces: false)
+        guard copyToPasteboard(item, announces: false) else { return false }
         // Some web editors accept paste through the responder chain without
         // exposing UIKeyInput. Use that path if direct text insertion fails.
         let inserted: Bool
@@ -281,6 +303,7 @@ final class ClipboardHistory {
 
     func save() {
         saveTask?.cancel()
+        guard canSave else { return }
         let snapshot = items
         let directory = directory
         ioQueue.async {

@@ -24,6 +24,9 @@ final class ClipboardCache {
     /// The pasteboard change made by the history itself (an item copied back).
     @ObservationIgnored private var ownChangeCount = -1
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    /// Tells a refresh that was cancelled by `clear()` apart from the one
+    /// that replaced it, when it finally winds down.
+    @ObservationIgnored private var refreshGeneration = 0
 
     private init() {}
 
@@ -31,6 +34,7 @@ final class ClipboardCache {
     func clear() {
         refreshTask?.cancel()
         refreshTask = nil
+        refreshGeneration += 1
         text = ""
         cachedChangeCount = -1
     }
@@ -42,13 +46,18 @@ final class ClipboardCache {
         let count = UIPasteboard.general.changeCount
         guard count != cachedChangeCount else { return }
         text = ""
+        refreshGeneration += 1
+        let generation = refreshGeneration
         refreshTask = Task {
-            defer { refreshTask = nil }
+            defer { if generation == refreshGeneration { refreshTask = nil } }
             // Retry transient empty reads without making the user reopen search.
             for attempt in 0..<4 {
                 let snapshot = await Task.detached(priority: .userInitiated) {
                     Self.readClipboard()
                 }.value
+                // Cleared meanwhile (Incognito closed): what was read may be
+                // private, so neither show it nor remember it.
+                guard !Task.isCancelled else { return }
                 if snapshot.before == snapshot.after {
                     // Still fetching (Universal Clipboard) if the pasteboard
                     // says there's text or a picture but it came back empty.
@@ -60,6 +69,9 @@ final class ClipboardCache {
                         lastWasConcealed = snapshot.isConcealed
                         cachedChangeCount = snapshot.after
                         remember(snapshot)
+                    } else if let value = snapshot.text {
+                        // A picture is still arriving; the text needn't wait.
+                        text = value
                     }
                     if cachedChangeCount == UIPasteboard.general.changeCount { return }
                 }

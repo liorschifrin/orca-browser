@@ -342,7 +342,7 @@ struct ClipboardHistoryView: View {
     }
 
     private func copy(_ item: ClipboardItem) {
-        history.copyToPasteboard(item, announces: false)
+        guard history.copyToPasteboard(item, announces: false) else { return }
         copiedID = item.id
         Task {
             try? await Task.sleep(for: .seconds(1.2))
