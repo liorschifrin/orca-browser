@@ -28,7 +28,8 @@
 #   --label "words"     what the branch is about, shown under the slot in the
 #                       app (kept for later builds; defaults to the branch name)
 #   --changed "line"    what this build changes (repeatable)
-#   --test "line"       what to try in it (repeatable). The app shows both in a
+#   --test "line"       what to try, only when it isn't obvious from the changes
+#                       (repeatable). The app shows both in a
 #                       panel the first time this build opens, and when its
 #                       stamp is held. Pass them on every build: notes are not kept.
 #   --build-only        build but don't install
@@ -62,7 +63,7 @@ while [[ $# -gt 0 ]]; do
         --takeover) takeover="$2"; shift ;;
         --changed) changed+=("$2"); shift ;;
         --test) tests+=("$2"); shift ;;
-        -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,41p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift

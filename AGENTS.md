@@ -13,7 +13,7 @@ single install:
   build and keeps it, so rebuilding never touches the other slot.
 
 When a change is ready to try, run
-`scripts/ship-to-phone.sh --label "two to four words" --changed "..." --test "..."`
+`scripts/ship-to-phone.sh --label "two to four words" --changed "..."`
 from the worktree. The label says what the change is (for example
 `--label "hide shorts toggle"`). It builds, installs and launches the app, and
 prints which slot it used. The label is remembered, so later builds from the
@@ -21,11 +21,14 @@ same branch can leave it off.
 
 `--changed` and `--test` (each repeatable, one short line per flag) become a
 panel the app shows over the page the first time that build opens. The user
-can reopen it by pressing and holding the stamp. Pass them on every build, since they are
-not remembered, and the app shows no panel without them. Keep them concise:
-`--changed` lines say what is different, `--test` lines say what to try and
-what the right result looks like. Cover only what changed since the previous
-build of this branch (the whole change for its first build), not the full
+can reopen it by pressing and holding the stamp. Pass them on every build,
+since they are not remembered, and the app shows no panel without them. Keep
+them concise:
+`--changed` lines say what is different. Use `--test` only when what to try is
+not obvious from the changes, for example when you added logging and need the
+user to do a specific action to troubleshoot, or a fix only shows up in an
+unusual situation. Don't write "feature added, test the feature". Cover only
+what changed since the previous build of this branch (the whole change for its first build), not the full
 branch history, so the user sees just what is new to test. There is no length
 limit and the panel scrolls, so include what the user needs and no more. If
 the app is closed before the panel is dismissed, it opens again next launch.
