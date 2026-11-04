@@ -1,5 +1,11 @@
 # Orca Browser
 
+Instructions change on `main` while branches are in flight. Before following
+this file or a skill, run `git fetch` and
+`git diff HEAD...origin/main --stat -- AGENTS.md .claude/skills`. If `main` has
+changed any of them since your branch started, follow the `origin/main` version
+(`git show origin/main:<path>`), not your copy.
+
 ## Testing a change on the phone
 
 Each branch tests in its own app, so agents don't overwrite each other:
