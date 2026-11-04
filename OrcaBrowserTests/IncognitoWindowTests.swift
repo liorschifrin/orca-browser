@@ -23,7 +23,6 @@ struct IncognitoWindowTests {
 
     @Test func tabsOfTheWindowShareOneSessionAndOtherIncognitoTabsDont() async throws {
         let store = BrowserStore()
-        let auth = FakeAuthenticator()
         #expect(store.enterIncognito() == .entered)
         defer { store.closeIncognito() }
         let window = try #require(store.incognitoWindow)
@@ -124,11 +123,12 @@ struct IncognitoWindowTests {
 
     @Test func aWindowWithNothingOpenedIsDroppedOnLeaving() async throws {
         let store = BrowserStore()
-        let auth = FakeAuthenticator(result: "no")
         #expect(store.enterIncognito() == .entered)
         store.leaveIncognito()
         #expect(store.incognitoWindow == nil)
-        #expect(auth.asked == 0)
+        // A new entry goes straight in: no choice, so no Face ID.
+        #expect(store.enterIncognito() == .entered)
+        store.closeIncognito()
     }
 
     @Test func closingTheLastWindowTabClosesTheWindow() async throws {

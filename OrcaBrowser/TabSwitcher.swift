@@ -23,14 +23,11 @@ struct TabSwitcher: View {
     /// 0 = the browser's bottom bar is showing, 1 = the switcher's. Owned by
     /// `BrowserView`, which draws both bars, so they can cross-fade.
     @Binding var barMix: Double
-    /// Incremented by the bar's left button; means "go back to the current tab".
-    let doneTrigger: Int
     /// Incremented when the store's tabs change outside the switcher; means
     /// "show the tabs as they are now".
     let reloadTrigger: Int
     let onSelect: (Tab) -> Void
     let onClose: (Tab) -> Void
-    let onDone: () -> Void
     /// Flips between the normal tabs and the incognito window.
     let onToggleIncognito: () -> Void
     let onCloseIncognito: () -> Void
@@ -108,11 +105,9 @@ struct TabSwitcher: View {
         store: BrowserStore,
         barHeight: CGFloat,
         barMix: Binding<Double>,
-        doneTrigger: Int,
         reloadTrigger: Int,
         onSelect: @escaping (Tab) -> Void,
         onClose: @escaping (Tab) -> Void,
-        onDone: @escaping () -> Void,
         onToggleIncognito: @escaping () -> Void,
         onCloseIncognito: @escaping () -> Void,
         onLeaveStart: @escaping () -> Void
@@ -120,11 +115,9 @@ struct TabSwitcher: View {
         self.store = store
         self.barHeight = barHeight
         _barMix = barMix
-        self.doneTrigger = doneTrigger
         self.reloadTrigger = reloadTrigger
         self.onSelect = onSelect
         self.onClose = onClose
-        self.onDone = onDone
         self.onToggleIncognito = onToggleIncognito
         self.onCloseIncognito = onCloseIncognito
         self.onLeaveStart = onLeaveStart
@@ -161,13 +154,6 @@ struct TabSwitcher: View {
         .ignoresSafeArea()
         .task { await open() }
         .onChange(of: reloadTrigger) { reload() }
-        .onChange(of: doneTrigger) {
-            if let current = store.selectedTab {
-                leave(to: current) { onDone() }
-            } else {
-                onDone()
-            }
-        }
     }
 
     // MARK: - Normal tabs and the incognito window

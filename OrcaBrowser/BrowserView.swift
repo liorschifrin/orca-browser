@@ -31,7 +31,6 @@ struct BrowserView: View {
     @State private var reopenAfterExit = false
     /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
     @State private var barMix: Double = 0
-    @State private var doneTrigger = 0
     #if DEBUG
     @State private var debugStatsHome = CGRect.zero
     #endif
@@ -76,7 +75,6 @@ struct BrowserView: View {
                     store: store,
                     barHeight: barHeight,
                     barMix: $barMix,
-                    doneTrigger: doneTrigger,
                     reloadTrigger: switcherReloadTrigger,
                     onSelect: { tab in
                         store.select(tab)
@@ -85,7 +83,6 @@ struct BrowserView: View {
                         if store.space == .incognito, tab.isBlank { openSearch() }
                     },
                     onClose: closeTab,
-                    onDone: closeSwitcher,
                     onToggleIncognito: toggleIncognito,
                     onCloseIncognito: { isConfirmingCloseIncognito = true },
                     onLeaveStart: { isExitingSwitcher = true }
@@ -301,7 +298,7 @@ struct BrowserView: View {
             }
         }
         .sheet(item: $siteMenu) { target in
-            SiteMenu(target: target, confirmsOpeningChrome: store.space == .incognito)
+            SiteMenu(target: target, confirmsOpeningChrome: store.space == .incognito || target.tab.isIncognito)
         }
         .sheet(isPresented: $isShowingHistory, onDismiss: {
             if switcherNeedsReload {
@@ -705,7 +702,10 @@ struct BrowserView: View {
     private func lockIncognito() {
         guard store.space == .incognito else { return }
         store.leaveIncognito()
+        // Nothing about the locked window stays on screen.
         isChoosingIncognito = false
+        isConfirmingCloseIncognito = false
+        siteMenu = nil
         if isSearching { closeSearch() }
         incognitoSpaceChanged()
     }
