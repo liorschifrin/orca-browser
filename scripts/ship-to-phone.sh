@@ -56,6 +56,7 @@ changed=()
 tests=()
 older=()
 notes_heading=""
+new_count=0
 thread=""
 build_only=0
 while [[ $# -gt 0 ]]; do
@@ -118,14 +119,14 @@ default_label() {
 # request, from squash commits ("Title (#12)") and "Merge pull request" commits.
 # Older commits made directly on main or merged as plain branches are skipped.
 list_updates() {
-    local sha subject
+    local sha subject range="${1:-HEAD}"
     while IFS=$'\t' read -r sha subject; do
         if [[ "$subject" =~ ^(.+)\ \(#[0-9]+\)$ ]]; then
             echo "${BASH_REMATCH[1]}"
         elif [[ "$subject" == "Merge pull request #"* ]]; then
             git log -1 --format=%b "$sha" | sed -n '/./{p;q;}'
         fi
-    done < <(git log --first-parent --format=$'%H\t%s' HEAD)
+    done < <(git log --first-parent --format=$'%H\t%s' "$range")
 }
 
 # Sets the build ID and the what's-new notes (from --changed and --test) for the app.
@@ -139,10 +140,12 @@ add_notes_settings() {
             --argjson t "$(json_array ${tests[@]+"${tests[@]}"})" \
             --argjson m "$(json_array ${older[@]+"${older[@]}"})" \
             --arg heading "$notes_heading" \
+            --argjson n "$new_count" \
             --arg thread "$thread_url" \
             '{changed: $c, test: $t}
              + (if ($m | length) == 0 then {} else {more: $m} end)
              + (if $heading == "" then {} else {heading: $heading} end)
+             + (if $n == 0 then {} else {newCount: $n} end)
              + (if $thread == "" then {} else {thread: $thread} end)')"
         settings+=("ORCA_BUILD_NOTES=$(printf '%s' "$notes_json" | base64 | tr -d '\n')")
         return 0
@@ -306,6 +309,12 @@ if [[ "$mode" == main ]]; then
                 if [[ ${#changed[@]} -lt $RECENT_UPDATES ]]; then changed+=("$line"); else older+=("$line"); fi
             done < <(list_updates)
             notes_heading="Recent updates"
+            # The updates since the last main build are the new ones; the rest are earlier.
+            if [[ -n "$last_main" ]] && git cat-file -e "$last_main^{commit}" 2>/dev/null; then
+                new_count="$(list_updates "$last_main..HEAD" | grep -c . || true)"
+            else
+                new_count=1
+            fi
         fi
     fi
     settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=What's new")

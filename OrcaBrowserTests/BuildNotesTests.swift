@@ -24,6 +24,12 @@ struct BuildNotesTests {
         #expect(BuildNotes.decode(base64: encode(#"{"changed":["New"]}"#))?.heading == "Changed")
     }
 
+    @Test func decodesNewCount() {
+        #expect(BuildNotes.decode(base64: encode(#"{"changed":["A","B"],"newCount":1}"#))?.newCount == 1)
+        #expect(BuildNotes.decode(base64: encode(#"{"changed":["A","B"]}"#))?.newCount == 0)
+        #expect(BuildNotes.decode(base64: encode(#"{"changed":["A"],"newCount":-3}"#))?.newCount == 0)
+    }
+
     @Test func missingSectionIsEmpty() {
         let notes = BuildNotes.decode(base64: encode(#"{"changed":["Only this"]}"#))
         #expect(notes == BuildNotes(changed: ["Only this"], test: []))

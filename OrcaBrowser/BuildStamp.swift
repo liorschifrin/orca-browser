@@ -55,6 +55,10 @@ struct BuildNotes: Equatable {
     var more: [String] = []
     /// Title for the `changed` list.
     var heading = "Changed"
+    /// How many entries from the start of `changed` (then `more`) are new in
+    /// this build. Those stand out and the rest are dimmed. 0 means no
+    /// distinction.
+    var newCount = 0
     var threadURL: URL?
 
     private struct Payload: Decodable {
@@ -62,6 +66,7 @@ struct BuildNotes: Equatable {
         var test: [String]?
         var more: [String]?
         var heading: String?
+        var newCount: Int?
         var thread: String?
     }
 
@@ -75,6 +80,7 @@ struct BuildNotes: Equatable {
             test: payload.test ?? [],
             more: payload.more ?? [],
             heading: payload.heading ?? "Changed",
+            newCount: max(0, payload.newCount ?? 0),
             threadURL: payload.thread.flatMap { URL(string: $0) }
         )
         return notes.changed.isEmpty && notes.test.isEmpty && notes.more.isEmpty && notes.threadURL == nil ? nil : notes
@@ -281,8 +287,8 @@ struct BuildNotesPeek: View {
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                row(item, icon: icon)
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                row(item, icon: icon, isNew: isNew(index))
             }
             if !more.isEmpty {
                 Button {
@@ -298,22 +304,28 @@ struct BuildNotesPeek: View {
                 }
                 .buttonStyle(.plain)
                 if showsMore {
-                    ForEach(Array(more.enumerated()), id: \.offset) { _, item in
-                        row(item, icon: icon)
+                    ForEach(Array(more.enumerated()), id: \.offset) { index, item in
+                        row(item, icon: icon, isNew: isNew(items.count + index))
                     }
                 }
             }
         }
     }
 
-    private func row(_ text: String, icon: String) -> some View {
+    /// Nil when the notes don't separate new entries from earlier ones.
+    private func isNew(_ index: Int) -> Bool? {
+        notes.newCount == 0 ? nil : index < notes.newCount
+    }
+
+    private func row(_ text: String, icon: String, isNew: Bool?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: icon)
+            Image(systemName: isNew == true ? "sparkle" : icon)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isNew == true ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
             // Inline Markdown (bold, code) works in the notes.
             Text(LocalizedStringKey(text))
-                .font(.subheadline)
+                .font(.subheadline.weight(isNew == true ? .semibold : .regular))
+                .foregroundStyle(isNew == false ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
