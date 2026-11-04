@@ -13,8 +13,8 @@ import WebKit
 /// rejecting is switched on for this site, so the per-site and global switches
 /// are read at that moment, not baked into the page.
 ///
-/// Platforms change their markup, so this needs upkeep. Only Fides, OneTrust
-/// and Sourcepoint have been checked against real pages; the others use the
+/// Platforms change their markup, so this needs upkeep. Only Fides, OneTrust,
+/// Sourcepoint and Google have been checked against real pages; the others use the
 /// selectors their documentation gives.
 enum ConsentReject {
     static let handlerName = "orcaConsent"
@@ -52,6 +52,9 @@ enum ConsentReject {
             if (window.OneTrust && typeof window.OneTrust.RejectAll === "function") { window.OneTrust.RejectAll(); return true; }
             return click("#onetrust-reject-all-handler, .ot-pc-refuse-all-handler");
           } },
+        // Google Search and its other pages. The button ids don't depend on the language.
+        { name: "google", present: "#xe7COe",
+          ready: () => document.querySelector("#W0wltc"), reject: () => click("#W0wltc") },
         { name: "didomi", present: "#didomi-host",
           ready: () => document.querySelector("#didomi-notice-disagree-button"), reject: () => click("#didomi-notice-disagree-button") },
         { name: "cookiebot", present: "#CybotCookiebotDialog",

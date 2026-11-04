@@ -20,6 +20,8 @@ enum CookieBanners {
         "#fides-banner-container", ".fides-modal-overlay",
         // BBC's own banner.
         "#cookiePrompt", "#bbccookies",
+        // Google.
+        "div#xe7COe",
         // Others.
         "#didomi-host", ".didomi-popup-backdrop",
         "#CybotCookiebotDialog", "#CybotCookiebotDialogBodyUnderlay",
