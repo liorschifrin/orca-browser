@@ -2,9 +2,9 @@
 
 Instructions change on `main` while branches are in flight. Before following
 this file or a skill, run `git fetch` and
-`git diff HEAD...origin/main --stat -- AGENTS.md .claude/skills`. If `main` has
-changed any of them since your branch started, follow the `origin/main` version
-(`git show origin/main:<path>`), not your copy.
+`git diff HEAD...origin/main --name-only -- AGENTS.md .claude/skills`. For each
+file it lists, `main` has changed it since your branch started: read it with
+`git show origin/main:<path>` and follow that version, not your copy.
 
 ## Testing a change on the phone
 
