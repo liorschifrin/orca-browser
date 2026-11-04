@@ -151,7 +151,7 @@ private struct CopyURLButton: View {
 
     var body: some View {
         Button {
-            UIPasteboard.general.url = url
+            ClipboardCache.shared.copy(url)
             flash($didCopy)
         } label: {
             CapsuleIcon(systemName: didCopy ? "checkmark" : "doc.on.doc")
@@ -169,7 +169,7 @@ enum AddToPlay {
 
     @MainActor
     static func run(with url: URL) {
-        UIPasteboard.general.url = url
+        ClipboardCache.shared.copy(url)
 
         var components = URLComponents()
         components.scheme = "shortcuts"
