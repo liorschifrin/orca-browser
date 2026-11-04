@@ -31,7 +31,6 @@ struct BrowserView: View {
     @State private var reopenAfterExit = false
     /// 0 = browser bar, 1 = switcher bar. Driven by the switcher's animation.
     @State private var barMix: Double = 0
-    @State private var doneTrigger = 0
     #if DEBUG
     @State private var debugStatsHome = CGRect.zero
     #endif
@@ -44,6 +43,12 @@ struct BrowserView: View {
     /// What's typed into a page's text prompt.
     @State private var dialogText = ""
     @State private var siteMenu: SiteMenuTarget?
+    /// Face ID is being asked for, so the incognito toggle ignores more taps.
+    @State private var isUnlockingIncognito = false
+    /// Face ID passed and incognito tabs are waiting: continue or start over.
+    @State private var isChoosingIncognito = false
+    @State private var incognitoMessage: String?
+    @State private var isConfirmingCloseIncognito = false
     /// The notes for a test build, shown the first time it opens and when its
     /// stamp is held.
     @State private var isShowingBuildNotes = BuildStamp.current?.hasUnseenNotes ?? false
@@ -70,14 +75,16 @@ struct BrowserView: View {
                     store: store,
                     barHeight: barHeight,
                     barMix: $barMix,
-                    doneTrigger: doneTrigger,
                     reloadTrigger: switcherReloadTrigger,
                     onSelect: { tab in
                         store.select(tab)
                         closeSwitcher()
+                        // Opening the window's empty tab goes on to a new search.
+                        if store.space == .incognito, tab.isBlank { openSearch() }
                     },
                     onClose: closeTab,
-                    onDone: closeSwitcher,
+                    onToggleIncognito: toggleIncognito,
+                    onCloseIncognito: { isConfirmingCloseIncognito = true },
                     onLeaveStart: { isExitingSwitcher = true }
                 )
                 .ignoresSafeArea(.keyboard)
@@ -134,6 +141,7 @@ struct BrowserView: View {
                 initialText: searchInitialText,
                 selectInitialText: editingURL == nil,
                 showsIncognitoToggle: editingURL == nil,
+                isInIncognitoWindow: store.space == .incognito,
                 isIncognito: $searchIsIncognito,
                 onAppend: {
                     replaceGoogleSearchOnSubmit = searchOpenedFromGoogle
@@ -217,6 +225,9 @@ struct BrowserView: View {
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
+                // The incognito window never survives leaving the app: coming
+                // back shows the last normal tab, as if it had never existed.
+                if scenePhase == .background { lockIncognito() }
                 store.save()
                 HistoryStore.flushIfNeeded()
             }
@@ -256,8 +267,39 @@ struct BrowserView: View {
                 onDone: { isShowingArchive = false }
             )
         }
+        .sheet(isPresented: $isChoosingIncognito) {
+            IncognitoChoiceSheet(
+                onContinue: {
+                    isChoosingIncognito = false
+                    unlockIncognito()
+                },
+                onStartFresh: {
+                    isChoosingIncognito = false
+                    store.startFreshIncognito()
+                    incognitoSpaceChanged()
+                }
+            )
+        }
+        .alert("Incognito", isPresented: Binding(
+            get: { incognitoMessage != nil },
+            set: { if !$0 { incognitoMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { incognitoMessage = nil }
+        } message: {
+            Text(incognitoMessage ?? "")
+        }
+        .confirmationDialog(
+            "Close all incognito tabs and forget what they stored?",
+            isPresented: $isConfirmingCloseIncognito,
+            titleVisibility: .visible
+        ) {
+            Button("Close All Incognito Tabs", role: .destructive) {
+                store.closeIncognito()
+                incognitoSpaceChanged()
+            }
+        }
         .sheet(item: $siteMenu) { target in
-            SiteMenu(target: target)
+            SiteMenu(target: target, confirmsOpeningChrome: store.space == .incognito || target.tab.isIncognito)
         }
         .sheet(isPresented: $isShowingHistory, onDismiss: {
             if switcherNeedsReload {
@@ -378,6 +420,7 @@ struct BrowserView: View {
     /// Every tab's web view, then error/start states. (The bars sit above.)
     private var page: some View {
         let isIncognito = store.selectedTab?.isIncognito == true
+        let inWindow = store.space == .incognito
         return ZStack(alignment: .bottom) {
             // All tabs stay mounted; only the selected one is visible.
             ForEach(store.tabs.filter(\.isLoaded)) { tab in
@@ -433,7 +476,9 @@ struct BrowserView: View {
                         .padding(.bottom, barHeight)
                 }
 
-                if tab.isForeignLanguage, !isSwitching, let url = tab.url,
+                // Not in the incognito window: it would hand the page's
+                // address to Chrome without asking.
+                if tab.isForeignLanguage, !isSwitching, store.space == .normal, let url = tab.url,
                    Translation.canOpenInChrome(url) {
                     Button { Translation.openInChrome(url) } label: {
                         Image(systemName: "translate")
@@ -454,13 +499,13 @@ struct BrowserView: View {
         .padding(.top, isIncognito ? Self.incognitoBarHeight : 0)
         .overlay(alignment: .top) {
             if isIncognito {
-                Text("Incognito")
+                Text(inWindow ? "Incognito Window" : "Incognito")
                     .font(.system(size: 12, weight: .medium))
                     .frame(maxWidth: .infinity)
                     .frame(height: Self.incognitoBarHeight)
                     .background(Color(.systemBackground).ignoresSafeArea(edges: .top))
                     .allowsHitTesting(false)
-                    .accessibilityLabel("Incognito tab")
+                    .accessibilityLabel(inWindow ? "Incognito window" : "Incognito tab")
             }
         }
     }
@@ -499,10 +544,11 @@ struct BrowserView: View {
                     SwitcherBar(
                         height: barHeight,
                         plusButtonWidth: geometry.size.width * 0.19,
-                        onDone: { doneTrigger += 1 },
                         onNewTab: { openSearch() },
                         voiceQuery: voiceQuery,
                         onVoiceSearch: openVoiceQuery,
+                        isInIncognitoWindow: store.space == .incognito,
+                        onToggleIncognito: toggleIncognito,
                         onArchive: { isShowingArchive = true },
                         onHistory: { isShowingHistory = true },
                         onSettings: { isShowingSettings = true }
@@ -622,10 +668,65 @@ struct BrowserView: View {
         }
     }
 
+    // MARK: - The incognito window
+
+    /// Flips between the normal tabs and the incognito window. Going in asks
+    /// for Face ID if tabs are waiting there.
+    private func toggleIncognito() {
+        if store.space == .incognito {
+            store.leaveIncognito()
+            incognitoSpaceChanged()
+            return
+        }
+        guard !isUnlockingIncognito else { return }
+        switch store.enterIncognito() {
+        case .entered: incognitoSpaceChanged()
+        case .needsChoice: isChoosingIncognito = true
+        }
+    }
+
+    /// Continue was chosen: Face ID first, then the tabs.
+    private func unlockIncognito() {
+        guard !isUnlockingIncognito else { return }
+        isUnlockingIncognito = true
+        Task {
+            let result = await store.continueIncognito(using: FaceIDAuthenticator())
+            isUnlockingIncognito = false
+            switch result {
+            case .entered: incognitoSpaceChanged()
+            case .denied(let message): incognitoMessage = message
+            }
+        }
+    }
+
+    /// Leaving the app locks the window and shows the normal tabs again.
+    private func lockIncognito() {
+        guard store.space == .incognito else { return }
+        store.leaveIncognito()
+        // Nothing about the locked window stays on screen.
+        isChoosingIncognito = false
+        isConfirmingCloseIncognito = false
+        siteMenu = nil
+        if isSearching { closeSearch() }
+        incognitoSpaceChanged()
+    }
+
+    /// The tabs shown are now the other space's.
+    private func incognitoSpaceChanged() {
+        searchIsIncognito = store.selectedTab?.isIncognito ?? false
+        if isSwitching { switcherReloadTrigger += 1 }
+    }
+
     private func closeTab(_ tab: Tab) {
         // The switcher owns the close/reflow animation for both its local
         // card list and the store; avoid a second, longer nested spring.
+        let wasInWindow = store.space == .incognito
         let replacedWithBlank = store.close(tab)
+        // Closing the window's last tab closed the window.
+        if wasInWindow, store.space == .normal {
+            incognitoSpaceChanged()
+            return
+        }
         // Closed the very last tab: go back to the "start fresh" state.
         if replacedWithBlank {
             closeSwitcher()
