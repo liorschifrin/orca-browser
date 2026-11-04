@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hold the microphone to dictate a Google search. With OpenAI selected, the recording is sent to OpenAI for transcription when you release.</string>
+	<string>Swipe up from + or hold the microphone to dictate a search. With OpenAI selected, the recording is sent to OpenAI for transcription when you release.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Face ID unlocks your incognito tabs when you come back to them.</string>
 	<!-- Lets the app ask whether Google Chrome is installed, for the translate
 	     button on pages in another language. -->
 	<key>LSApplicationQueriesSchemes</key>
@@ -21,16 +23,28 @@
 	     iPhones cap an app's own animations at 60 Hz. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<!-- Registers arcbrowser:// so Shortcuts can hand control back to the app
+	<!-- Filled in by scripts/ship-to-phone.sh so a test build can show which
+	     slot, commit and branch it came from. Empty in every other build. -->
+	<key>OrcaBuildSlot</key>
+	<string>$(ORCA_BUILD_SLOT)</string>
+	<key>OrcaBuildCommit</key>
+	<string>$(ORCA_BUILD_COMMIT)</string>
+	<key>OrcaBuildLabel</key>
+	<string>$(ORCA_BUILD_LABEL)</string>
+	<key>OrcaBuildID</key>
+	<string>$(ORCA_BUILD_ID)</string>
+	<key>OrcaBuildNotes</key>
+	<string>$(ORCA_BUILD_NOTES)</string>
+	<!-- Registers orcabrowser:// so Shortcuts can hand control back to the app
 	     after "Add Video to Play" finishes. -->
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.liorschifrin.ArcBrowser</string>
+			<string>com.liorschifrin.OrcaBrowser</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>arcbrowser</string>
+				<string>orcabrowser</string>
 			</array>
 		</dict>
 	</array>
