@@ -2,10 +2,36 @@ import OSLog
 import SwiftUI
 
 /// The single source of truth for "what tabs exist and which one is showing".
+///
+/// There are two spaces of tabs: the normal ones (saved to disk, per-tab
+/// incognito tabs included) and the incognito window, which exists only in
+/// memory. `tabs` and `selectedTabID` are those of the space being shown, so
+/// everything that opens, selects or closes a tab works in either one. What
+/// is only for normal tabs (saving, archiving, restoring) says so.
 @Observable
 final class BrowserStore {
-    var tabs: [Tab]
-    var selectedTabID: Tab.ID
+    enum Space { case normal, incognito }
+    private(set) var space = Space.normal
+
+    private var normalTabs: [Tab]
+    private var normalSelectedID: Tab.ID
+    /// Created when first entered, and gone when it is closed.
+    private(set) var incognitoWindow: IncognitoWindow?
+
+    var tabs: [Tab] {
+        get { space == .normal ? normalTabs : incognitoWindow?.tabs ?? [] }
+        set {
+            if space == .normal { normalTabs = newValue } else { incognitoWindow?.tabs = newValue }
+        }
+    }
+    var selectedTabID: Tab.ID {
+        get { space == .normal ? normalSelectedID : incognitoWindow?.selectedTabID ?? normalSelectedID }
+        set {
+            if space == .normal { normalSelectedID = newValue } else { incognitoWindow?.selectedTabID = newValue }
+        }
+    }
+    /// Every tab in both spaces, for settings that reach all live pages.
+    private var allTabs: [Tab] { normalTabs + (incognitoWindow?.tabs ?? []) }
 
     /// A switch that slides the new tab in from the right, like moving to
     /// the next app. The old tab stays on screen until the slide ends.
@@ -47,8 +73,8 @@ final class BrowserStore {
     init() {
         // No disk reads or WebKit construction before the first frame.
         let first = Tab()
-        tabs = [first]
-        selectedTabID = first.id
+        normalTabs = [first]
+        normalSelectedID = first.id
         watch([first])
         markUsed(first)
         restoreObserver = NotificationCenter.default.addObserver(
@@ -63,7 +89,7 @@ final class BrowserStore {
         hasStartedRestoring = true
         let interval = PerformanceTrace.signposter.beginInterval("Session restoration")
         defer { PerformanceTrace.signposter.endInterval("Session restoration", interval) }
-        let initialID = selectedTabID
+        let initialID = normalSelectedID
         let saved = await TabPersistence.loadStartup()
         var restored: [Tab] = []
         for record in saved.tabs {
@@ -83,7 +109,7 @@ final class BrowserStore {
         scheduleSave()
         // The shell and metadata get a turn to render before WebKit starts.
         await Task.yield()
-        if let current = selectedTab, !current.isBlank {
+        if space == .normal, let current = selectedTab, !current.isBlank {
             current.activate()
             current.peek?.tab.activate()
         }
@@ -93,16 +119,16 @@ final class BrowserStore {
     /// The saved tabs join behind it rather than replacing it.
     func applyRestoredTabs(_ restored: [Tab], selectedID: UUID?, initialID: UUID) {
         guard !restored.isEmpty else { return }
-        let untouched = tabs.count == 1 && tabs[0].id == initialID && tabs[0].isBlank
-        let kept = untouched ? [] : tabs
+        let untouched = normalTabs.count == 1 && normalTabs[0].id == initialID && normalTabs[0].isBlank
+        let kept = untouched ? [] : normalTabs
         watch(restored)
         recencyClock = max(recencyClock, restored.map(\.recency).max() ?? 0)
         for tab in kept.sorted(by: { $0.recency < $1.recency }) { markUsed(tab) }
-        tabs = restored + kept
+        normalTabs = restored + kept
         if untouched {
             let current = restored.first { $0.id == selectedID }
                 ?? restored.max { $0.recency < $1.recency }!
-            selectedTabID = current.id
+            normalSelectedID = current.id
             current.lastOpenedAt = .now
         }
     }
@@ -149,7 +175,7 @@ final class BrowserStore {
     func save() {
         saveTask?.cancel()
         guard !isRestoringSession else { return }
-        TabPersistence.save(tabs: tabs, selectedID: selectedTabID)
+        TabPersistence.save(tabs: normalTabs, selectedID: normalSelectedID)
     }
 
     /// Unloads tabs beyond the most recent few, and ones left alone too long.
@@ -178,7 +204,7 @@ final class BrowserStore {
 
     /// iOS says memory is short: keep only the page being looked at.
     func unloadBackgroundTabs() {
-        for tab in tabs where tab.id != selectedTabID {
+        for tab in allTabs where tab.id != selectedTabID {
             tab.unload()
         }
         CardThumbnails.shared.removeAll()
@@ -194,21 +220,22 @@ final class BrowserStore {
     func archiveInactiveTabs(now: Date = .now) {
         let settings = AppSettings.shared
         guard !isRestoringSession, settings.autoArchiveTabs else { return }
-        let closing = tabs.filter {
-            Self.shouldAutoArchive($0, selectedID: selectedTabID, days: settings.autoArchiveDays, now: now)
+        let closing = normalTabs.filter {
+            Self.shouldAutoArchive($0, selectedID: normalSelectedID, days: settings.autoArchiveDays, now: now)
         }
         guard !closing.isEmpty,
-              let entries = try? TabPersistence.archive(closing, among: tabs, selectedID: selectedTabID, now: now)
+              let entries = try? TabPersistence.archive(closing, among: normalTabs, selectedID: normalSelectedID, now: now)
         else { return }
 
         let ids = Set(closing.map(\.id))
-        tabs.removeAll { ids.contains($0.id) }
+        normalTabs.removeAll { ids.contains($0.id) }
         for tab in closing { tab.teardown() }
         archivedTabs = entries
         save()
     }
 
     func restoreArchived(_ entry: ArchivedTab, inBackground: Bool) throws {
+        guard space == .normal else { return }
         if let existing = tabs.first(where: { $0.id == entry.id }) {
             if !inBackground { select(existing) }
         } else {
@@ -244,7 +271,8 @@ final class BrowserStore {
         defer { PerformanceTrace.signposter.endInterval("New tab submission", interval) }
         InteractionBudget.shared.interacted()
         guard let url = Destination.url(for: input) else { return }
-        let privateMode = isIncognito ?? selectedTab?.isIncognito ?? false
+        // Everything opened inside the incognito window is private.
+        let privateMode = space == .incognito || (isIncognito ?? selectedTab?.isIncognito ?? false)
 
         if let current = selectedTab, current.isBlank, current.isIncognito == privateMode {
             current.lastOpenedAt = .now
@@ -252,7 +280,7 @@ final class BrowserStore {
         } else {
             // Navigation never waits for a picture. Cards use a cached image
             // or a placeholder until a later idle capture.
-            let tab = Tab(url: url, input: input, isIncognito: privateMode)
+            let tab = makeTab(url: url, input: input, isIncognito: privateMode)
             watch([tab])
             selectedTab?.lastViewed = .now
             selectedTab?.lastOpenedAt = .now
@@ -266,15 +294,21 @@ final class BrowserStore {
 
     /// Starts a private search without copying the previous tab's address.
     func newIncognitoTab() {
-        let tab = Tab(isIncognito: true)
+        let tab = makeTab(isIncognito: true)
         watch([tab])
         tabs.append(tab)
         select(tab)
     }
 
+    /// A new tab for the space being shown: in the incognito window it joins
+    /// the window's session.
+    private func makeTab(url: URL? = nil, input: String? = nil, isIncognito: Bool) -> Tab {
+        Tab(url: url, input: input, isIncognito: isIncognito, session: space == .incognito ? incognitoWindow?.session : nil)
+    }
+
     /// Opens `url` in a new tab behind the current one, which stays showing.
     func openInBackground(_ url: URL) {
-        let tab = Tab(url: url, isIncognito: selectedTab?.isIncognito ?? false)
+        let tab = makeTab(url: url, isIncognito: selectedTab?.isIncognito ?? false)
         watch([tab])
         tabs.append(tab)
         markUsed(tab)
@@ -305,28 +339,28 @@ final class BrowserStore {
     /// Applies the Shorts hiding setting to every tab that has a live web view.
     /// Tabs that load later pick it up when their web view is created.
     func applyShortsSetting(_ enabled: Bool) {
-        for tab in tabs where tab.isLoaded {
+        for tab in allTabs where tab.isLoaded {
             tab.setHidesShorts(enabled)
         }
     }
 
     /// Applies the "open Shorts as videos" setting the same way.
     func applyOpensShortsAsVideosSetting(_ enabled: Bool) {
-        for tab in tabs where tab.isLoaded {
+        for tab in allTabs where tab.isLoaded {
             tab.setOpensShortsAsVideos(enabled)
         }
     }
 
     /// Applies the Reddit pop-up setting to every tab that has a live web view.
     func applyRedditPromptSetting(_ enabled: Bool) {
-        for tab in tabs where tab.isLoaded {
+        for tab in allTabs where tab.isLoaded {
             tab.setBlocksRedditPrompt(enabled)
         }
     }
 
     /// Applies the YouTube top bar settings to every tab with a live page.
     func applyYouTubeSettings(_ settings: AppSettings) {
-        for tab in tabs where tab.isLoaded {
+        for tab in allTabs where tab.isLoaded {
             tab.applyYouTubeSettings(settings)
         }
     }
@@ -365,6 +399,11 @@ final class BrowserStore {
         tab.teardown()
 
         if tabs.isEmpty {
+            // The last incognito tab closing closes the window itself.
+            if space == .incognito {
+                closeIncognito()
+                return false
+            }
             replaceWithBlankTab()
             scheduleSave()
             return true
@@ -395,7 +434,7 @@ final class BrowserStore {
     /// are torn down and the tabs themselves released.
     func closeAll() {
         let closing = tabs.filter { !$0.isBlank || $0.isIncognito }
-        guard !isRestoringSession, !closing.isEmpty else { return }
+        guard space == .normal, !isRestoringSession, !closing.isEmpty else { return }
         // If they can't be written, they stay open rather than get lost.
         guard (try? TabPersistence.stashClosed(tabs, selectedID: selectedTabID)) != nil else { return }
 
@@ -410,7 +449,7 @@ final class BrowserStore {
     /// most recently used becomes current; otherwise they join the open tabs,
     /// older than all of them, and the current tab stays put.
     func restoreClosed() {
-        guard !isRestoringSession else { return }
+        guard space == .normal, !isRestoringSession else { return }
         let restored = TabPersistence.unstashClosed()
         guard !restored.isEmpty else { return }
 
@@ -436,5 +475,89 @@ final class BrowserStore {
         // Only once they're saved again is it safe to forget the closed list.
         save()
         TabPersistence.clearClosed()
+    }
+
+    // MARK: - The incognito window
+
+    enum IncognitoEntry: Equatable {
+        /// You are in the window.
+        case entered
+        /// Tabs are waiting in the locked window: ask whether to continue
+        /// them (`continueIncognito`, which needs Face ID) or start over
+        /// (`startFreshIncognito`, which needs nothing, as it destroys them).
+        case needsChoice
+    }
+
+    /// Goes into the incognito window, unless it has tabs in it: those are
+    /// locked, and the choice is up to the caller.
+    func enterIncognito() -> IncognitoEntry {
+        guard space == .normal else { return .entered }
+        if incognitoWindow?.hasContent == true { return .needsChoice }
+        if incognitoWindow == nil { incognitoWindow = IncognitoWindow() }
+        switchSpace(to: .incognito)
+        return .entered
+    }
+
+    enum IncognitoUnlock: Equatable {
+        case entered
+        /// You are still outside. A message says why, or none if you cancelled.
+        case denied(String?)
+    }
+
+    /// Opens the locked window's tabs, once the person holding the phone has
+    /// proved who they are.
+    func continueIncognito(using authenticator: some IncognitoAuthenticating) async -> IncognitoUnlock {
+        guard space == .normal, incognitoWindow != nil else { return .entered }
+        if let failure = await authenticator.authenticate() {
+            return .denied(failure.isEmpty ? nil : failure)
+        }
+        // The window may have been closed while the prompt was up.
+        guard space == .normal, incognitoWindow != nil else { return .entered }
+        switchSpace(to: .incognito)
+        return .entered
+    }
+
+    func startFreshIncognito() {
+        guard let window = incognitoWindow else { return }
+        window.reset()
+        switchSpace(to: .incognito)
+    }
+
+    /// Back to the normal tabs. The window stays, locked, unless nothing was
+    /// opened in it.
+    func leaveIncognito() {
+        guard space == .incognito else { return }
+        switchSpace(to: .normal)
+        if incognitoWindow?.hasContent == false { closeIncognito() }
+    }
+
+    /// Closes every incognito tab and forgets what they stored.
+    func closeIncognito() {
+        if space == .incognito { switchSpace(to: .normal) }
+        incognitoWindow?.close()
+        incognitoWindow = nil
+    }
+
+    private func switchSpace(to newSpace: Space) {
+        guard newSpace != space else { return }
+        if let leaving = selectedTab {
+            leaving.pauseVideos()
+            leaving.answerDialog(.cancel)
+            leaving.peek?.tab.answerDialog(.cancel)
+        }
+        slide = nil
+        if space == .incognito {
+            // Nothing of a locked window stays on screen or playing.
+            for tab in tabs { tab.unload() }
+            incognitoWindow?.didLeave()
+        }
+        space = newSpace
+        if newSpace == .incognito { incognitoWindow?.didEnter() }
+        if let entering = selectedTab {
+            entering.activate()
+            entering.peek?.tab.activate()
+            entering.lastOpenedAt = .now
+        }
+        enforceMemoryPolicy()
     }
 }

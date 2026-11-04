@@ -51,6 +51,14 @@ final class ClipboardCache {
 
     private init() {}
 
+    /// Forgets what was on the clipboard, for when it has just been emptied.
+    func clear() {
+        refreshTask?.cancel()
+        refreshTask = nil
+        text = ""
+        cachedChangeCount = -1
+    }
+
     /// Copies a link and remembers that the clipboard change was ours.
     func copy(_ url: URL) {
         UIPasteboard.general.url = url
@@ -85,7 +93,7 @@ final class ClipboardCache {
         guard count != cachedChangeCount, count != deniedChangeCount else { return }
         text = ""
         refreshTask = Task {
-            defer { refreshTask = nil }
+            defer { if !Task.isCancelled { refreshTask = nil } }
             var deniedCount: Int?
             // A refusal or a slow read means the Allow Paste prompt came up in
             // this refresh. Remember that even when that read is thrown away
@@ -99,8 +107,9 @@ final class ClipboardCache {
                 await waitUntilActive()
                 // Still inactive: reads would be refused without a prompt, which
                 // must not count as a denial. The next refresh will try again.
-                guard UIApplication.shared.applicationState == .active else { return }
+                guard !Task.isCancelled, UIApplication.shared.applicationState == .active else { return }
                 let snapshot = await Self.read()
+                guard !Task.isCancelled else { return }
                 if snapshot.hasText, snapshot.text == nil || snapshot.duration > Self.promptThreshold {
                     wasPrompted = true
                 }
@@ -133,7 +142,7 @@ final class ClipboardCache {
 
     /// Waits, for up to a few seconds, until the app is in the foreground.
     private func waitUntilActive() async {
-        for _ in 0..<50 where UIApplication.shared.applicationState != .active {
+        for _ in 0..<50 where !Task.isCancelled && UIApplication.shared.applicationState != .active {
             try? await Task.sleep(for: .milliseconds(100))
         }
     }
