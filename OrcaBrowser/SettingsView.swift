@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var hasAPIKey = VoiceSearchCredentials.apiKey != nil
     @State private var credentialError: String?
     @State private var isConfirmingClearHistory = false
+    @State private var isConfirmingClearClipboard = false
 
     var body: some View {
         NavigationStack {
@@ -57,9 +58,21 @@ struct SettingsView: View {
                 #if DEBUG
                 Section("Debug") {
                     Toggle("Show FPS, memory and build", isOn: $settings.showDebugStats)
+                    ClipboardTypesReadout()
                 }
                 BlockingListsSection()
                 #endif
+                Section {
+                    Toggle("Save clipboard history", isOn: $settings.savesClipboardHistory)
+                    Button("Clear Clipboard History…", role: .destructive) { isConfirmingClearClipboard = true }
+                        .confirmationDialog("Clear clipboard history", isPresented: $isConfirmingClearClipboard, titleVisibility: .visible) {
+                            Button("Clear All", role: .destructive) { ClipboardHistory.shared.clear() }
+                        }
+                } header: {
+                    Text("Clipboard")
+                } footer: {
+                    Text("Keeps text and images you copy, and what is on the clipboard each time you open Orca, with no expiry. Tap the clipboard button above the keyboard to use them. Nothing new is saved while an Incognito tab or search is showing, and items from password managers are skipped.")
+                }
                 Section {
                     Button("Clear History…", role: .destructive) { isConfirmingClearHistory = true }
                 } header: {
@@ -141,6 +154,34 @@ struct SettingsView: View {
         }
     }
 }
+
+#if DEBUG
+/// What the clipboard held when Orca last read it, to find out how a source
+/// app marks its copies (for example a password it wants kept out of the history).
+private struct ClipboardTypesReadout: View {
+    private let cache = ClipboardCache.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Clipboard types")
+            Text(cache.lastWasConcealed ? "Marked concealed: skipped" : "Not marked concealed: saved")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            if cache.lastTypes.isEmpty {
+                Text("Nothing read yet")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(Array(cache.lastTypes.enumerated()), id: \.offset) { index, types in
+                Text("Item \(index + 1): " + types.joined(separator: ", "))
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+    }
+}
+#endif
 
 #if DEBUG
 /// What the blocking lists are doing, with a button to fetch them now instead
