@@ -4,7 +4,8 @@ Instructions change on `main` while branches are in flight. Before following
 this file or a skill, run `git fetch` and
 `git diff HEAD...origin/main --name-only -- AGENTS.md .claude/skills`. For each
 file it lists, `main` has changed it since your branch started: read it with
-`git show origin/main:<path>` and follow that version, not your copy.
+`git show origin/main:<path>` and follow that version, not your copy. Skip
+files `main` deleted.
 
 ## Testing a change on the phone
 
