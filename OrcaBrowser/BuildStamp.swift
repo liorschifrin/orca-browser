@@ -30,6 +30,10 @@ struct BuildStamp {
         )
     }()
 
+    /// The regular app, built from main. It has no visible stamp, but the spot
+    /// where the stamp would be still opens its notes.
+    var isMain: Bool { slot == "main" }
+
     private static let seenKey = "lastSeenBuildNotesID"
 
     /// True the first time a build with notes opens.
@@ -64,38 +68,50 @@ struct BuildNotes: Equatable {
 
 /// The slot with a tiny commit stamp beside it, then up to two lines of words
 /// saying what the branch is about. A "*" after the commit means the build had
-/// uncommitted changes. Tapping it opens the build's notes.
+/// uncommitted changes. Tapping it opens the build's notes. On the main build
+/// the stamp is invisible, and tapping where it would be does the same.
 struct BuildStampLabel: View {
     let stamp: BuildStamp
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            VStack(alignment: .trailing, spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text(stamp.slot)
-                        .font(.system(size: 10, weight: .bold, design: .monospaced))
-                    Text(stamp.commit)
-                        .font(.system(size: 7, weight: .regular, design: .monospaced))
-                        .foregroundStyle(.tertiary)
-                }
-                .lineLimit(1)
-                if !stamp.label.isEmpty {
-                    Text(stamp.label)
-                        .font(.system(size: 9, weight: .medium))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.trailing)
-                }
+            if stamp.isMain {
+                // Invisible, but sized like the stamp so it is easy to hit.
+                Color.clear
+                    .frame(width: 76, height: 30)
+                    .contentShape(.rect)
+            } else {
+                stampText
             }
-            .foregroundStyle(.secondary)
-            // Fits between the + button and Back on the narrowest iPhones.
-            .frame(maxWidth: 76, alignment: .trailing)
-            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .disabled(stamp.notes == nil)
-        .accessibilityLabel("Build \(stamp.slot), \(stamp.label), \(stamp.commit)")
+        .accessibilityLabel(stamp.isMain ? "What's new on main" : "Build \(stamp.slot), \(stamp.label), \(stamp.commit)")
         .accessibilityHint("Shows what changed in this build")
+    }
+
+    private var stampText: some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(stamp.slot)
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                Text(stamp.commit)
+                    .font(.system(size: 7, weight: .regular, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            .lineLimit(1)
+            if !stamp.label.isEmpty {
+                Text(stamp.label)
+                    .font(.system(size: 9, weight: .medium))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+        .foregroundStyle(.secondary)
+        // Fits between the + button and Back on the narrowest iPhones.
+        .frame(maxWidth: 76, alignment: .trailing)
+        .contentShape(.rect)
     }
 }
 

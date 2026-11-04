@@ -41,7 +41,7 @@ struct BottomBar: View {
 
                     Spacer()
 
-                    if let stamp = BuildStamp.current, showsBuildStamp {
+                    if let stamp = BuildStamp.current, showsBuildStamp || stamp.isMain {
                         BuildStampLabel(stamp: stamp, onTap: onShowBuildNotes)
                     }
 
