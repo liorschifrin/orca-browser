@@ -344,7 +344,8 @@ if [[ $build_only -eq 0 ]]; then
             [[ -n "$device" || $attempt -eq 2 ]] && break
             paired="$(jq -r '.result.devices[]?
                 | select(.hardwareProperties.reality == "physical"
-                         and .connectionProperties.pairingState == "paired")
+                         and .connectionProperties.pairingState == "paired"
+                         and .connectionProperties.tunnelState != "unavailable")
                 | .hardwareProperties.udid' "$listing")"
             if [[ "$(grep -c . <<<"$paired")" -gt 1 ]]; then
                 rm -f "$listing"
