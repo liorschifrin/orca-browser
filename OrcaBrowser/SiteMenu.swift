@@ -32,6 +32,17 @@ struct SiteMenu: View {
             ?? PageDialogPermissions.shared.allows(target.site))
     }
 
+    /// Window tabs and standalone incognito tabs keep separate choices.
+    private var scopeNote: String {
+        if target.tab.isInIncognitoWindow {
+            "Applies to this site in every tab of the incognito window and is forgotten when the last one leaves it"
+        } else if target.tab.isIncognito {
+            "Applies to this site in every standalone incognito tab and is forgotten when the last one leaves it"
+        } else {
+            "Applies to every page on this site"
+        }
+    }
+
     private var isYouTube: Bool { target.site == "youtube.com" }
 
     private var adsActive: Bool { settings.blockAds && blocksAds }
@@ -62,7 +73,7 @@ struct SiteMenu: View {
                     Text(target.site)
                         .font(.title3.weight(.semibold))
                         .lineLimit(1)
-                    Text(target.tab.isIncognito ? "Applies to this site in every incognito tab and is forgotten when the last one leaves it" : "Applies to every page on this site")
+                    Text(scopeNote)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
