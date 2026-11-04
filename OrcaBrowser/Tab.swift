@@ -23,6 +23,9 @@ final class Tab: Identifiable {
     let isIncognito: Bool
     /// Retained across memory-pressure unloading; never backed by disk.
     @ObservationIgnored private(set) var privateDataStore: WKWebsiteDataStore?
+    /// Site choices (blocking, dialogs) made in incognito, shared by all
+    /// incognito tabs. In memory only; nil for normal tabs, which save theirs.
+    @ObservationIgnored let privateRules: PrivateSiteRules?
     @ObservationIgnored private var isClosed = false
     /// nil while the tab is unloaded.
     private(set) var webView: WKWebView?
@@ -30,7 +33,14 @@ final class Tab: Identifiable {
     var isLoaded: Bool { webView != nil }
 
     // Mirrored from the web view.
-    private(set) var url: URL?
+    private(set) var url: URL? {
+        didSet {
+            // Incognito site choices last while some tab is still on the site.
+            // (A nil address is only teardown, which forgets the tab itself.)
+            guard isIncognito, let url, url != oldValue else { return }
+            PrivateSiteRules.shared.tab(id, isOn: ContentBlocker.site(for: url))
+        }
+    }
     /// The last search or submitted address, retained when following links.
     var searchText = ""
     private(set) var title: String?
@@ -128,6 +138,7 @@ final class Tab: Identifiable {
         id = UUID()
         self.isIncognito = isIncognito
         privateDataStore = isIncognito ? .nonPersistent() : nil
+        privateRules = isIncognito ? .shared : nil
         fileOwner = (id, false)
 
         if let url {
@@ -140,6 +151,7 @@ final class Tab: Identifiable {
     init(restoring saved: SavedTab, owner: (id: UUID, isPeek: Bool)? = nil, hasSnapshot: Bool, favicon: UIImage?, peekHasSnapshot: Bool = false) {
         id = saved.id
         isIncognito = false
+        privateRules = nil
         fileOwner = owner ?? (saved.id, false)
 
         url = saved.url
@@ -517,6 +529,7 @@ final class Tab: Identifiable {
                 store.removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast) {}
             }
             privateDataStore = nil
+            privateRules?.forget(tab: id)
         }
     }
 
@@ -535,6 +548,78 @@ final class Tab: Identifiable {
 
     /// A page finished loading: refresh the card picture. (The leaving-the-tab
     /// snapshot can be taken mid-load, which would leave a half-empty card.)
+    /// Set by the store: switch to this tab. Called when you return to its
+    /// video from the picture in picture window.
+    @ObservationIgnored var onPictureInPictureReturn: (() -> Void)?
+    @ObservationIgnored private(set) var isInPictureInPicture = false
+
+    /// The page's video opened or closed picture in picture. Leaving it while
+    /// the app is on screen and the video still plays is the "return to app"
+    /// button; the close button pauses the video instead, and happens with the
+    /// app in the background. The check waits a moment because the app takes
+    /// a moment to come forward after that button.
+    func pictureInPictureChanged(active: Bool) {
+        let wasActive = isInPictureInPicture
+        isInPictureInPicture = active
+        guard wasActive, !active else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self, UIApplication.shared.applicationState != .background,
+                  let playing = try? await webView?.evaluateJavaScript(
+                      "[...document.querySelectorAll('video')].some(v => !v.paused)"
+                  ) as? Bool, playing
+            else { return }
+            onPictureInPictureReturn?()
+        }
+    }
+
+    /// What the page's video is doing, reported by its script. The playback
+    /// bar shows while a watch page video is available.
+    var playback = PlaybackControl.State()
+    /// The chapters list is open (the top bar's chapters button was tapped).
+    var isShowingChapters = false
+
+    /// Where the video is now, in seconds.
+    func currentTime() async -> Double? {
+        let result = try? await webView?.callAsyncJavaScript(
+            "return window.__orcaPlayback?.time()", arguments: [:], in: nil, contentWorld: .page
+        )
+        return result as? Double
+    }
+
+    /// Applies the YouTube top bar settings to a page that is already open.
+    func applyYouTubeSettings(_ settings: AppSettings) {
+        webView?.evaluateJavaScript(YouTubeHeader.settingsScript(
+            hidesOpenApp: settings.hidesOpenApp, showsTools: settings.showsHeaderTools
+        ))
+    }
+
+    func send(_ command: PlaybackControl.Command) {
+        webView?.callAsyncJavaScript("return " + command.script, arguments: [:], in: nil, in: .page) { _ in }
+    }
+
+    @ObservationIgnored private var pictureInPictureRestoredAt = Date.distantPast
+
+    /// You tapped "return to app" in the picture in picture window. The page
+    /// is told so it can keep the video playing.
+    func pictureInPictureRestoreTapped() {
+        pictureInPictureRestoredAt = .now
+        webView?.evaluateJavaScript("window.__orcaPictureInPictureRestoring && window.__orcaPictureInPictureRestoring()")
+    }
+
+    /// Puts a video that's in picture in picture back in the page. Not just
+    /// after "return to app", which is already doing that.
+    func exitPictureInPicture() {
+        guard isInPictureInPicture, Date.now.timeIntervalSince(pictureInPictureRestoredAt) > 3 else { return }
+        webView?.callAsyncJavaScript("return window.__orcaExitPictureInPicture?.()", arguments: [:], in: nil, in: .page) { _ in }
+    }
+
+    /// Pauses a video on the page, unless it's in picture in picture. Used when
+    /// you switch away from the tab.
+    func pauseVideos() {
+        webView?.evaluateJavaScript("window.__orcaPauseVideos && window.__orcaPauseVideos()")
+    }
+
     func pageDidFinish() {
         if isRestoring {
             restoreNavigationFinished = true
@@ -559,6 +644,7 @@ final class Tab: Identifiable {
     /// The first bytes of a new page arrived, i.e. the old page is about to
     /// be replaced. A good moment to drop any old error.
     func pageDidCommit() {
+        playback = PlaybackControl.State()
         snapshotsStarted += 1
         scrollSnapshotTask?.cancel()
         loadError = nil
@@ -592,13 +678,19 @@ final class Tab: Identifiable {
         }
     }
 
-    /// Applies the Shorts setting to a page that is already open.
+    /// Applies the Reddit pop-up setting to a page that is already open.
     func setBlocksRedditPrompt(_ enabled: Bool) {
         webView?.evaluateJavaScript(RedditPrompt.setScript(enabled: enabled))
     }
 
+    /// Applies the Shorts hiding setting to a page that is already open.
     func setHidesShorts(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
+    }
+
+    /// Applies the "open Shorts as videos" setting to a page that is already open.
+    func setOpensShortsAsVideos(_ enabled: Bool) {
+        webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))
     }
 
     func pageDidFail(_ error: Error) {

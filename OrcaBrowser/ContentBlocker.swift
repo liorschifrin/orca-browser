@@ -62,12 +62,19 @@ final class ContentBlocker {
         /// The site the web view is showing, as `site(for:)` names it.
         var site: String?
         var lists: [ObjectIdentifier] = []
+        /// The incognito per-site choices, kept in memory; nil in normal tabs.
+        let privateRules: PrivateSiteRules?
+
+        init(privateRules: PrivateSiteRules?) { self.privateRules = privateRules }
     }
 
     /// Gives a new web view whatever lists are ready, and keeps it current
     /// as lists finish loading, update, or get switched on and off.
-    func install(on controller: WKUserContentController) {
-        attachments.setObject(Attachment(), forKey: controller)
+    ///
+    /// Incognito tabs pass `privateRules`: site choices made there are shared by
+    /// incognito tabs only and are never saved.
+    func install(on controller: WKUserContentController, privateRules: PrivateSiteRules? = nil) {
+        attachments.setObject(Attachment(privateRules: privateRules), forKey: controller)
         apply(to: controller)
     }
 
@@ -125,8 +132,10 @@ final class ContentBlocker {
     }
 
     /// Whether `category` is blocked on `site`, ignoring the global settings.
-    func isBlocking(_ category: Category, on site: String) -> Bool {
-        switch category {
+    /// The incognito choice, if one was made, wins over the saved one.
+    func isBlocking(_ category: Category, on site: String, privateRules: PrivateSiteRules? = nil) -> Bool {
+        if let choice = privateRules?.blocking(category, on: site) { return choice }
+        return switch category {
         case .ads: !adsOffSites.contains(site)
         case .trackers: !trackersOffSites.contains(site)
         }
@@ -146,18 +155,26 @@ final class ContentBlocker {
         refresh()
     }
 
+    /// Switches one category on or off for a site in every incognito tab, until
+    /// none is on the site. Nothing is saved; pages already open keep what they
+    /// loaded until reloaded.
+    func setBlocking(_ enabled: Bool, _ category: Category, on site: String, privateRules: PrivateSiteRules) {
+        privateRules.setBlocking(enabled, category, on: site)
+        refresh()
+    }
+
     // MARK: - Attaching
 
-    private func lists(for site: String?) -> [WKContentRuleList] {
+    private func lists(for site: String?, privateRules: PrivateSiteRules?) -> [WKContentRuleList] {
         activeFilters.compactMap { filter in
-            if let site, !isBlocking(filter.category, on: site) { return nil }
+            if let site, !isBlocking(filter.category, on: site, privateRules: privateRules) { return nil }
             return compiled[filter.id]
         }
     }
 
     private func apply(to controller: WKUserContentController) {
         guard let attachment = attachments.object(forKey: controller) else { return }
-        let wanted = lists(for: attachment.site)
+        let wanted = lists(for: attachment.site, privateRules: attachment.privateRules)
         let identities = wanted.map(ObjectIdentifier.init)
         guard identities != attachment.lists else { return }
         controller.removeAllContentRuleLists()

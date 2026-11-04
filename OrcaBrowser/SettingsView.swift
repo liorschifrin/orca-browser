@@ -41,13 +41,15 @@ struct SettingsView: View {
                     Text("Alerts, confirmations and prompts that pages show. When off, pages carry on as if you'd tapped Cancel. You can also switch them off for one site from its site menu.")
                 }
                 Section {
-                    Toggle("Hide YouTube Shorts", isOn: $settings.hideShorts)
+                    YouTubeToggles(settings: settings)
+                } header: {
+                    Text("YouTube")
                 } footer: {
-                    Text("Hides Shorts on YouTube pages. Shorts links open as regular videos.")
+                    Text(YouTubeToggles.footnote)
                 }
                 #if DEBUG
                 Section("Debug") {
-                    Toggle("Show FPS and memory", isOn: $settings.showDebugStats)
+                    Toggle("Show FPS, memory and build", isOn: $settings.showDebugStats)
                 }
                 #endif
                 Section {

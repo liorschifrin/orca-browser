@@ -21,6 +21,18 @@
 	     iPhones cap an app's own animations at 60 Hz. -->
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- Filled in by scripts/ship-to-phone.sh so a test build can show which
+	     slot, commit and branch it came from. Empty in every other build. -->
+	<key>OrcaBuildSlot</key>
+	<string>$(ORCA_BUILD_SLOT)</string>
+	<key>OrcaBuildCommit</key>
+	<string>$(ORCA_BUILD_COMMIT)</string>
+	<key>OrcaBuildLabel</key>
+	<string>$(ORCA_BUILD_LABEL)</string>
+	<key>OrcaBuildID</key>
+	<string>$(ORCA_BUILD_ID)</string>
+	<key>OrcaBuildNotes</key>
+	<string>$(ORCA_BUILD_NOTES)</string>
 	<!-- Registers orcabrowser:// so Shortcuts can hand control back to the app
 	     after "Add Video to Play" finishes. -->
 	<key>CFBundleURLTypes</key>

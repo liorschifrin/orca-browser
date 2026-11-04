@@ -16,6 +16,8 @@ struct BottomBar: View {
     /// Called when the site settings caret in the address bar is tapped.
     let onSiteMenu: () -> Void
     let onShowTabs: () -> Void
+    /// Called when the build stamp is pressed and held.
+    let onShowBuildNotes: () -> Void
     /// Called with the selected destination address for a finished voice search.
     let onVoiceSearch: (URL) -> Void
 
@@ -38,6 +40,10 @@ struct BottomBar: View {
                     #endif
 
                     Spacer()
+
+                    if let stamp = BuildStamp.current, showsBuildStamp || stamp.isMain {
+                        BuildStampLabel(stamp: stamp, onOpen: onShowBuildNotes)
+                    }
 
                     HistoryBackButton(tab: tab, showHistory: $showHistory)
                         .onGeometryChange(for: CGRect.self) {
@@ -80,6 +86,16 @@ struct BottomBar: View {
                 },
             including: showHistory ? .subviews : .all
         )
+    }
+
+    /// Follows the debug settings switch. Release builds have no switch, so a
+    /// stamped one always shows it.
+    private var showsBuildStamp: Bool {
+        #if DEBUG
+        AppSettings.shared.showDebugStats
+        #else
+        true
+        #endif
     }
 
     private var siteCapsule: some View {
