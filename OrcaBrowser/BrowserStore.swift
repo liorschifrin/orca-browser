@@ -6,6 +6,14 @@ import SwiftUI
 final class BrowserStore {
     var tabs: [Tab]
     var selectedTabID: Tab.ID
+
+    /// A switch that slides the new tab in from the right, like moving to
+    /// the next app. The old tab stays on screen until the slide ends.
+    struct Slide: Equatable {
+        let incoming: Tab.ID
+        let outgoing: Tab.ID
+    }
+    var slide: Slide?
     /// How many tabs "Close All" has put away. They live on disk only.
     private(set) var closedTabCount = 0
     private(set) var archivedTabs: [ArchivedTab] = []
@@ -32,6 +40,7 @@ final class BrowserStore {
     static let idleLimit: TimeInterval = 5 * 60
 
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var restoreObserver: NSObjectProtocol?
     private(set) var isRestoringSession = true
     @ObservationIgnored private var hasStartedRestoring = false
 
@@ -42,6 +51,11 @@ final class BrowserStore {
         selectedTabID = first.id
         watch([first])
         markUsed(first)
+        restoreObserver = NotificationCenter.default.addObserver(
+            forName: PictureInPictureRestoreHook.didTapRestore, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pictureInPictureRestoreTapped() }
+        }
     }
 
     func restoreSession() async {
@@ -93,9 +107,28 @@ final class BrowserStore {
         }
     }
 
+    /// Switches to the tab whose video you came back to, sliding it in.
+    private func returnToVideo(in tab: Tab) {
+        guard tab.id != selectedTabID else { return }
+        slide = Slide(incoming: tab.id, outgoing: selectedTabID)
+        // The picture in picture window is already on its way back.
+        select(tab, exitingPictureInPicture: false)
+    }
+
+    /// You tapped "return to app" in the picture in picture window.
+    private func pictureInPictureRestoreTapped() {
+        guard let tab = tabs.first(where: \.isInPictureInPicture) else { return }
+        tab.pictureInPictureRestoreTapped()
+        returnToVideo(in: tab)
+    }
+
     private func watch(_ newTabs: [Tab]) {
         for tab in newTabs {
             tab.onChange = { [weak self] in self?.scheduleSave() }
+            tab.onPictureInPictureReturn = { [weak self, weak tab] in
+                guard let self, let tab else { return }
+                returnToVideo(in: tab)
+            }
         }
     }
 
@@ -291,9 +324,20 @@ final class BrowserStore {
         }
     }
 
-    func select(_ tab: Tab) {
+    /// Applies the YouTube top bar settings to every tab with a live page.
+    func applyYouTubeSettings(_ settings: AppSettings) {
+        for tab in tabs where tab.isLoaded {
+            tab.applyYouTubeSettings(settings)
+        }
+    }
+
+    /// Makes `tab` the current tab. If its video is in picture in picture, the
+    /// video comes back into the page, unless the caller says it's already
+    /// doing that.
+    func select(_ tab: Tab, exitingPictureInPicture: Bool = true) {
         // A page left behind can't wait on a dialog nobody can see.
         if tab.id != selectedTabID {
+            selectedTab?.pauseVideos()
             selectedTab?.answerDialog(.cancel)
             selectedTab?.peek?.tab.answerDialog(.cancel)
         }
@@ -304,6 +348,7 @@ final class BrowserStore {
         tab.activate()
         tab.peek?.tab.activate()
         selectedTabID = tab.id
+        if exitingPictureInPicture { tab.exitPictureInPicture() }
         markUsed(tab)
         enforceMemoryPolicy()
         scheduleSave()

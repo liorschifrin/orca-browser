@@ -20,6 +20,9 @@ final class AppSettings {
 
     private static let hideShortsKey = "hideShorts"
     private static let opensShortsAsVideosKey = "opensShortsAsVideos"
+    private static let showsPlaybackBarKey = "showsPlaybackBar"
+    private static let hidesOpenAppKey = "hidesOpenApp"
+    private static let showsHeaderToolsKey = "showsHeaderTools"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
     private static let blockRedditPromptKey = "blockRedditPrompt"
@@ -56,6 +59,22 @@ final class AppSettings {
         didSet { defaults.set(opensShortsAsVideos, forKey: Self.opensShortsAsVideosKey) }
     }
 
+    /// Shows the playback controls above the bottom bar on YouTube watch
+    /// pages. On by default.
+    var showsPlaybackBar: Bool {
+        didSet { defaults.set(showsPlaybackBar, forKey: Self.showsPlaybackBarKey) }
+    }
+
+    /// Hides the "Open App" button in YouTube's top bar. On by default.
+    var hidesOpenApp: Bool {
+        didSet { defaults.set(hidesOpenApp, forKey: Self.hidesOpenAppKey) }
+    }
+
+    /// Shows the time and the chapters button in YouTube's top bar. On by default.
+    var showsHeaderTools: Bool {
+        didSet { defaults.set(showsHeaderTools, forKey: Self.showsHeaderToolsKey) }
+    }
+
     /// Blocks ads in every tab. On by default.
     var blockAds: Bool {
         didSet { defaults.set(blockAds, forKey: Self.blockAdsKey) }
@@ -88,6 +107,9 @@ final class AppSettings {
         // Hiding Shorts used to open them as videos too, so keep that for
         // anyone who already had it on.
         opensShortsAsVideos = defaults.object(forKey: Self.opensShortsAsVideosKey) as? Bool ?? hidesShorts
+        showsPlaybackBar = defaults.object(forKey: Self.showsPlaybackBarKey) as? Bool ?? true
+        hidesOpenApp = defaults.object(forKey: Self.hidesOpenAppKey) as? Bool ?? true
+        showsHeaderTools = defaults.object(forKey: Self.showsHeaderToolsKey) as? Bool ?? true
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
         blockRedditPrompt = defaults.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true

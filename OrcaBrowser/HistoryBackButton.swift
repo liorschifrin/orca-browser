@@ -224,7 +224,7 @@ struct HistoryBackButton: View {
 /// While active, watches every touch on screen without getting in its way,
 /// and calls `onOutside` for those that start outside `insideFrame`
 /// (in screen coordinates).
-private struct OutsideTouchCloser: UIViewRepresentable {
+struct OutsideTouchCloser: UIViewRepresentable {
     let isActive: Bool
     let insideFrame: CGRect
     let onOutside: () -> Void

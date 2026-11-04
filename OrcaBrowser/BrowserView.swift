@@ -9,6 +9,9 @@ struct BrowserView: View {
 
     @State private var voiceQuery = VoiceQuery()
     @State private var barHeight: CGFloat = 0
+    /// How far the slide between tabs has gone, from 0 to 1.
+    @State private var slideProgress: CGFloat = 0
+    @State private var isSliding = false
     // Search starts open only when there's no page to go back to (a blank tab).
     @State private var isSearching: Bool
     // Set when search was opened by tapping the address: the URL to show,
@@ -198,6 +201,9 @@ struct BrowserView: View {
         .onChange(of: isSearching) { InteractionBudget.shared.isSearching = isSearching }
         .onChange(of: isSwitching) { InteractionBudget.shared.isSwitching = isSwitching }
         .onChange(of: scenePhase) {
+            // The switch can be decided while the app is still coming forward
+            // from the picture in picture window; slide once it's on screen.
+            startSlideIfVisible()
             InteractionBudget.shared.isForeground = scenePhase == .active
             if scenePhase == .active {
                 Task {
@@ -205,12 +211,24 @@ struct BrowserView: View {
                     guard !Task.isCancelled else { return }
                     archiveInactiveTabs()
                 }
+                // Opening the app with this tab's video in picture in picture
+                // brings the video back into the page.
+                store.selectedTab?.exitPictureInPicture()
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
                 store.save()
                 HistoryStore.flushIfNeeded()
             }
+        }
+        .onChange(of: store.slide) { startSlideIfVisible() }
+        .onChange(of: settings.hidesOpenApp) { store.applyYouTubeSettings(settings) }
+        .onChange(of: settings.showsHeaderTools) { store.applyYouTubeSettings(settings) }
+        .sheet(isPresented: Binding(
+            get: { store.selectedTab?.isShowingChapters ?? false },
+            set: { store.selectedTab?.isShowingChapters = $0 }
+        )) {
+            if let tab = store.selectedTab { ChaptersSheet(tab: tab) }
         }
         .onChange(of: settings.hideShorts) {
             store.applyShortsSetting(settings.hideShorts)
@@ -326,6 +344,36 @@ struct BrowserView: View {
         }
     }
 
+    /// Room the playback bar takes above the bottom bar: none unless the
+    /// current tab is on a watch page.
+    private var playbackBarHeight: CGFloat {
+        settings.showsPlaybackBar && store.selectedTab?.playback.isAvailable == true ? PlaybackBar.height : 0
+    }
+
+    /// Runs the slide between tabs, once the app is on screen to show it.
+    private func startSlideIfVisible() {
+        guard store.slide != nil, scenePhase == .active, !isSliding else { return }
+        isSliding = true
+        slideProgress = 0
+        withAnimation(.easeOut(duration: 0.3)) {
+            slideProgress = 1
+        } completion: {
+            store.slide = nil
+            slideProgress = 0
+            isSliding = false
+        }
+    }
+
+    /// The new tab comes in from the right while the old one moves a little
+    /// to the left, as when switching apps.
+    private func slideOffset(for tab: Tab) -> CGFloat {
+        guard let slide = store.slide else { return 0 }
+        let width = UIScreen.main.bounds.width
+        if tab.id == slide.incoming { return (1 - slideProgress) * width }
+        if tab.id == slide.outgoing { return -slideProgress * width * 0.3 }
+        return 0
+    }
+
     /// Every tab's web view, then error/start states. (The bars sit above.)
     private var page: some View {
         let isIncognito = store.selectedTab?.isIncognito == true
@@ -335,16 +383,25 @@ struct BrowserView: View {
                 WebViewHost(
                     webView: tab.webView!,
                     isActive: tab.id == store.selectedTabID,
+                    keepsVisible: tab.id == store.slide?.outgoing,
                     onPreviewLink: { url in
                         guard tab.id == store.selectedTabID else { return }
                         tab.openPeek(url)
                     },
                     onVisible: tab.finishRestoringIfVisible
                 )
-                // Sit between the status bar and the floating bar, so nothing
-                // on the page (header buttons, the end of an inner scrolling
-                // panel like comments) is hidden behind them.
-                .padding(.bottom, barHeight)
+                // Sit between the status bar and the floating bar (and the
+                // playback bar above it), so nothing on the page (header
+                // buttons, the end of an inner scrolling panel like comments)
+                // is hidden behind them.
+                .padding(.bottom, barHeight + playbackBarHeight)
+                .offset(x: slideOffset(for: tab))
+                .zIndex(tab.id == store.slide?.incoming ? 1 : 0)
+            }
+
+            if let tab = store.selectedTab, tab.playback.isAvailable, settings.showsPlaybackBar {
+                PlaybackBar(tab: tab)
+                    .padding(.bottom, barHeight)
             }
 
             if let tab = store.selectedTab {
