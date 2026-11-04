@@ -34,13 +34,25 @@ struct SiteMenu: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(target.site)
-                    .font(.title3.weight(.semibold))
-                    .lineLimit(1)
-                Text(target.tab.isIncognito ? "Applies to this site in every incognito tab and is forgotten when the last one leaves it" : "Applies to every page on this site")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(target.site)
+                        .font(.title3.weight(.semibold))
+                        .lineLimit(1)
+                    Text(target.tab.isIncognito ? "Applies to this site in every incognito tab and is forgotten when the last one leaves it" : "Applies to every page on this site")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Button(action: toggleAll) {
+                    Image(systemName: "power")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(anyOn ? Color.accentColor : Color.secondary)
+                        .frame(width: 40, height: 40)
+                        .background(.thinMaterial, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(anyOn ? "Turn off all blocking for this site" : "Turn on all blocking for this site")
             }
 
             HStack(spacing: 12) {
@@ -50,17 +62,17 @@ struct SiteMenu: View {
             }
 
             VStack(spacing: 0) {
-                Toggle("Block ads", isOn: $blocksAds)
+                Toggle("Block ads", isOn: binding($blocksAds, .ads))
                     .disabled(!settings.blockAds)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
                 Divider().padding(.leading, 16)
-                Toggle("Block trackers", isOn: $blocksTrackers)
+                Toggle("Block trackers", isOn: binding($blocksTrackers, .trackers))
                     .disabled(!settings.blockTrackers)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
                 Divider().padding(.leading, 16)
-                Toggle("Hide cookie banners", isOn: $blocksBanners)
+                Toggle("Hide cookie banners", isOn: binding($blocksBanners, .cookieBanners))
                     .disabled(!settings.blockCookieBanners && !settings.rejectConsent)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
@@ -86,9 +98,6 @@ struct SiteMenu: View {
         .padding(.horizontal, 20)
         .padding(.top, 28)
         .frame(maxHeight: .infinity, alignment: .top)
-        .onChange(of: blocksAds) { change(.ads, to: blocksAds) }
-        .onChange(of: blocksTrackers) { change(.trackers, to: blocksTrackers) }
-        .onChange(of: blocksBanners) { change(.cookieBanners, to: blocksBanners) }
         .onChange(of: allowsDialogs) {
             if let rules = target.tab.privateRules {
                 rules.setAllowsDialogs(allowsDialogs, on: target.site)
@@ -100,14 +109,39 @@ struct SiteMenu: View {
         .presentationDragIndicator(.visible)
     }
 
-    /// Remembers the choice for the site, then reloads so the page is
-    /// fetched again under the new rules.
-    private func change(_ category: ContentBlocker.Category, to enabled: Bool) {
+    /// A switch that remembers its choice for the site and reloads.
+    private func binding(_ state: Binding<Bool>, _ category: ContentBlocker.Category) -> Binding<Bool> {
+        Binding(
+            get: { state.wrappedValue },
+            set: { enabled in
+                state.wrappedValue = enabled
+                remember(enabled, category)
+                target.tab.reload()
+            }
+        )
+    }
+
+    private func remember(_ enabled: Bool, _ category: ContentBlocker.Category) {
         if let rules = target.tab.privateRules {
             ContentBlocker.shared.setBlocking(enabled, category, on: target.site, privateRules: rules)
         } else {
             ContentBlocker.shared.setBlocking(enabled, category, on: target.site)
         }
+    }
+
+    /// Any blocking running on this page, counting only what Settings leaves on.
+    private var anyOn: Bool { adsActive || trackersActive || (blocksBanners && (settings.blockCookieBanners || settings.rejectConsent)) }
+
+    /// The power button: everything off for the site, or back on if it
+    /// already is. One reload for all three.
+    private func toggleAll() {
+        let enabled = !anyOn
+        blocksAds = enabled
+        blocksTrackers = enabled
+        blocksBanners = enabled
+        remember(enabled, .ads)
+        remember(enabled, .trackers)
+        remember(enabled, .cookieBanners)
         target.tab.reload()
     }
 
