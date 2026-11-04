@@ -102,7 +102,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, contentRuleListWithIdentifier identifier: String, performedAction action: NSObject, forURL url: URL) {
         guard (action.value(forKey: "blockedLoad") as? Bool) == true,
               let category = ContentBlocker.shared.category(ofList: identifier) else { return }
-        tab?.countBlocked(category)
+        tab?.countBlocked(category, url: url)
     }
 
     /// Called once the first bytes of a new page arrive, i.e. the old page is

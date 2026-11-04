@@ -23,6 +23,21 @@ struct ContentBlockerTests {
         #expect(builtIn.first?.identifier != ContentBlocker.Filter(id: 1001, category: .cookieBanners, name: "x", source: .builtIn(json: "[]")).identifier)
     }
 
+    @MainActor
+    @Test func aRetriedBlockedRequestIsCountedOnce() {
+        let tab = Tab()
+        defer { tab.teardown() }
+        let ad = URL(string: "https://ads.example/config.json")!
+        for _ in 0..<1000 { tab.countBlocked(.ads, url: ad) }
+        tab.countBlocked(.ads, url: URL(string: "https://ads.example/other.js")!)
+        tab.countBlocked(.trackers, url: URL(string: "https://track.example/p.gif")!)
+        #expect(tab.adsBlocked == 2)
+        #expect(tab.trackersBlocked == 1)
+        tab.pageDidCommit()
+        tab.countBlocked(.ads, url: ad)
+        #expect(tab.adsBlocked == 1)
+    }
+
     @Test func cookieBannerSettingIsOnByDefaultAndSurvivesRelaunch() throws {
         let suite = "ContentBlockerTests.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

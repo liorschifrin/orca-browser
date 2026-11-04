@@ -84,6 +84,9 @@ final class Tab: Identifiable {
     private(set) var adsBlocked = 0
     private(set) var trackersBlocked = 0
     private(set) var bannersBlocked = 0
+    /// What was already counted on this page: a page whose script retries a
+    /// blocked request in a loop is still one blocked request.
+    @ObservationIgnored private var countedBlockedURLs = Set<URL>()
 
     /// True when the loaded page appears to be in a language the user doesn't
     /// read (see `Translation`). Cleared when the next page starts arriving.
@@ -580,6 +583,7 @@ final class Tab: Identifiable {
         adsBlocked = 0
         trackersBlocked = 0
         bannersBlocked = 0
+        countedBlockedURLs.removeAll()
         isForeignLanguage = false
     }
 
@@ -600,7 +604,8 @@ final class Tab: Identifiable {
         dialog.respond(response)
     }
 
-    func countBlocked(_ category: ContentBlocker.Category) {
+    func countBlocked(_ category: ContentBlocker.Category, url: URL) {
+        guard countedBlockedURLs.insert(url).inserted else { return }
         switch category {
         case .ads: adsBlocked += 1
         case .trackers: trackersBlocked += 1
