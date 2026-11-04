@@ -101,7 +101,8 @@ struct BuildStampLabel: View {
 
 /// The build's notes in a panel that floats over the page the way a link peek
 /// does: dimmed page behind it, the toolbar still tappable, and closed by
-/// tapping outside, the X, or swiping down.
+/// tapping outside or the X. It is as tall as its notes, up to the height of
+/// the peek, and only scrolls when the notes don't fit.
 struct BuildNotesPeek: View {
     let stamp: BuildStamp
     let notes: BuildNotes
@@ -111,10 +112,6 @@ struct BuildNotesPeek: View {
     @State private var isVisible = false
     @State private var isClosing = false
     @State private var contentHeight: CGFloat = 0
-    @State private var isScrolledToTop = true
-    @State private var isDragging = false
-    @State private var dragStartedAtTop = false
-    @State private var dragOffset: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let headerHeight: CGFloat = 44
@@ -123,7 +120,8 @@ struct BuildNotesPeek: View {
         GeometryReader { geometry in
             let available = max(1, geometry.size.height - bottomInset - 2 * PeekLayout.margin)
             let width = max(1, min(380, geometry.size.width - 2 * PeekLayout.margin))
-            let bodyHeight = min(contentHeight, max(0, available - Self.headerHeight))
+            let maxBodyHeight = max(0, available - Self.headerHeight)
+            let bodyHeight = min(contentHeight, maxBodyHeight)
             ZStack {
                 Color.black.opacity(isVisible ? 0.35 : 0)
                     .ignoresSafeArea()
@@ -143,22 +141,16 @@ struct BuildNotesPeek: View {
                             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
                     }
                     .scrollBounceBehavior(.basedOnSize)
-                    .onScrollGeometryChange(for: Bool.self) {
-                        $0.contentOffset.y <= -$0.contentInsets.top + 1
-                    } action: { _, atTop in
-                        isScrolledToTop = atTop
-                    }
+                    .scrollDisabled(contentHeight <= maxBodyHeight)
                     .frame(height: bodyHeight)
                 }
                 .frame(width: width)
                 .background(.regularMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 18))
                 .shadow(radius: 20)
-                .offset(y: dragOffset)
                 .position(x: geometry.size.width / 2, y: PeekLayout.margin + available / 2)
                 .scaleEffect(reduceMotion || isVisible ? 1 : 0.92)
                 .opacity(isVisible ? 1 : 0)
-                .simultaneousGesture(swipeDown)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -226,35 +218,11 @@ struct BuildNotesPeek: View {
         }
     }
 
-    /// Drag the panel down to close it. Starts counting only when the notes
-    /// are scrolled to the top, so scrolling a long list up never closes it.
-    private var swipeDown: some Gesture {
-        DragGesture(minimumDistance: 10)
-            .onChanged { value in
-                if !isDragging {
-                    isDragging = true
-                    dragStartedAtTop = isScrolledToTop
-                }
-                guard dragStartedAtTop, value.translation.height > 0 else { return }
-                dragOffset = value.translation.height
-            }
-            .onEnded { value in
-                defer { isDragging = false }
-                guard dragStartedAtTop,
-                      value.translation.height > 90 || value.predictedEndTranslation.height > 220 else {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragOffset = 0 }
-                    return
-                }
-                close()
-            }
-    }
-
     private func close() {
         guard !isClosing else { return }
         isClosing = true
         withAnimation(.easeOut(duration: 0.18), completionCriteria: .removed) {
             isVisible = false
-            if dragOffset > 0 { dragOffset += 120 }
         } completion: {
             onDismiss()
         }
