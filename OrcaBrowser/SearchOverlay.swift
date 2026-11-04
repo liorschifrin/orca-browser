@@ -47,11 +47,11 @@ struct SearchOverlay: View {
             }
 
             VStack(spacing: 10) {
-                if clipboardCache.access == .needsPermission {
-                    pastePermissionChip
-                }
                 if !clipboardText.isEmpty && clipboardText != text {
                     clipboardChip
+                }
+                if clipboardCache.access == .needsPermission {
+                    pastePermissionChip
                 }
                 field
             }

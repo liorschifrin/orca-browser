@@ -67,6 +67,9 @@ final class ClipboardCache {
         refreshTask = Task {
             defer { refreshTask = nil }
             var deniedCount: Int?
+            // A refusal followed by success means the Allow Paste prompt was
+            // answered in between, whatever the final read's timing says.
+            var wasRefused = false
             // Retry transient empty reads without making the user reopen search.
             for attempt in 0..<4 {
                 let snapshot = await Self.read()
@@ -75,13 +78,14 @@ final class ClipboardCache {
                         text = value
                         cachedChangeCount = snapshot.after
                         deniedCount = nil
-                        learnAccess(from: snapshot)
+                        learnAccess(from: snapshot, afterRefusal: wasRefused)
                     } else if !snapshot.hasText {
                         text = ""
                         cachedChangeCount = snapshot.after
                         deniedCount = nil
                     } else {
                         deniedCount = snapshot.after
+                        wasRefused = true
                     }
                     if cachedChangeCount == UIPasteboard.general.changeCount { return }
                 }
@@ -97,8 +101,8 @@ final class ClipboardCache {
         }
     }
 
-    private func learnAccess(from snapshot: Snapshot) {
-        if access != .allowed, snapshot.duration > Self.promptThreshold {
+    private func learnAccess(from snapshot: Snapshot, afterRefusal: Bool) {
+        if afterRefusal || (access != .allowed && snapshot.duration > Self.promptThreshold) {
             setAccess(.needsPermission)
         } else if snapshot.after != ownChangeCount {
             setAccess(.allowed)
