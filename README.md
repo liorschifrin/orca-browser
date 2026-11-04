@@ -8,7 +8,7 @@ A fast, gesture-driven web browser for iPhone, built with SwiftUI and WebKit. In
 - **Voice search** – swipe up from **+** and hold to dictate, then slide to a destination (Google, YouTube, ChatGPT, Maps, Reddit, Wikipedia and more) and release to search. Fully customizable.
 - **Page-history back button** – tap to go back, hold or drag up to jump backward or forward in the tab's history.
 - **Translate** – detects pages in another language and adds a one-tap open in Chrome button for translation.
-- **Ad and tracker blocking** – native WebKit content rules built from AdGuard filters, with per-site controls and blocked counts in the site menu.
+- **Ad, tracker and cookie banner blocking** – native WebKit content rules built from AdGuard filters, with per-site controls and blocked counts in the site menu. Pages locked by a hidden banner are unlocked so they still scroll.
 - **Quick search** - One tap to search clipboard contents
 - **Auto tab archive**
 - **Incognito tabs**

@@ -4,7 +4,7 @@ import OSLog
 import PublicSuffixList
 import WebKit
 
-/// Blocks ads and trackers in every tab with WebKit's own content blocking.
+/// Blocks ads, trackers and cookie banners in every tab with WebKit's own content blocking.
 ///
 /// WebKit compiles blocking rules once into a compact form and matches every
 /// request against it natively, so pages don't run any extra JavaScript and
@@ -23,7 +23,18 @@ import WebKit
 final class ContentBlocker {
     static let shared = ContentBlocker()
 
-    enum Category { case ads, trackers }
+    enum Category: CaseIterable {
+        case ads, trackers, cookieBanners
+
+        /// Where the sites with this category switched off are saved.
+        fileprivate var offSitesKey: String {
+            switch self {
+            case .ads: "contentBlocker.adsOffSites"
+            case .trackers: "contentBlocker.trackersOffSites"
+            case .cookieBanners: "contentBlocker.cookieBannersOffSites"
+            }
+        }
+    }
 
     /// An AdGuard filter, in the variant AdGuard optimizes for Safari.
     struct Filter {
@@ -38,6 +49,7 @@ final class ContentBlocker {
         Filter(id: 2, category: .ads),       // AdGuard Base
         Filter(id: 11, category: .ads),      // AdGuard Mobile Ads
         Filter(id: 3, category: .trackers),  // AdGuard Tracking Protection
+        Filter(id: 18, category: .cookieBanners),  // AdGuard Cookie Notices
     ]
 
     /// AdGuard's lists say they expire after five days.
@@ -93,6 +105,7 @@ final class ContentBlocker {
         switch category {
         case .ads: settings.blockAds
         case .trackers: settings.blockTrackers
+        case .cookieBanners: settings.blockCookieBanners
         }
     }
 
@@ -106,11 +119,10 @@ final class ContentBlocker {
 
     // MARK: - Per-site settings
 
-    private static let adsOffKey = "contentBlocker.adsOffSites"
-    private static let trackersOffKey = "contentBlocker.trackersOffSites"
-
-    private var adsOffSites = Set(UserDefaults.standard.stringArray(forKey: ContentBlocker.adsOffKey) ?? [])
-    private var trackersOffSites = Set(UserDefaults.standard.stringArray(forKey: ContentBlocker.trackersOffKey) ?? [])
+    /// The sites each category is switched off for.
+    private var offSites = Dictionary(uniqueKeysWithValues: Category.allCases.map {
+        ($0, Set(UserDefaults.standard.stringArray(forKey: $0.offSitesKey) ?? []))
+    })
 
     /// The name a site is remembered by: the registered domain, so
     /// `news.bbc.co.uk` and `www.bbc.co.uk` are both "bbc.co.uk". Addresses
@@ -126,23 +138,23 @@ final class ContentBlocker {
 
     /// Whether `category` is blocked on `site`, ignoring the global settings.
     func isBlocking(_ category: Category, on site: String) -> Bool {
-        switch category {
-        case .ads: !adsOffSites.contains(site)
-        case .trackers: !trackersOffSites.contains(site)
-        }
+        !(offSites[category]?.contains(site) ?? false)
+    }
+
+    /// Whether cookie banners are hidden on the page at `url`: switched on
+    /// globally and for its site.
+    func hidesBanners(on url: URL?) -> Bool {
+        guard settings.blockCookieBanners, let site = Self.site(for: url) else { return false }
+        return isBlocking(.cookieBanners, on: site)
     }
 
     /// Switches one category on or off for a site, in every tab. Pages already
     /// open keep what they loaded until they are reloaded.
     func setBlocking(_ enabled: Bool, _ category: Category, on site: String) {
-        switch category {
-        case .ads:
-            if enabled { adsOffSites.remove(site) } else { adsOffSites.insert(site) }
-            UserDefaults.standard.set(adsOffSites.sorted(), forKey: Self.adsOffKey)
-        case .trackers:
-            if enabled { trackersOffSites.remove(site) } else { trackersOffSites.insert(site) }
-            UserDefaults.standard.set(trackersOffSites.sorted(), forKey: Self.trackersOffKey)
-        }
+        var sites = offSites[category] ?? []
+        if enabled { sites.remove(site) } else { sites.insert(site) }
+        offSites[category] = sites
+        UserDefaults.standard.set(sites.sorted(), forKey: category.offSitesKey)
         refresh()
     }
 

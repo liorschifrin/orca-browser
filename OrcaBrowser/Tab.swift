@@ -73,6 +73,7 @@ final class Tab: Identifiable {
     /// Requests blocked on the current page, by kind. Start again at each page.
     private(set) var adsBlocked = 0
     private(set) var trackersBlocked = 0
+    private(set) var bannersBlocked = 0
 
     /// True when the loaded page appears to be in a language the user doesn't
     /// read (see `Translation`). Cleared when the next page starts arriving.
@@ -565,6 +566,7 @@ final class Tab: Identifiable {
         snapshotIsStale = true
         adsBlocked = 0
         trackersBlocked = 0
+        bannersBlocked = 0
         isForeignLanguage = false
     }
 
@@ -589,6 +591,7 @@ final class Tab: Identifiable {
         switch category {
         case .ads: adsBlocked += 1
         case .trackers: trackersBlocked += 1
+        case .cookieBanners: bannersBlocked += 1
         }
     }
 

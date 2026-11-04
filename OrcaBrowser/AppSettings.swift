@@ -21,6 +21,7 @@ final class AppSettings {
     private static let hideShortsKey = "hideShorts"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
+    private static let blockCookieBannersKey = "blockCookieBanners"
     private static let blockRedditPromptKey = "blockRedditPrompt"
     private static let voiceSearchProviderKey = "voiceSearchProvider"
     private static let allowsPageDialogsKey = "allowsPageDialogs"
@@ -60,6 +61,11 @@ final class AppSettings {
         didSet { defaults.set(blockTrackers, forKey: Self.blockTrackersKey) }
     }
 
+    /// Hides cookie consent banners in every tab. On by default.
+    var blockCookieBanners: Bool {
+        didSet { defaults.set(blockCookieBanners, forKey: Self.blockCookieBannersKey) }
+    }
+
     /// Removes Reddit's "get the app" pop-up. On by default.
     var blockRedditPrompt: Bool {
         didSet { defaults.set(blockRedditPrompt, forKey: Self.blockRedditPromptKey) }
@@ -80,6 +86,7 @@ final class AppSettings {
         hideShorts = defaults.bool(forKey: Self.hideShortsKey)
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
+        blockCookieBanners = defaults.object(forKey: Self.blockCookieBannersKey) as? Bool ?? true
         blockRedditPrompt = defaults.object(forKey: Self.blockRedditPromptKey) as? Bool ?? true
         allowsPageDialogs = defaults.object(forKey: Self.allowsPageDialogsKey) as? Bool ?? true
         voiceSearchProvider = VoiceSearchProvider(

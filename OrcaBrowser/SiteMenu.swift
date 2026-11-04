@@ -9,23 +9,26 @@ struct SiteMenuTarget: Identifiable {
 }
 
 /// Opens when you hold the address bar. Shows what was blocked on this page
-/// and lets you switch ad and tracker blocking off for the whole site.
+/// and lets you switch ad, tracker and cookie banner blocking off for the whole site.
 struct SiteMenu: View {
     let target: SiteMenuTarget
     private let settings = AppSettings.shared
     @State private var blocksAds: Bool
     @State private var blocksTrackers: Bool
+    @State private var blocksBanners: Bool
     @State private var allowsDialogs: Bool
 
     init(target: SiteMenuTarget) {
         self.target = target
         _blocksAds = State(initialValue: ContentBlocker.shared.isBlocking(.ads, on: target.site))
         _blocksTrackers = State(initialValue: ContentBlocker.shared.isBlocking(.trackers, on: target.site))
+        _blocksBanners = State(initialValue: ContentBlocker.shared.isBlocking(.cookieBanners, on: target.site))
         _allowsDialogs = State(initialValue: PageDialogPermissions.shared.allows(target.site))
     }
 
     private var adsActive: Bool { settings.blockAds && blocksAds }
     private var trackersActive: Bool { settings.blockTrackers && blocksTrackers }
+    private var bannersActive: Bool { settings.blockCookieBanners && blocksBanners }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -41,6 +44,7 @@ struct SiteMenu: View {
             HStack(spacing: 12) {
                 CountTile(title: "Ads blocked", count: target.tab.adsBlocked, isActive: adsActive)
                 CountTile(title: "Trackers blocked", count: target.tab.trackersBlocked, isActive: trackersActive)
+                CountTile(title: "Banners blocked", count: target.tab.bannersBlocked, isActive: bannersActive)
             }
 
             VStack(spacing: 0) {
@@ -51,6 +55,11 @@ struct SiteMenu: View {
                 Divider().padding(.leading, 16)
                 Toggle("Block trackers", isOn: $blocksTrackers)
                     .disabled(!settings.blockTrackers || target.tab.isIncognito)
+                    .padding(.horizontal, 16)
+                    .frame(minHeight: 48)
+                Divider().padding(.leading, 16)
+                Toggle("Hide cookie banners", isOn: $blocksBanners)
+                    .disabled(!settings.blockCookieBanners || target.tab.isIncognito)
                     .padding(.horizontal, 16)
                     .frame(minHeight: 48)
             }
@@ -77,10 +86,11 @@ struct SiteMenu: View {
         .frame(maxHeight: .infinity, alignment: .top)
         .onChange(of: blocksAds) { change(.ads, to: blocksAds) }
         .onChange(of: blocksTrackers) { change(.trackers, to: blocksTrackers) }
+        .onChange(of: blocksBanners) { change(.cookieBanners, to: blocksBanners) }
         .onChange(of: allowsDialogs) {
             PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
         }
-        .presentationDetents([.height(480)])
+        .presentationDetents([.height(540)])
         .presentationDragIndicator(.visible)
     }
 
@@ -92,11 +102,15 @@ struct SiteMenu: View {
     }
 
     private var footnote: String {
-        switch (settings.blockAds, settings.blockTrackers) {
-        case (false, false): "Ad and tracker blocking are off for every site in Settings."
-        case (false, true): "Ad blocking is off for every site in Settings."
-        case (true, false): "Tracker blocking is off for every site in Settings."
-        case (true, true): "Counts are for this page. Changing a switch reloads the page."
+        var off: [String] = []
+        if !settings.blockAds { off.append("Ad blocking") }
+        if !settings.blockTrackers { off.append("tracker blocking") }
+        if !settings.blockCookieBanners { off.append("cookie banner hiding") }
+        switch off.count {
+        case 0: return "Counts are for this page. Changing a switch reloads the page."
+        case 3: return "Ad blocking, tracker blocking and cookie banner hiding are off for every site in Settings."
+        case 2: return "\(off[0]) and \(off[1]) are off for every site in Settings."
+        default: return "\(off[0]) is off for every site in Settings."
         }
     }
 }

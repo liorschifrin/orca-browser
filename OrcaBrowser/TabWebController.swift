@@ -105,6 +105,10 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// about to be replaced.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.pageDidCommit()
+        // Hidden banners often leave the page unable to scroll.
+        if ContentBlocker.shared.hidesBanners(on: webView.url) {
+            webView.evaluateJavaScript(CookieBanners.unlockScrollScript)
+        }
     }
 
     /// Failure before anything arrived (offline, bad host, ...).

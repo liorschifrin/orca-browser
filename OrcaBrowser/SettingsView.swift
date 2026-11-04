@@ -25,6 +25,7 @@ struct SettingsView: View {
                 Section {
                     Toggle("Block ads", isOn: $settings.blockAds)
                     Toggle("Block trackers", isOn: $settings.blockTrackers)
+                    Toggle("Hide cookie banners", isOn: $settings.blockCookieBanners)
                 } header: {
                     Text("Blocking")
                 } footer: {
