@@ -327,11 +327,21 @@ esac
 if [[ $build_only -eq 0 ]]; then
     if [[ -z "$device" ]]; then
         listing="$(mktemp)"
-        xcrun devicectl list devices --json-output "$listing" >/dev/null 2>&1 || true
-        device="$(jq -r '[.result.devices[]?
-            | select(.hardwareProperties.reality == "physical"
-                     and .connectionProperties.tunnelState == "connected")][0]
-            | .hardwareProperties.udid // empty' "$listing")"
+        # An idle paired phone lists as disconnected until a command wakes it.
+        for attempt in 1 2; do
+            xcrun devicectl list devices --json-output "$listing" >/dev/null 2>&1 || true
+            device="$(jq -r '[.result.devices[]?
+                | select(.hardwareProperties.reality == "physical"
+                         and .connectionProperties.tunnelState == "connected")][0]
+                | .hardwareProperties.udid // empty' "$listing")"
+            [[ -n "$device" || $attempt -eq 2 ]] && break
+            for udid in $(jq -r '.result.devices[]?
+                | select(.hardwareProperties.reality == "physical"
+                         and .connectionProperties.pairingState == "paired")
+                | .hardwareProperties.udid' "$listing"); do
+                xcrun devicectl device info details --device "$udid" >/dev/null 2>&1 || true
+            done
+        done
         rm -f "$listing"
         if [[ -z "$device" ]]; then
             echo "No iPhone is connected. Plug it in (or pass --device), unlock it, and run again." >&2
