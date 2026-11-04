@@ -51,11 +51,17 @@ struct BuildStamp {
 struct BuildNotes: Equatable {
     var changed: [String]
     var test: [String]
+    /// Older entries kept behind a "more" button under `changed`.
+    var more: [String] = []
+    /// Title for the `changed` list.
+    var heading = "Changed"
     var threadURL: URL?
 
     private struct Payload: Decodable {
         var changed: [String]?
         var test: [String]?
+        var more: [String]?
+        var heading: String?
         var thread: String?
     }
 
@@ -67,9 +73,11 @@ struct BuildNotes: Equatable {
         let notes = BuildNotes(
             changed: payload.changed ?? [],
             test: payload.test ?? [],
+            more: payload.more ?? [],
+            heading: payload.heading ?? "Changed",
             threadURL: payload.thread.flatMap { URL(string: $0) }
         )
-        return notes.changed.isEmpty && notes.test.isEmpty && notes.threadURL == nil ? nil : notes
+        return notes.changed.isEmpty && notes.test.isEmpty && notes.more.isEmpty && notes.threadURL == nil ? nil : notes
     }
 }
 
@@ -152,6 +160,7 @@ struct BuildNotesPeek: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var threadOpenFailed = false
+    @State private var showsMore = false
 
     private static let headerHeight: CGFloat = 44
     /// The thread link, laid out like an action in the link peek.
@@ -255,7 +264,7 @@ struct BuildNotesPeek: View {
     private var notesContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             if !notes.changed.isEmpty {
-                section("Changed", icon: "pencil", items: notes.changed)
+                section(notes.heading, icon: "pencil", items: notes.changed, more: notes.more)
             }
             if !notes.test.isEmpty {
                 section("Test", icon: "checkmark.circle", items: notes.test)
@@ -266,23 +275,46 @@ struct BuildNotesPeek: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func section(_ title: String, icon: String, items: [String]) -> some View {
+    private func section(_ title: String, icon: String, items: [String], more: [String] = []) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: icon)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    // Inline Markdown (bold, code) works in the notes.
-                    Text(LocalizedStringKey(item))
-                        .font(.subheadline)
-                        .fixedSize(horizontal: false, vertical: true)
+                row(item, icon: icon)
+            }
+            if !more.isEmpty {
+                Button {
+                    withAnimation(.easeOut(duration: 0.2)) { showsMore.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(showsMore ? "Show fewer" : "Show \(more.count) more")
+                        Image(systemName: showsMore ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if showsMore {
+                    ForEach(Array(more.enumerated()), id: \.offset) { _, item in
+                        row(item, icon: icon)
+                    }
                 }
             }
+        }
+    }
+
+    private func row(_ text: String, icon: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: icon)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            // Inline Markdown (bold, code) works in the notes.
+            Text(LocalizedStringKey(text))
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

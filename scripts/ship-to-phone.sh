@@ -44,6 +44,7 @@ SLOT_COUNT=2
 BASE_ID="com.liorschifrin.OrcaBrowser"
 SLOTS_DIR="${ORCA_SLOTS_DIR:-$HOME/.orca-slots}"
 # This Mac's T3 Code environment, for thread links (t3_environment_read shows it).
+RECENT_UPDATES=5
 T3_ENVIRONMENT_ID="${ORCA_T3_ENVIRONMENT_ID:-a42a529c-33c0-4e18-bacb-574b2bbe4c42}"
 
 mode=ship
@@ -53,6 +54,8 @@ label=""
 takeover=""
 changed=()
 tests=()
+older=()
+notes_heading=""
 thread=""
 build_only=0
 while [[ $# -gt 0 ]]; do
@@ -111,6 +114,20 @@ default_label() {
     echo "$text" | tr '_-' '  ' | awk '{ for (i = 1; i <= NF && i <= 4; i++) printf "%s%s", $i, (i < NF && i < 4 ? " " : ""); print "" }'
 }
 
+# Prints one line per update on main, newest first: the title of each pull
+# request, from squash commits ("Title (#12)") and "Merge pull request" commits.
+# Older commits made directly on main or merged as plain branches are skipped.
+list_updates() {
+    local sha subject
+    while IFS=$'\t' read -r sha subject; do
+        if [[ "$subject" =~ ^(.+)\ \(#[0-9]+\)$ ]]; then
+            echo "${BASH_REMATCH[1]}"
+        elif [[ "$subject" == "Merge pull request #"* ]]; then
+            git log -1 --format=%b "$sha" | sed -n '/./{p;q;}'
+        fi
+    done < <(git log --first-parent --format=$'%H\t%s' HEAD)
+}
+
 # Sets the build ID and the what's-new notes (from --changed and --test) for the app.
 add_notes_settings() {
     settings+=("ORCA_BUILD_ID=$(date +%s)")
@@ -120,8 +137,13 @@ add_notes_settings() {
         notes_json="$(jq -cn \
             --argjson c "$(json_array ${changed[@]+"${changed[@]}"})" \
             --argjson t "$(json_array ${tests[@]+"${tests[@]}"})" \
+            --argjson m "$(json_array ${older[@]+"${older[@]}"})" \
+            --arg heading "$notes_heading" \
             --arg thread "$thread_url" \
-            '{changed: $c, test: $t} + (if $thread == "" then {} else {thread: $thread} end)')"
+            '{changed: $c, test: $t}
+             + (if ($m | length) == 0 then {} else {more: $m} end)
+             + (if $heading == "" then {} else {heading: $heading} end)
+             + (if $thread == "" then {} else {thread: $thread} end)')"
         settings+=("ORCA_BUILD_NOTES=$(printf '%s' "$notes_json" | base64 | tr -d '\n')")
         return 0
     fi
@@ -273,25 +295,21 @@ if [[ "$mode" == main ]]; then
     done
     trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
 
-    # No notes given: list what landed on main since the last main build.
+    # No notes given: show the latest 5 updates, with the rest behind a
+    # "more" button, unless nothing new has landed since the last main build.
     main_state="$SLOTS_DIR/main"
     last_main="$(grep '^commit=' "$main_state" 2>/dev/null | cut -d= -f2- || true)"
     if [[ ${#changed[@]} -eq 0 && ${#tests[@]} -eq 0 ]]; then
-        if [[ -n "$last_main" ]] && git cat-file -e "$last_main^{commit}" 2>/dev/null; then
-            range=("$last_main..HEAD")
-        else
-            range=(-n 10)
-        fi
-        while IFS= read -r line; do
-            [[ -n "$line" ]] && changed+=("$line")
-        done < <(git log --no-merges --format=%s "${range[@]}")
-        if [[ ${#changed[@]} -gt 15 ]]; then
-            extra=$(( ${#changed[@]} - 15 ))
-            changed=("${changed[@]:0:15}" "...and $extra more")
+        if [[ "$last_main" != "$(git rev-parse HEAD)" ]]; then
+            while IFS= read -r line; do
+                [[ -z "$line" ]] && continue
+                if [[ ${#changed[@]} -lt $RECENT_UPDATES ]]; then changed+=("$line"); else older+=("$line"); fi
+            done < <(list_updates)
+            notes_heading="Recent updates"
         fi
     fi
     settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=What's new")
-    add_notes_settings || echo "No new commits on main since the last main build, so no what's-new panel." >&2
+    add_notes_settings || echo "Nothing new on main since the last main build, so no what's-new panel." >&2
 elif [[ "$mode" == asmain ]]; then
     # This branch in the regular app: same bundle ID and icon as main, so the
     # test uses the real app and its data, with main's invisible stamp.
