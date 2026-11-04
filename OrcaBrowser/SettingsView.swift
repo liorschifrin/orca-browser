@@ -33,6 +33,11 @@ struct SettingsView: View {
                     Text("Ads, trackers and banners use AdGuard's filters, applied by the system rather than by scripts in the page. The lists update in the background every few days. Rejecting consent clicks \"reject\" for you on banners that offer one; it runs only on pages that show such a banner. Changes apply to pages you open next.")
                 }
                 Section {
+                    Toggle("Google in English", isOn: $settings.googleInEnglish)
+                } footer: {
+                    Text("Opens Google Search and Google's home page in English, which helps when you're abroad or in an incognito tab. Searches you type here and ones you start from Google's own page both get it.")
+                }
+                Section {
                     Toggle("Block Reddit app pop-up", isOn: $settings.blockRedditPrompt)
                 } footer: {
                     Text("Removes the \"Get the best of Reddit in the app\" pop-up that blocks the page on reddit.com.")

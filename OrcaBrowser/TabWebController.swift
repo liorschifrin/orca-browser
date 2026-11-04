@@ -89,6 +89,17 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate {
             tab?.load(watchURL)
             return
         }
+        // Google Search and its home page open in English. Only plain page loads:
+        // a form that sends data keeps its request as it is.
+        if AppSettings.shared.googleInEnglish,
+           isMainFrame,
+           action.request.httpMethod?.uppercased() ?? "GET" == "GET",
+           let url = action.request.url,
+           let english = GoogleLanguage.englishURL(for: url) {
+            decisionHandler(.cancel)
+            tab?.load(english)
+            return
+        }
         // Before the page's requests go out, give it the right blocking lists:
         // a site can have ad or tracker blocking switched off.
         if isMainFrame, let url = action.request.url {
