@@ -45,25 +45,17 @@ struct SiteMenu: View {
                 }
                 Spacer(minLength: 0)
                 Button(action: toggleAll) {
-                    // On is a solid disc with a light icon; off is an empty ring
-                    // with a slash through the icon, so it reads without color.
                     Image(systemName: "power")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(anyOn ? Color.white : Color.secondary)
+                        .foregroundStyle(anyOn ? Color.accentColor : Color.secondary)
                         .frame(width: 40, height: 40)
+                        .background(.thinMaterial, in: .circle)
                         .overlay {
                             if !anyOn {
                                 Capsule()
                                     .fill(Color.secondary)
                                     .frame(width: 30, height: 2)
                                     .rotationEffect(.degrees(-45))
-                            }
-                        }
-                        .background {
-                            if anyOn {
-                                Circle().fill(Color.accentColor)
-                            } else {
-                                Circle().strokeBorder(Color.secondary, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
                             }
                         }
                 }
