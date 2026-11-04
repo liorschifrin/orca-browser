@@ -200,6 +200,7 @@ slot_pr_is_done() {
 # --as-main records in main-holder. The hold lasts while that branch is in flight.
 main_hold_is_active() {
     [[ -f "$(slot_file main-holder)" ]] || return 1
+    [[ -n "$(slot_field main-holder released)" ]] && return 1
     slot_is_stale main-holder && return 1
     slot_pr_is_done main-holder && return 1
     return 0
@@ -259,7 +260,7 @@ print_status() {
         built="$(slot_field main-holder built_epoch)"
         echo "Orca Browser  testing \"$(slot_field main-holder label)\"  $(slot_field main-holder branch) @ $(slot_field main-holder commit)  last built $(format_age $(( $(date +%s) - ${built:-0} ))) ago  ($(slot_field main-holder worktree))"
     elif [[ -f "$(slot_file main-holder)" ]]; then
-        echo "Orca Browser  free (still has $(slot_field main-holder branch)'s build, whose branch is done; --main puts main back)"
+        echo "Orca Browser  free (still has $(slot_field main-holder branch)'s build, which is no longer held; --main puts main back)"
     else
         echo "Orca Browser  main"
     fi
@@ -315,7 +316,7 @@ case "$mode" in
             echo "$branch holds no slot."
         fi
         if [[ -f "$(slot_file main-holder)" && "$(slot_field main-holder worktree)" == "$root" && "$(slot_field main-holder branch)" == "$branch" ]]; then
-            rm -f "$(slot_file main-holder)"
+            echo "released=1" >> "$(slot_file main-holder)"
             echo "Released the regular app (it keeps this build on the phone until --main rebuilds it)."
         fi
         exit 0

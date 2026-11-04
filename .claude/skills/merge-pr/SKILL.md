@@ -30,7 +30,9 @@ Run from the branch's worktree. Where a step says stop, tell the user and stop.
 5. **Merge** once CodeRabbit has reviewed the latest push, nothing is unresolved
    and checks pass: `gh pr merge <n> --squash --subject "<title> (#<n>)"`. No
    `--delete-branch`.
-6. **Finish.** `scripts/ship-to-phone.sh --release`, then `--main`. If `--main`
-   exits 4 or the phone is locked, tell the user and stop. Then
-   `git push origin --delete "$(git branch --show-current)"`,
-   `unwatch_pull_request`, and one line: PR URL, slot released, main rebuilt.
+6. **Finish.** `scripts/ship-to-phone.sh --release`,
+   `git push origin --delete "$(git branch --show-current)"` and
+   `unwatch_pull_request` (skip any already done), then `--main`. If `--main`
+   exits non-zero (4 means another branch holds the regular app), say what
+   failed and stop; don't report main as rebuilt. Otherwise one line: PR URL,
+   slot released, main rebuilt.
