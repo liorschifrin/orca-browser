@@ -8,6 +8,7 @@ struct GoogleLanguageTests {
         ("https://google.com/search?q=a%20b&sei=x", "https://google.com/search?q=a%20b&sei=x&hl=en"),
         ("https://www.google.com/", "https://www.google.com/?hl=en"),
         ("https://www.google.com", "https://www.google.com?hl=en"),
+        ("https://www.google.com/search?q=c%2B%2B", "https://www.google.com/search?q=c%2B%2B&hl=en"),
     ])
     func addsEnglish(address: String, expected: String) {
         #expect(GoogleLanguage.englishURL(for: URL(string: address)!)?.absoluteString == expected)

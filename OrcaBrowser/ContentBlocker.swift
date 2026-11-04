@@ -208,7 +208,14 @@ final class ContentBlocker {
     func settingsChanged() {
         refresh()
         start()
-        Task { await updateIfNeeded() }
+        Task {
+            // Built-in lists compile at launch for the categories that were on
+            // then; one switched on since needs compiling now.
+            if started, let store = WKContentRuleListStore.default() {
+                await compileBuiltInLists(in: store)
+            }
+            await updateIfNeeded()
+        }
     }
 
     private func isEnabled(_ category: Category) -> Bool {
@@ -355,12 +362,12 @@ final class ContentBlocker {
         for filter in builtIn where compiled[filter.id] == nil {
             guard case .builtIn(let json) = filter.source else { continue }
             status.set(.compiling, for: filter.id)
-            defer { status.set(.idle, for: filter.id) }
             do {
                 compiled[filter.id] = try await store.compileContentRuleList(
                     forIdentifier: filter.identifier, encodedContentRuleList: json
                 )
                 status.record(rules: json.components(separatedBy: "\"trigger\"").count - 1, bytes: json.utf8.count, for: filter.id)
+                status.set(.idle, for: filter.id)
                 refresh()
             } catch {
                 status.set(.failed(error.localizedDescription), for: filter.id)

@@ -15,10 +15,12 @@ enum GoogleLanguage {
               let host = components.host?.lowercased(),
               host == "google.com" || host == "www.google.com",
               ["", "/", "/search"].contains(components.path) else { return nil }
-        var items = components.queryItems ?? []
-        guard !items.contains(where: { $0.name == "hl" }) else { return nil }
+        // The encoded items keep the query as it was: reading them decoded and
+        // writing them back would turn %2B (a plus) into a bare +, a space.
+        guard !(components.queryItems ?? []).contains(where: { $0.name == "hl" }) else { return nil }
+        var items = components.percentEncodedQueryItems ?? []
         items.append(URLQueryItem(name: "hl", value: "en"))
-        components.queryItems = items
+        components.percentEncodedQueryItems = items
         return components.url
     }
 }
