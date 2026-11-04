@@ -56,6 +56,10 @@ sets in the asset catalog, with a DEV banner), chosen by the script at build tim
   main checkout has uncommitted changes. If a branch is abandoned instead, just
   `--release`.
 - `scripts/ship-to-phone.sh --status` shows who holds each slot.
+- `scripts/ship-to-phone.sh --as-main` installs your branch over the regular app
+  instead of a test slot, with main's invisible stamp, for changes that only
+  show up there. Only when the user asks. It is temporary: run
+  `scripts/ship-to-phone.sh --main` afterwards to put main back.
 
 Slot names, bundle IDs and the stamp are build settings passed on the command
 line. Nothing for them is committed, so the code on GitHub builds as plain

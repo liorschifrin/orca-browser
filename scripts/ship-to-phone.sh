@@ -8,6 +8,9 @@
 #                                         from any worktree. Its what's-new panel lists the
 #                                         commits since the last main build, or your
 #                                         --changed/--test lines
+#   scripts/ship-to-phone.sh --as-main    install THIS branch over the regular Orca Browser app
+#                                         (invisible stamp, like main) instead of a test slot.
+#                                         Temporary: --main puts main back. Pass --changed/--test
 #   scripts/ship-to-phone.sh --release    free this branch's test slot (after merging)
 #   scripts/ship-to-phone.sh --takeover N replace whatever is in slot N (ask the user first)
 #   scripts/ship-to-phone.sh --status     show who holds each slot
@@ -49,6 +52,7 @@ build_only=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --main) mode=main ;;
+        --as-main) mode=asmain ;;
         --release) mode=release ;;
         --status) mode=status ;;
         --build-only) build_only=1 ;;
@@ -58,7 +62,7 @@ while [[ $# -gt 0 ]]; do
         --takeover) takeover="$2"; shift ;;
         --changed) changed+=("$2"); shift ;;
         --test) tests+=("$2"); shift ;;
-        -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -279,6 +283,15 @@ if [[ "$mode" == main ]]; then
     fi
     settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=What's new")
     add_notes_settings || echo "No new commits on main since the last main build, so no what's-new panel." >&2
+elif [[ "$mode" == asmain ]]; then
+    # This branch in the regular app: same bundle ID and icon as main, so the
+    # test uses the real app and its data, with main's invisible stamp.
+    slot_name=main
+    bundle_id="$BASE_ID"
+    [[ -n "$label" ]] || label="$(default_label)"
+    settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
+    add_notes_settings || echo "No --changed or --test notes given, so the app won't show a what's-new panel for this build." >&2
+    echo "Installing this branch over the regular Orca Browser app. Run --main afterwards to put main back." >&2
 else
     with_lock
     if [[ -z "$label" ]]; then
@@ -353,7 +366,7 @@ else
 fi
 
 # Remember what's in the slot, so --status and other branches can see it.
-if [[ "$mode" != main ]]; then
+if [[ "$mode" == ship ]]; then
     with_lock
     write_slot "$slot"
 fi
