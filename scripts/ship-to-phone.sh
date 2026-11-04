@@ -4,8 +4,10 @@
 #   scripts/ship-to-phone.sh --label "two to four words"
 #                                         build this branch into a test slot
 #   scripts/ship-to-phone.sh --main       after a merge: update main from GitHub and rebuild
-#                                         the regular Orca Browser app (no stamp), from
-#                                         any worktree
+#                                         the regular Orca Browser app (no visible stamp),
+#                                         from any worktree. Its what's-new panel lists the
+#                                         commits since the last main build, or your
+#                                         --changed/--test lines
 #   scripts/ship-to-phone.sh --release    free this branch's test slot (after merging)
 #   scripts/ship-to-phone.sh --takeover N replace whatever is in slot N (ask the user first)
 #   scripts/ship-to-phone.sh --status     show who holds each slot
@@ -22,6 +24,10 @@
 # Other options:
 #   --label "words"     what the branch is about, shown under the slot in the
 #                       app (kept for later builds; defaults to the branch name)
+#   --changed "line"    what this build changes (repeatable)
+#   --test "line"       what to try in it (repeatable). The app shows both in a
+#                       panel the first time this build opens, and when its
+#                       stamp is tapped. Pass them on every build: notes are not kept.
 #   --build-only        build but don't install
 #   --configuration X   Debug (default) or Release
 #   --device X          device name or UDID (default: the connected iPhone)
@@ -37,6 +43,8 @@ configuration=Debug
 device="${ORCA_DEVICE:-}"
 label=""
 takeover=""
+changed=()
+tests=()
 build_only=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -48,7 +56,9 @@ while [[ $# -gt 0 ]]; do
         --device) device="$2"; shift ;;
         --label) label="$2"; shift ;;
         --takeover) takeover="$2"; shift ;;
-        -h|--help) sed -n '2,29p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --changed) changed+=("$2"); shift ;;
+        --test) tests+=("$2"); shift ;;
+        -h|--help) sed -n '2,37p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -88,6 +98,25 @@ default_label() {
     local text="$branch_label"
     [[ "$text" =~ ^[0-9a-f]{8}$ ]] && text="$(git log -1 --format=%s)"
     echo "$text" | tr '_-' '  ' | awk '{ for (i = 1; i <= NF && i <= 4; i++) printf "%s%s", $i, (i < NF && i < 4 ? " " : ""); print "" }'
+}
+
+# Sets the build ID and the what's-new notes (from --changed and --test) for the app.
+add_notes_settings() {
+    settings+=("ORCA_BUILD_ID=$(date +%s)")
+    if [[ ${#changed[@]} -gt 0 || ${#tests[@]} -gt 0 ]]; then
+        local notes_json
+        notes_json="$(jq -cn \
+            --argjson c "$(json_array ${changed[@]+"${changed[@]}"})" \
+            --argjson t "$(json_array ${tests[@]+"${tests[@]}"})" \
+            '{changed: $c, test: $t}')"
+        settings+=("ORCA_BUILD_NOTES=$(printf '%s' "$notes_json" | base64 | tr -d '\n')")
+        return 0
+    fi
+    return 1
+}
+
+json_array() {
+    if [[ $# -eq 0 ]]; then echo '[]'; else printf '%s\n' "$@" | jq -R . | jq -cs .; fi
 }
 
 slot_file() { echo "$SLOTS_DIR/$1"; }
@@ -230,6 +259,26 @@ if [[ "$mode" == main ]]; then
         sleep 0.5
     done
     trap 'rmdir "$SLOTS_DIR/.main-lock" 2>/dev/null || true' EXIT
+
+    # No notes given: list what landed on main since the last main build.
+    main_state="$SLOTS_DIR/main"
+    last_main="$(grep '^commit=' "$main_state" 2>/dev/null | cut -d= -f2- || true)"
+    if [[ ${#changed[@]} -eq 0 && ${#tests[@]} -eq 0 ]]; then
+        if [[ -n "$last_main" ]] && git cat-file -e "$last_main^{commit}" 2>/dev/null; then
+            range=("$last_main..HEAD")
+        else
+            range=(-n 10)
+        fi
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && changed+=("$line")
+        done < <(git log --no-merges --format=%s "${range[@]}")
+        if [[ ${#changed[@]} -gt 15 ]]; then
+            extra=$(( ${#changed[@]} - 15 ))
+            changed=("${changed[@]:0:15}" "...and $extra more")
+        fi
+    fi
+    settings+=("ORCA_BUILD_SLOT=main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=What's new")
+    add_notes_settings || echo "No new commits on main since the last main build, so no what's-new panel." >&2
 else
     with_lock
     if [[ -z "$label" ]]; then
@@ -259,6 +308,7 @@ else
     bundle_id="$BASE_ID.dev$slot"
     settings+=("PRODUCT_BUNDLE_IDENTIFIER=$bundle_id" "INFOPLIST_KEY_CFBundleDisplayName=Orca $slot" "ASSETCATALOG_COMPILER_APPICON_NAME=AppIconDev$slot")
     settings+=("ORCA_BUILD_SLOT=$slot_name" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")
+    add_notes_settings || echo "No --changed or --test notes given, so the app won't show a what's-new panel for this build." >&2
 
     # Slot claimed: the rest can run without holding the lock.
     rmdir "$SLOTS_DIR/.lock" 2>/dev/null || true
@@ -297,6 +347,9 @@ else
     xcrun devicectl device process launch --device "$device" --terminate-existing "$bundle_id" >>"$log" 2>&1 \
         || echo "Installed, but couldn't launch it (phone locked?). Open it by hand."
     echo "Done: $slot_name ($branch_label @ $commit) is on the phone."
+    if [[ "$mode" == main ]]; then
+        printf 'commit=%s\nbuilt_epoch=%s\n' "$(git rev-parse HEAD)" "$(date +%s)" > "$main_state"
+    fi
 fi
 
 # Remember what's in the slot, so --status and other branches can see it.

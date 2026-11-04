@@ -6,21 +6,35 @@ Several agent branches (Claude Code, Codex and others) can be in flight at
 once, so each one tests in its own app on the phone instead of fighting over a
 single install:
 
-- **Orca Browser** is the regular app, always built from `main` and shown
-  with no build stamp. Only `--main` builds it.
+- **Orca Browser** is the regular app, always built from `main`. It shows no
+  build stamp, but tapping where the stamp would be (between + and Back) opens
+  its what's-new panel. Only `--main` builds it.
 - **Orca 1** and **Orca 2** are test slots. A branch claims one on its first
   build and keeps it, so rebuilding never touches the other slot.
 
 When a change is ready to try, run
-`scripts/ship-to-phone.sh --label "two to four words"` from the worktree, with
-words that say what the change is (for example `--label "hide shorts toggle"`).
-It builds, installs and launches the app, and prints which slot it used. The label is remembered, so later builds from the
-same branch can leave it off. The bottom bar of a test build shows the slot
-(dev 1 or dev 2), a small commit stamp and the label, so the user can tell what
+`scripts/ship-to-phone.sh --label "two to four words" --changed "..." --test "..."`
+from the worktree. The label says what the change is (for example
+`--label "hide shorts toggle"`). It builds, installs and launches the app, and
+prints which slot it used. The label is remembered, so later builds from the
+same branch can leave it off.
+
+`--changed` and `--test` (each repeatable, one short line per flag) become a
+panel the app shows over the page the first time that build opens. The user
+can reopen it by tapping the stamp. Pass them on every build, since they are
+not remembered, and the app shows no panel without them. Keep them concise:
+`--changed` lines say what is different, `--test` lines say what to try and
+what the right result looks like. Cover only what changed since the previous
+build of this branch (the whole change for its first build), not the full
+branch history, so the user sees just what is new to test. There is no length
+limit and the panel scrolls, so include what the user needs and no more. If
+the app is closed before the panel is dismissed, it opens again next launch.
+Light Markdown works (`**bold**`, `code`).
+
+The bottom bar of a test build shows the slot (dev 1 or dev 2), a small commit stamp and the label, so the user can tell what
 each app contains. A `*` after the commit means uncommitted changes. In Debug
 builds the stamp is part of the Settings > Debug "Show FPS, memory and build"
-switch, so the user can hide it.
-Each test slot also has its own app icon (the `AppIconDev1` and `AppIconDev2`
+switch, so the user can hide it. Each test slot also has its own app icon (the `AppIconDev1` and `AppIconDev2`
 sets in the asset catalog, with a DEV banner), chosen by the script at build time.
 
 - If both slots are held by other branches, the script exits with code 3 and
@@ -30,10 +44,15 @@ sets in the asset catalog, with a DEV banner), chosen by the script at build tim
   to take one, run `scripts/ship-to-phone.sh --takeover N` (N is 1 or 2). The
   other branch's next build then picks a new slot.
 - If the phone is locked or unplugged, say so and stop. The user will reconnect it.
+- To open a PR and merge it, use the `merge-pr` skill; to open one and wait for
+  someone else to merge it, use `watch-pr`. Both finish with the steps below.
 - When your branch is merged, run `scripts/ship-to-phone.sh --release` to free
   its slot, then `scripts/ship-to-phone.sh --main`. That pulls main from GitHub
   in the main checkout and reinstalls the regular app from it, so the phone
-  always has what is on main. It works from any worktree and refuses if the
+  always has what is on main. The main build's panel lists the commits since
+  the previous main build, taken from their subjects (a short one-line commit
+  subject reads best), or pass `--changed`/`--test` to `--main` to write it
+  yourself. It works from any worktree and refuses if the
   main checkout has uncommitted changes. If a branch is abandoned instead, just
   `--release`.
 - `scripts/ship-to-phone.sh --status` shows who holds each slot.

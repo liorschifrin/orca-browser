@@ -16,6 +16,8 @@ struct BottomBar: View {
     /// Called when the site settings caret in the address bar is tapped.
     let onSiteMenu: () -> Void
     let onShowTabs: () -> Void
+    /// Called when the build stamp is tapped.
+    let onShowBuildNotes: () -> Void
     /// Called with the selected destination address for a finished voice search.
     let onVoiceSearch: (URL) -> Void
 
@@ -39,8 +41,8 @@ struct BottomBar: View {
 
                     Spacer()
 
-                    if let stamp = BuildStamp.current, showsBuildStamp {
-                        BuildStampLabel(stamp: stamp)
+                    if let stamp = BuildStamp.current, showsBuildStamp || stamp.isMain {
+                        BuildStampLabel(stamp: stamp, onTap: onShowBuildNotes)
                     }
 
                     HistoryBackButton(tab: tab, showHistory: $showHistory)
