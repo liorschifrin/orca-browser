@@ -324,7 +324,7 @@ elif [[ "$mode" == asmain ]]; then
     # This branch in the regular app: same bundle ID and icon as main, so the
     # test uses the real app and its data. The slot is "as-main", not "main",
     # so the app shows the stamp (main's is invisible) and the notes panel.
-    slot_name=main
+    slot_name=as-main
     bundle_id="$BASE_ID"
     [[ -n "$label" ]] || label="$(default_label)"
     settings+=("ORCA_BUILD_SLOT=as-main" "ORCA_BUILD_COMMIT=$commit" "ORCA_BUILD_LABEL=$label")

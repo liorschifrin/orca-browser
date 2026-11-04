@@ -54,6 +54,15 @@ final class ClipboardCache {
     /// Copies a link and remembers that the clipboard change was ours.
     func copy(_ url: URL) {
         UIPasteboard.general.url = url
+        // The count may only go up at the end of this run loop pass, so also
+        // record it on the next one.
+        recordOwnChange()
+        DispatchQueue.main.async { [self] in
+            MainActor.assumeIsolated { recordOwnChange() }
+        }
+    }
+
+    private func recordOwnChange() {
         ownChangeCount = UIPasteboard.general.changeCount
         UserDefaults.standard.set(ownChangeCount, forKey: Self.ownCountKey)
     }
@@ -88,6 +97,9 @@ final class ClipboardCache {
                 // The system refuses reads at once while the app isn't active
                 // (launching), without asking. Wait for the app to be active.
                 await waitUntilActive()
+                // Still inactive: reads would be refused without a prompt, which
+                // must not count as a denial. The next refresh will try again.
+                guard UIApplication.shared.applicationState == .active else { return }
                 let snapshot = await Self.read()
                 if snapshot.hasText, snapshot.text == nil || snapshot.duration > Self.promptThreshold {
                     wasPrompted = true
