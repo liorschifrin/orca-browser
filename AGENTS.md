@@ -44,6 +44,8 @@ sets in the asset catalog, with a DEV banner), chosen by the script at build tim
   to take one, run `scripts/ship-to-phone.sh --takeover N` (N is 1 or 2). The
   other branch's next build then picks a new slot.
 - If the phone is locked or unplugged, say so and stop. The user will reconnect it.
+- To open a PR and merge it, use the `merge-pr` skill; to open one and wait for
+  someone else to merge it, use `watch-pr`. Both finish with the steps below.
 - When your branch is merged, run `scripts/ship-to-phone.sh --release` to free
   its slot, then `scripts/ship-to-phone.sh --main`. That pulls main from GitHub
   in the main checkout and reinstalls the regular app from it, so the phone
