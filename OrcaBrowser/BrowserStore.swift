@@ -111,12 +111,14 @@ final class BrowserStore {
     private func returnToVideo(in tab: Tab) {
         guard tab.id != selectedTabID else { return }
         slide = Slide(incoming: tab.id, outgoing: selectedTabID)
-        select(tab)
+        // The picture in picture window is already on its way back.
+        select(tab, exitingPictureInPicture: false)
     }
 
     /// You tapped "return to app" in the picture in picture window.
     private func pictureInPictureRestoreTapped() {
         guard let tab = tabs.first(where: \.isInPictureInPicture) else { return }
+        tab.pictureInPictureRestoreTapped()
         returnToVideo(in: tab)
     }
 
@@ -322,7 +324,10 @@ final class BrowserStore {
         }
     }
 
-    func select(_ tab: Tab) {
+    /// Makes `tab` the current tab. If its video is in picture in picture, the
+    /// video comes back into the page, unless the caller says it's already
+    /// doing that.
+    func select(_ tab: Tab, exitingPictureInPicture: Bool = true) {
         // A page left behind can't wait on a dialog nobody can see.
         if tab.id != selectedTabID {
             selectedTab?.pauseVideos()
@@ -336,6 +341,7 @@ final class BrowserStore {
         tab.activate()
         tab.peek?.tab.activate()
         selectedTabID = tab.id
+        if exitingPictureInPicture { tab.exitPictureInPicture() }
         markUsed(tab)
         enforceMemoryPolicy()
         scheduleSave()

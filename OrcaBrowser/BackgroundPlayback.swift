@@ -58,8 +58,18 @@ enum BackgroundPlayback {
         const active = [...document.querySelectorAll('video')].some(inPictureInPicture);
         window.webkit?.messageHandlers?.\(pictureInPictureMessageName)?.postMessage({ active });
       };
+      // TEMPORARY: a short log of what the video did, read by the app's debug builds.
+      const events = window.__orcaEvents = [];
+      const note = what => {
+        events.push(Math.round(performance.now()) + ' ' + what);
+        if (events.length > 80) events.shift();
+      };
+      window.__orcaNote = note;
       const swallow = event => {
-        if (event.type === 'webkitpresentationmodechanged') tellApp();
+        if (event.type === 'webkitpresentationmodechanged') {
+          note('presentation mode -> ' + realMode(event.target));
+          tellApp();
+        }
         event.stopImmediatePropagation();
       };
       for (const type of ['visibilitychange', 'webkitvisibilitychange',
@@ -67,6 +77,51 @@ enum BackgroundPlayback {
                           'enterpictureinpicture', 'leavepictureinpicture']) {
         window.addEventListener(type, swallow, true);
       }
+
+      // Leaving the fullscreen player pauses the video, and so does returning
+      // from picture in picture. Playing carries on if the pause and the end
+      // of fullscreen happen together, or the pause comes just after you tap
+      // "return to app" in the picture in picture window (the app tells the
+      // page, below). A pause you chose yourself stays paused.
+      const exit = { endedAt: 0, pausedAt: 0, restoredAt: 0, pausedVideo: null };
+      const resume = element => {
+        note('resuming');
+        for (const delay of [50, 250, 600, 1200]) {
+          setTimeout(() => { if (element.paused && !element.ended) element.play().catch(() => {}); }, delay);
+        }
+      };
+      const resumeIfPausedByLeaving = element => {
+        const now = Date.now();
+        const afterRestore = now - exit.restoredAt < 3000;
+        const withFullscreenEnd = exit.endedAt && exit.pausedAt && Math.abs(exit.endedAt - exit.pausedAt) <= 700;
+        if (!afterRestore && !withFullscreenEnd) return;
+        exit.endedAt = exit.pausedAt = 0;
+        resume(element);
+      };
+      window.addEventListener('webkitbeginfullscreen', () => note('begin fullscreen'), true);
+      window.addEventListener('webkitendfullscreen', event => {
+        note('end fullscreen');
+        exit.endedAt = Date.now();
+        resumeIfPausedByLeaving(event.target);
+      }, true);
+      window.addEventListener('play', () => note('play'), true);
+      window.addEventListener('pause', event => {
+        if (!(event.target instanceof HTMLVideoElement)) return;
+        note('pause');
+        exit.pausedAt = Date.now();
+        exit.pausedVideo = event.target;
+        resumeIfPausedByLeaving(event.target);
+      }, true);
+
+      // Called by the app the moment you tap "return to app" in the picture in
+      // picture window. Also asks the page to lay itself out again, since
+      // YouTube is left with the wrong idea of the player's size.
+      window.__orcaPictureInPictureRestoring = () => {
+        note('restore tapped');
+        exit.restoredAt = Date.now();
+        if (exit.pausedVideo && Date.now() - exit.pausedAt < 800) resumeIfPausedByLeaving(exit.pausedVideo);
+        for (const delay of [400, 1200]) setTimeout(() => window.dispatchEvent(new Event('resize')), delay);
+      };
 
       const video = HTMLVideoElement.prototype;
       const modeGetter = Object.getOwnPropertyDescriptor(video, 'webkitPresentationMode')?.get;
@@ -98,6 +153,15 @@ enum BackgroundPlayback {
           return setMode.call(this, mode);
         };
       }
+      // The app calls this when you open it with a video in picture in
+      // picture, to put the video back in the page. It uses the original
+      // method, since the page's own calls to leave picture in picture are
+      // ignored above.
+      window.__orcaExitPictureInPicture = () => {
+        for (const element of document.querySelectorAll('video')) {
+          if (inPictureInPicture(element) && setMode) setMode.call(element, 'inline');
+        }
+      };
       const exitFullscreen = video.webkitExitFullscreen;
       if (exitFullscreen) {
         video.webkitExitFullscreen = function () {

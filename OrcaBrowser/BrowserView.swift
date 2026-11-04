@@ -196,6 +196,11 @@ struct BrowserView: View {
                     guard !Task.isCancelled else { return }
                     archiveInactiveTabs()
                 }
+                // Opening the app with this tab's video in picture in picture
+                // brings the video back into the page.
+                store.selectedTab?.exitPictureInPicture()
+                let eventLogView = store.selectedTab?.webView
+                Task { try? await Task.sleep(for: .seconds(4)); PiPEventLog.dump(from: eventLogView) }
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {

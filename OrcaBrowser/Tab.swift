@@ -581,6 +581,22 @@ final class Tab: Identifiable {
         webView?.callAsyncJavaScript("return " + command.script, arguments: [:], in: nil, in: .page) { _ in }
     }
 
+    @ObservationIgnored private var pictureInPictureRestoredAt = Date.distantPast
+
+    /// You tapped "return to app" in the picture in picture window. The page
+    /// is told so it can keep the video playing.
+    func pictureInPictureRestoreTapped() {
+        pictureInPictureRestoredAt = .now
+        webView?.evaluateJavaScript("window.__orcaPictureInPictureRestoring && window.__orcaPictureInPictureRestoring()")
+    }
+
+    /// Puts a video that's in picture in picture back in the page. Not just
+    /// after "return to app", which is already doing that.
+    func exitPictureInPicture() {
+        guard isInPictureInPicture, Date.now.timeIntervalSince(pictureInPictureRestoredAt) > 3 else { return }
+        webView?.callAsyncJavaScript("return window.__orcaExitPictureInPicture?.()", arguments: [:], in: nil, in: .page) { _ in }
+    }
+
     /// Pauses a video on the page, unless it's in picture in picture. Used when
     /// you switch away from the tab.
     func pauseVideos() {
