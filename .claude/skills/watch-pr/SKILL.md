@@ -10,8 +10,9 @@ respond, rebuild, repeat. Don't take step 4's "go to step 5" or merge from step 
 until the user confirms below; Confirm is the only merge gate here.
 
 **Confirm.** Once CodeRabbit has reviewed the latest push, nothing is unresolved
-and checks pass, call `unwatch_pull_request`, tell the user it's ready, and ask
-them to confirm the merge. End your turn.
+and checks pass, call `unwatch_pull_request` and ask the user with
+`AskUserQuestion` to confirm the merge (PR link, any notes such as a skipped
+rebuild, options Merge or Not yet). End your turn.
 
 **On yes**, do steps 5 and 6 of `merge-pr`. If the user already merged it
 (`gh pr view --json state`), do just step 6.

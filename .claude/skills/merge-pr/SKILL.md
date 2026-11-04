@@ -5,7 +5,11 @@ description: Open a PR for the current branch if there isn't one, answer CodeRab
 
 # Merge PR
 
-Run from the branch's worktree. Where a step says stop, tell the user and stop.
+Run from the branch's worktree. To ask the user anything, or where a step says
+stop, call `unwatch_pull_request` first, then ask with `AskUserQuestion` (PR
+link, what's blocking, options with your recommendation first). A plain message
+in a watched thread goes unseen. After the answer, `watch_pull_request` again if
+the PR is still open.
 
 1. **Open.** Stop on `main`, or on uncommitted changes (ask). Reuse an open PR
    (`gh pr view`); stop if it's merged or closed. Otherwise
@@ -28,8 +32,10 @@ Run from the branch's worktree. Where a step says stop, tell the user and stop.
    rebuilding. Notes cover just this fix. Then go to step 5 if its condition is
    met, otherwise end your turn and keep watching.
 5. **Merge** once CodeRabbit has reviewed the latest push, nothing is unresolved
-   and checks pass: `gh pr merge <n> --squash --subject "<title> (#<n>)"`. No
-   `--delete-branch`.
+   and checks pass. Right before merging, `git fetch` and check
+   `gh pr view --json mergeStateStatus`; if it's behind or conflicting, merge
+   `main` in as in step 1 and wait for the new review. Then
+   `gh pr merge <n> --squash --subject "<title> (#<n>)"`. No `--delete-branch`.
 6. **Finish.** `scripts/ship-to-phone.sh --release`,
    `git push origin --delete "$(git branch --show-current)"` and
    `unwatch_pull_request` (skip any already done), then `--main`. If `--main`
