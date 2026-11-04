@@ -23,10 +23,12 @@ panel the app shows over the page the first time that build opens. The user
 can reopen it by tapping the stamp. Pass them on every build, since they are
 not remembered, and the app shows no panel without them. Keep them concise:
 `--changed` lines say what is different, `--test` lines say what to try and
-what the right result looks like. There is no length limit and the panel
-scrolls, so include what the user needs and no more. Write them for the whole
-branch compared with main, and say what is new in this build if it is a
-follow-up. Light Markdown works (`**bold**`, `code`).
+what the right result looks like. Cover only what changed since the previous
+build of this branch (the whole change for its first build), not the full
+branch history, so the user sees just what is new to test. There is no length
+limit and the panel scrolls, so include what the user needs and no more. If
+the app is closed before the panel is dismissed, it opens again next launch.
+Light Markdown works (`**bold**`, `code`).
 
 The bottom bar of a test build shows the slot (dev 1 or dev 2), a small commit stamp and the label, so the user can tell what
 each app contains. A `*` after the commit means uncommitted changes. In Debug
