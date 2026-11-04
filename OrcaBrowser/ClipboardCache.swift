@@ -75,6 +75,7 @@ final class ClipboardCache {
         let count = UIPasteboard.general.changeCount
         guard count != cachedChangeCount, count != deniedChangeCount else { return }
         text = ""
+        NSLog("[Clipboard] refresh start userInitiated=%d access=%@ count=%d state=%ld", userInitiated, access.rawValue, count, UIApplication.shared.applicationState.rawValue)
         refreshTask = Task {
             defer { refreshTask = nil }
             var deniedCount: Int?
@@ -84,6 +85,7 @@ final class ClipboardCache {
             // Retry transient empty reads without making the user reopen search.
             for attempt in 0..<4 {
                 let snapshot = await Self.read()
+                NSLog("[Clipboard] attempt %d before=%d after=%d hasText=%d gotText=%d duration=%.3f state=%ld", attempt, snapshot.before, snapshot.after, snapshot.hasText, snapshot.text != nil, snapshot.duration, UIApplication.shared.applicationState.rawValue)
                 if snapshot.before == snapshot.after {
                     if let value = snapshot.text {
                         text = value
@@ -126,6 +128,7 @@ final class ClipboardCache {
     }
 
     private func setAccess(_ newValue: Access) {
+        NSLog("[Clipboard] setAccess %@ -> %@", access.rawValue, newValue.rawValue)
         guard access != newValue else { return }
         access = newValue
         UserDefaults.standard.set(newValue.rawValue, forKey: Self.accessKey)
