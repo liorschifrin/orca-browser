@@ -27,7 +27,7 @@
 #   --changed "line"    what this build changes (repeatable)
 #   --test "line"       what to try in it (repeatable). The app shows both in a
 #                       panel the first time this build opens, and when its
-#                       stamp is tapped. Pass them on every build: notes are not kept.
+#                       stamp is held. Pass them on every build: notes are not kept.
 #   --build-only        build but don't install
 #   --configuration X   Debug (default) or Release
 #   --device X          device name or UDID (default: the connected iPhone)

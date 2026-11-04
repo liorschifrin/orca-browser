@@ -68,14 +68,22 @@ struct BuildNotes: Equatable {
 
 /// The slot with a tiny commit stamp beside it, then up to two lines of words
 /// saying what the branch is about. A "*" after the commit means the build had
-/// uncommitted changes. Tapping it opens the build's notes. On the main build
-/// the stamp is invisible, and tapping where it would be does the same.
+/// uncommitted changes. Pressing and holding it opens the build's notes, after
+/// a short delay and without waiting for the finger to lift. A plain tap, or a
+/// swipe that starts on it (up to the tab switcher), does nothing. On the main
+/// build the stamp is invisible, and holding where it would be does the same.
 struct BuildStampLabel: View {
     let stamp: BuildStamp
-    let onTap: () -> Void
+    let onOpen: () -> Void
+
+    /// How long to hold before the notes open.
+    private static let holdDuration = 0.15
+    /// Moving further than this while holding cancels it, so swiping up from
+    /// the stamp opens the tab switcher and not the notes.
+    private static let maximumMovement: CGFloat = 10
 
     var body: some View {
-        Button(action: onTap) {
+        Group {
             if stamp.isMain {
                 // Invisible, but sized like the stamp so it is easy to hit.
                 Color.clear
@@ -85,10 +93,16 @@ struct BuildStampLabel: View {
                 stampText
             }
         }
-        .buttonStyle(.plain)
-        .disabled(stamp.notes == nil)
+        .onLongPressGesture(minimumDuration: Self.holdDuration, maximumDistance: Self.maximumMovement) {
+            guard stamp.notes != nil else { return }
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred(intensity: 0.5)
+            onOpen()
+        }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel(stamp.isMain ? "What's new on main" : "Build \(stamp.slot), \(stamp.label), \(stamp.commit)")
-        .accessibilityHint("Shows what changed in this build")
+        .accessibilityHint(stamp.notes == nil ? "" : "Shows what changed in this build")
+        .accessibilityAddTraits(stamp.notes == nil ? [] : .isButton)
+        .accessibilityAction { if stamp.notes != nil { onOpen() } }
     }
 
     private var stampText: some View {

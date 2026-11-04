@@ -7,8 +7,8 @@ once, so each one tests in its own app on the phone instead of fighting over a
 single install:
 
 - **Orca Browser** is the regular app, always built from `main`. It shows no
-  build stamp, but tapping where the stamp would be (between + and Back) opens
-  its what's-new panel. Only `--main` builds it.
+  build stamp, but pressing and holding where the stamp would be (between +
+  and Back) opens its what's-new panel. Only `--main` builds it.
 - **Orca 1** and **Orca 2** are test slots. A branch claims one on its first
   build and keeps it, so rebuilding never touches the other slot.
 
@@ -21,7 +21,7 @@ same branch can leave it off.
 
 `--changed` and `--test` (each repeatable, one short line per flag) become a
 panel the app shows over the page the first time that build opens. The user
-can reopen it by tapping the stamp. Pass them on every build, since they are
+can reopen it by pressing and holding the stamp. Pass them on every build, since they are
 not remembered, and the app shows no panel without them. Keep them concise:
 `--changed` lines say what is different, `--test` lines say what to try and
 what the right result looks like. Cover only what changed since the previous
