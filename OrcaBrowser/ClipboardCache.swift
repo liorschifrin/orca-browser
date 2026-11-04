@@ -79,26 +79,33 @@ final class ClipboardCache {
         refreshTask = Task {
             defer { refreshTask = nil }
             var deniedCount: Int?
-            // A refusal followed by success means the Allow Paste prompt was
-            // answered in between, whatever the final read's timing says.
-            var wasRefused = false
+            // A refusal or a slow read means the Allow Paste prompt came up in
+            // this refresh. Remember that even when that read is thrown away
+            // because the clipboard changed, since the retry that follows is
+            // fast: iOS has already been answered.
+            var wasPrompted = false
             // Retry transient empty reads without making the user reopen search.
             for attempt in 0..<4 {
+                // The system refuses reads at once while the app isn't active
+                // (launching), without asking. Wait for the app to be active.
+                await waitUntilActive()
                 let snapshot = await Self.read()
+                if snapshot.hasText, snapshot.text == nil || snapshot.duration > Self.promptThreshold {
+                    wasPrompted = true
+                }
                 NSLog("[Clipboard] attempt %d before=%d after=%d hasText=%d gotText=%d duration=%.3f state=%ld", attempt, snapshot.before, snapshot.after, snapshot.hasText, snapshot.text != nil, snapshot.duration, UIApplication.shared.applicationState.rawValue)
                 if snapshot.before == snapshot.after {
                     if let value = snapshot.text {
                         text = value
                         cachedChangeCount = snapshot.after
                         deniedCount = nil
-                        learnAccess(from: snapshot, afterRefusal: wasRefused)
+                        learnAccess(from: snapshot, afterPrompt: wasPrompted)
                     } else if !snapshot.hasText {
                         text = ""
                         cachedChangeCount = snapshot.after
                         deniedCount = nil
                     } else {
                         deniedCount = snapshot.after
-                        wasRefused = true
                     }
                     if cachedChangeCount == UIPasteboard.general.changeCount { return }
                 }
@@ -114,13 +121,20 @@ final class ClipboardCache {
         }
     }
 
-    private func learnAccess(from snapshot: Snapshot, afterRefusal: Bool) {
+    /// Waits, for up to a few seconds, until the app is in the foreground.
+    private func waitUntilActive() async {
+        for _ in 0..<50 where UIApplication.shared.applicationState != .active {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    private func learnAccess(from snapshot: Snapshot, afterPrompt: Bool) {
         let isNew = snapshot.after != lastReadChangeCount
         lastReadChangeCount = snapshot.after
         UserDefaults.standard.set(snapshot.after, forKey: Self.lastReadCountKey)
         // A slow read means a prompt, even if we thought pasting was allowed:
         // reading in the background must stop, and the chip must show.
-        if afterRefusal || snapshot.duration > Self.promptThreshold {
+        if afterPrompt || snapshot.duration > Self.promptThreshold {
             setAccess(.needsPermission)
         } else if isNew, snapshot.after != ownChangeCount {
             setAccess(.allowed)
