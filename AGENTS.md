@@ -51,7 +51,9 @@ sets in the asset catalog, with a DEV banner), chosen by the script at build tim
   and how long ago it was last built (the script prints all three), and let
   them decide. Never release or take over a slot on your own. If the user says
   to take one, run `scripts/ship-to-phone.sh --takeover N` (N is 1 or 2). The
-  other branch's next build then picks a new slot.
+  other branch's next build then picks a new slot. For a small change that
+  only needs a quick confirmation, also offer `--as-main` (below), which needs
+  no slot.
 - If the phone is locked or unplugged, say so and stop. The user will reconnect it.
 - To open a PR and merge it, use the `merge-pr` skill; to open one and wait for
   someone else to merge it, use `watch-pr`. Both finish with the steps below.
@@ -69,9 +71,12 @@ sets in the asset catalog, with a DEV banner), chosen by the script at build tim
   `--release`.
 - `scripts/ship-to-phone.sh --status` shows who holds each slot.
 - `scripts/ship-to-phone.sh --as-main` installs your branch over the regular app
-  instead of a test slot, with main's invisible stamp, for changes that only
-  show up there. Only when the user asks. It is temporary: run
-  `scripts/ship-to-phone.sh --main` afterwards to put main back.
+  (same bundle ID and data) instead of a test slot, for small changes that need
+  a quick confirmation or only show up there. It needs no slot, so offer it
+  when both are full. Only when the user asks or agrees. It shows an `as-main`
+  stamp and the usual `--changed`/`--test`/`--thread` panel, so pass them like
+  any test build. It is temporary: run `scripts/ship-to-phone.sh --main`
+  afterwards, or after merging, to put main back.
 
 Slot names, bundle IDs and the stamp are build settings passed on the command
 line. Nothing for them is committed, so the code on GitHub builds as plain
