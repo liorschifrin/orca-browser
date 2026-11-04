@@ -1,64 +1,44 @@
 ---
 name: merge-pr
-description: Open a pull request for the current branch if there isn't one, squash-merge it now, then free the branch's phone slot and rebuild the regular Orca Browser app from main. Use when the user says "merge the PR", "merge this", "ship it and merge", or "open a PR and merge it". To open a PR and wait for someone else to merge it, use watch-pr instead.
+description: Open a PR for the current branch if there isn't one, answer CodeRabbit and review comments, rebuild on the phone when behavior changes, then squash-merge and rebuild the regular app. Use for "merge the PR" or "open a PR and merge it". To confirm with the user before merging, use watch-pr.
 ---
 
 # Merge PR
 
-Run from the worktree for the branch being merged. Stop and tell the user at any
-point where a step says stop; never work around it.
+Run from the branch's worktree. To ask the user anything, or where a step says
+stop, call `unwatch_pull_request` first, then ask with `AskUserQuestion` (PR
+link, what's blocking, options with your recommendation first). A plain message
+in a watched thread goes unseen. After the answer, `watch_pull_request` again if
+the PR is still open.
 
-## 1. Open the PR (skip if one is open)
-
-Other skills point here, so keep this section self-contained.
-
-1. Refuse on `main`. Stop if `git status --porcelain` shows uncommitted changes
-   and ask the user what to do with them; don't commit on your own.
-2. Look for an existing PR: `gh pr view --json number,url,state,title`.
-   - `OPEN`: use it, go to step 4.
-   - `MERGED` or `CLOSED`: say so and stop.
-   - No PR: continue.
-3. `git push -u origin HEAD`, then
-   `gh pr create --base main --title "<title>" --body "<body>"`.
-   - The title is one short line in plain words. Squash makes it the commit
-     subject on `main`, and the regular app's what's-new panel lists that
-     subject, so write it for the user to read on the phone.
-   - The body says what changed and why, in a few lines.
-4. Link it to the thread with `link_pull_request` (full PR URL).
-
-## 2. Check it can merge
-
-`gh pr view --json mergeable,mergeStateStatus,statusCheckRollup` and
-`gh pr checks`. The repo has no CI today, so "no checks reported" is fine.
-Stop and report if a check is failing or pending, or if the PR has conflicts. Don't
-resolve conflicts or retry unasked.
-
-## 3. Squash-merge
-
-```
-gh pr merge <number> --squash --subject "<PR title> (#<number>)"
-```
-
-Don't pass `--delete-branch`: it also tries to delete the local branch, which
-fails or misbehaves from a worktree. If the merge is refused, report the reason
-and stop.
-
-## 4. After it merges
-
-Also used by watch-pr once someone else merges. Confirm first with
-`gh pr view <number> --json state` that it says `MERGED`.
-
-1. Free this branch's test slot: `scripts/ship-to-phone.sh --release`.
-2. Update main and reinstall the regular app: `scripts/ship-to-phone.sh --main`.
-   - Leave off `--changed`/`--test`: the panel then lists the new commit
-     subjects, which is what the user wants after a merge. Only pass them if
-     the user asks.
-   - If the phone is locked or unplugged, say so and stop; the user will
-     reconnect it and the only step left is `--main`. If it refuses because the
-     main checkout has uncommitted changes, report that and don't touch them.
-3. Delete the remote branch (ignore "already deleted"):
-   `git push origin --delete "$(git branch --show-current)"`.
-   Leave the local branch and the worktree alone.
-
-Finish with one short line: PR URL, whether the slot was released, and whether
-the main app was reinstalled.
+1. **Open.** Stop on `main`, or on uncommitted changes (ask). Reuse an open PR
+   (`gh pr view`); stop if it's merged or closed. Otherwise
+   `git fetch origin` and `git merge origin/main`, resolving conflicts (ask the user
+   about judgment calls), then push and `gh pr create --base main` with a short
+   plain title (the phone's what's-new panel shows it) and a few-line body. Then
+   `link_pull_request`.
+2. **Watch.** Call `watch_pull_request`, then end your turn. A wake is not a
+   merge: check `gh pr view --json state` first. `MERGED` → step 6, `CLOSED` →
+   `unwatch_pull_request` and stop.
+3. **Respond.** Read the new CodeRabbit and other review comments (reviews, inline
+   comments, PR comments). Fix what's valid, push, and reply on each thread with
+   the fix or why not. Ask the user about judgment calls. Fix failed checks. If
+   `main` moved and the PR conflicts, merge it in as in step 1.
+4. **Rebuild** only if the push changes something a user would notice, not for
+   refactors, tests, comments or docs. Build to where you built before (test slot;
+   the regular app only if you're already on it via `--as-main`). Run
+   `scripts/ship-to-phone.sh --status` first. If you no longer hold it, or the
+   script exits 3 or 4, don't take over: tell the user and carry on without
+   rebuilding. Notes cover just this fix. Then go to step 5 if its condition is
+   met, otherwise end your turn and keep watching.
+5. **Merge** once CodeRabbit has reviewed the latest push, nothing is unresolved
+   and checks pass. Right before merging, `git fetch` and check
+   `gh pr view --json mergeStateStatus`; if it's behind or conflicting, merge
+   `main` in as in step 1 and wait for the new review. Then
+   `gh pr merge <n> --squash --subject "<title> (#<n>)"`. No `--delete-branch`.
+6. **Finish.** `scripts/ship-to-phone.sh --release`,
+   `git push origin --delete "$(git branch --show-current)"` and
+   `unwatch_pull_request` (skip any already done), then `--main`. If `--main`
+   exits non-zero (4 means another branch holds the regular app), say what
+   failed and stop; don't report main as rebuilt. Otherwise one line: PR URL,
+   slot released, main rebuilt.
