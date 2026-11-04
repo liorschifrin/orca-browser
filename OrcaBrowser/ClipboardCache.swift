@@ -62,6 +62,8 @@ final class ClipboardCache {
         refreshTask = nil
         text = ""
         cachedChangeCount = -1
+        ownCopiedText = nil
+        UserDefaults.standard.removeObject(forKey: Self.ownTextKey)
     }
 
     /// Copies a link and remembers that the clipboard change was ours.
