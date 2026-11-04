@@ -134,6 +134,13 @@ struct ClipboardHistoryTests {
 }
 
 struct ClipboardRecordingRulesTests {
+    @Test func aReadThatTouchedIncognitoAddsNothingNew() {
+        #expect(ClipboardCache.addsNew(wasPrivate: false, isPrivate: false))
+        #expect(!ClipboardCache.addsNew(wasPrivate: true, isPrivate: false))
+        #expect(!ClipboardCache.addsNew(wasPrivate: false, isPrivate: true))
+        #expect(!ClipboardCache.addsNew(wasPrivate: true, isPrivate: true))
+    }
+
     @Test func nothingIsKeptForSecretsOrWhenTurnedOff() {
         #expect(ClipboardCache.shouldRemember(isEnabled: true, isConcealed: false))
         #expect(!ClipboardCache.shouldRemember(isEnabled: true, isConcealed: true))

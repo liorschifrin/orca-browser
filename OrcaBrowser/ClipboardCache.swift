@@ -149,6 +149,8 @@ final class ClipboardCache {
                 // Still inactive: reads would be refused without a prompt, which
                 // must not count as a denial. The next refresh will try again.
                 guard !Task.isCancelled, UIApplication.shared.applicationState == .active else { return }
+                // Incognito can start or end while the read is in flight.
+                let wasPrivate = isPrivate
                 let snapshot = await Self.read(readsImage: access == .allowed)
                 // Cleared meanwhile (Incognito closed): what was read may be
                 // private, so neither show it nor remember it.
@@ -166,14 +168,14 @@ final class ClipboardCache {
                             cachedChangeCount = snapshot.after
                             deniedCount = nil
                             learnAccess(from: snapshot, afterPrompt: wasPrompted)
-                            remember(snapshot)
+                            remember(snapshot, wasPrivate: wasPrivate)
                         }
                     } else if !snapshot.hasText {
                         text = ""
                         if !isImagePending {
                             cachedChangeCount = snapshot.after
                             deniedCount = nil
-                            remember(snapshot)
+                            remember(snapshot, wasPrivate: wasPrivate)
                         }
                     } else {
                         deniedCount = snapshot.after
@@ -199,7 +201,7 @@ final class ClipboardCache {
         }
     }
 
-    private func remember(_ snapshot: Snapshot) {
+    private func remember(_ snapshot: Snapshot, wasPrivate: Bool) {
         lastTypes = snapshot.types
         lastWasConcealed = snapshot.isConcealed
         guard snapshot.after != historyWriteCount, Self.shouldRemember(
@@ -208,12 +210,18 @@ final class ClipboardCache {
         ) else { return }
         // While Incognito is showing, only items already in the history move
         // to the top (copying one back out of the panel); nothing new is kept.
-        let addsNew = !isPrivate
+        let addsNew = Self.addsNew(wasPrivate: wasPrivate, isPrivate: isPrivate)
         if let image = snapshot.image {
             ClipboardHistory.shared.record(image: image, addsNew: addsNew)
         } else if let text = snapshot.text {
             ClipboardHistory.shared.record(text: text, addsNew: addsNew)
         }
+    }
+
+    /// A read that began or ended in Incognito may be a private copy, whichever
+    /// way the privacy state changed meanwhile, so it adds nothing new.
+    static func addsNew(wasPrivate: Bool, isPrivate: Bool) -> Bool {
+        !wasPrivate && !isPrivate
     }
 
     static func shouldRemember(isEnabled: Bool, isConcealed: Bool) -> Bool {
