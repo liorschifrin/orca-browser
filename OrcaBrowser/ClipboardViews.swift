@@ -222,12 +222,15 @@ struct ClipboardFloating: View {
     /// Types what is on the clipboard now into the field.
     let onPasteClipboard: (String) -> Void
     let onShowAll: () -> Void
+    let onShowAutofill: () -> Void
 
     private let clipboardCache = ClipboardCache.shared
+    private let forms = FormSuggestions.shared
+    private let settings = AppSettings.shared
     @State private var keyboardHeight: CGFloat = 0
     @State private var isOpen = false
 
-    private var isShown: Bool { isEnabled && keyboardHeight > 0 }
+    private var isShown: Bool { keyboardHeight > 0 && (isEnabled || (settings.formSuggestionsEnabled && forms.fieldContext != nil && !forms.isSensitive)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -243,6 +246,45 @@ struct ClipboardFloating: View {
                     .clipboardHitRegion()
                     .transition(.opacity.combined(with: .offset(y: 12)))
                 }
+                if settings.formSuggestionsEnabled, forms.fieldContext != nil, !forms.isSensitive {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            Button("Autofill…", action: onShowAutofill)
+                                .padding(.horizontal, 12)
+                                .frame(height: 38)
+                                .background(.regularMaterial, in: .capsule)
+                                .clipboardHitRegion()
+                            if let dynamic = forms.dynamicSuggestion {
+                                Button(dynamic) { forms.fillDynamic() }
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 38)
+                                    .background(.regularMaterial, in: .capsule)
+                                    .clipboardHitRegion()
+                            }
+                            ForEach(forms.suggestions) { item in
+                                Button(item.value) { forms.fill(item) }
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 38)
+                                    .background(.regularMaterial, in: .capsule)
+                                    .clipboardHitRegion()
+                            }
+                            if forms.canSave {
+                                Button {
+                                    forms.saveCandidate()
+                                } label: {
+                                    Label("Save \(forms.activeTitle)", systemImage: "plus.circle")
+                                }
+                                .font(.subheadline)
+                                .padding(.horizontal, 12)
+                                .frame(height: 38)
+                                .background(.regularMaterial, in: .capsule)
+                                .clipboardHitRegion()
+                            }
+                        }
+                    }
+                }
+                if isEnabled {
                 ClipboardControls(
                     isOpen: $isOpen,
                     showsHistory: true,
@@ -251,6 +293,7 @@ struct ClipboardFloating: View {
                 ) {
                     isOpen = false
                     onPasteClipboard(clipboardCache.text)
+                }
                 }
             }
         }

@@ -14,6 +14,7 @@ final class ClipboardOverlay {
 
     @ObservationIgnored private var window: UIWindow?
     @ObservationIgnored private weak var historyController: UIViewController?
+    @ObservationIgnored private weak var autofillController: UIViewController?
 
     private init() {}
 
@@ -35,6 +36,18 @@ final class ClipboardOverlay {
         // Visible but never key, so the field keeps the keyboard.
         window.isHidden = false
         self.window = window
+    }
+
+    func showAutofill() {
+        guard autofillController?.presentingViewController == nil,
+              var top = scene?.windows.first(where: { $0 !== window && $0.isKeyWindow })?.rootViewController
+        else { return }
+        while let presented = top.presentedViewController { top = presented }
+        let controller = UIHostingController(rootView: AutofillManualPicker(onDone: { [weak self] in
+            self?.autofillController?.dismiss(animated: true)
+        }))
+        autofillController = controller
+        top.present(controller, animated: true)
     }
 
     /// The full list, on top of whatever is showing (a sheet included).
@@ -98,7 +111,8 @@ private struct ClipboardOverlayContent: View {
                     // Not from the history, so the system paste is the fallback.
                     if !ClipboardHistory.typeIntoField(text) { ClipboardHistory.pasteIntoField() }
                 },
-                onShowAll: overlay.showAll
+                onShowAll: overlay.showAll,
+                onShowAutofill: overlay.showAutofill
             )
             ZStack {
                 if let notice = history.notice {
