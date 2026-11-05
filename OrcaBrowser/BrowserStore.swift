@@ -27,6 +27,7 @@ final class BrowserStore {
     var selectedTabID: Tab.ID {
         get { space == .normal ? normalSelectedID : incognitoWindow?.selectedTabID ?? normalSelectedID }
         set {
+            if newValue != selectedTabID { FormSuggestions.shared.reset() }
             if space == .normal { normalSelectedID = newValue } else { incognitoWindow?.selectedTabID = newValue }
         }
     }
@@ -540,6 +541,7 @@ final class BrowserStore {
 
     private func switchSpace(to newSpace: Space) {
         guard newSpace != space else { return }
+        FormSuggestions.shared.reset()
         if let leaving = selectedTab {
             leaving.pauseVideos()
             leaving.answerDialog(.cancel)
