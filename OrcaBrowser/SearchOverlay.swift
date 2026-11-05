@@ -28,6 +28,8 @@ struct SearchOverlay: View {
     // Turning a chip back into text must not immediately reactivate a query like “yt lofi”.
     @State private var suppressActivation = false
     @State private var shouldMatchShortcut = false
+    /// The suggestion was held: the other sites that match are shown too.
+    @State private var isShowingOtherSuggestions = false
     /// Where to put the cursor once the field has taken a programmatic edit.
     @State private var pendingCursorOffset: Int?
     @State private var hasEditedText = false
@@ -69,6 +71,10 @@ struct SearchOverlay: View {
                             .transition(.opacity.combined(with: .offset(y: 12)))
                     }
                 }
+                if isShowingOtherSuggestions, !otherSuggestions.isEmpty {
+                    otherSuggestionsRow
+                        .transition(.opacity.combined(with: .offset(y: 8)))
+                }
                 HStack(spacing: 0) {
                     if let provider = suggestedProvider { suggestionChip(provider) }
                     ClipboardControls(
@@ -85,6 +91,7 @@ struct SearchOverlay: View {
                 field
             }
                 .animation(.snappy(duration: 0.2), value: isShowingClipboard)
+                .animation(.snappy(duration: 0.2), value: isShowingOtherSuggestions)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .offset(y: isPresented ? 0 : 24)
@@ -126,6 +133,8 @@ struct SearchOverlay: View {
         }
         .onChange(of: text) { _, newText in
             if newText != initialText { hasEditedText = true }
+            // Typing on means the other matches are no longer what was held.
+            if otherSuggestions.isEmpty { isShowingOtherSuggestions = false }
             if let offset = pendingCursorOffset {
                 pendingCursorOffset = nil
                 let shown = shownText
@@ -163,6 +172,7 @@ struct SearchOverlay: View {
         shouldMatchShortcut = false
         pendingCursorOffset = nil
         hasEditedText = false
+        isShowingOtherSuggestions = false
         activeProvider = settings.searchProviders.first { $0.id == initialProviderID && $0.isEnabled }
         typedShortcut = nil
         // Restoring a remembered ordinary query must not reinterpret it as a shortcut.
@@ -202,15 +212,50 @@ struct SearchOverlay: View {
         clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Offers the site the first word could mean, at the left of the clipboard row.
+    /// Every site the first word could mean, best first.
+    private var allSuggestions: [SearchProvider] {
+        guard activeProvider == nil else { return [] }
+        return SearchProvider.suggestions(for: text, in: settings.searchProviders)
+    }
+
+    private var otherSuggestions: [SearchProvider] { Array(allSuggestions.dropFirst()) }
+
+    /// Offers the site the first word could mean, at the left of the clipboard
+    /// row. Tap to use it; hold to see the other sites that match.
     private func suggestionChip(_ provider: SearchProvider) -> some View {
-        Button { selectProvider(provider) } label: {
-            SearchProviderChip(provider: provider)
+        SearchProviderChip(provider: provider)
+            .onTapGesture { selectProvider(provider) }
+            .onLongPressGesture(minimumDuration: 0.35) {
+                guard !otherSuggestions.isEmpty else { return }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                isShowingOtherSuggestions.toggle()
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Search \(provider.name)")
+            .accessibilityHint("Turns the word you typed into this site's chip")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction(named: "Show other sites") {
+                if !otherSuggestions.isEmpty { isShowingOtherSuggestions.toggle() }
+            }
+            .accessibilityIdentifier("search-provider-suggestion")
+    }
+
+    private var otherSuggestionsRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(otherSuggestions) { provider in
+                    SearchProviderChip(provider: provider)
+                        .onTapGesture { selectProvider(provider) }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Search \(provider.name)")
+                        .accessibilityAddTraits(.isButton)
+                }
+            }
+            .padding(.horizontal, 0)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Search \(provider.name)")
-        .accessibilityHint("Turns the word you typed into this site's chip")
-        .accessibilityIdentifier("search-provider-suggestion")
+        .scrollClipDisabled()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityIdentifier("search-provider-others")
     }
 
     private func selectProvider(_ provider: SearchProvider) {
@@ -220,6 +265,7 @@ struct SearchOverlay: View {
         typedShortcut = String(trimmed[..<end])
         text = String(trimmed[end...].drop(while: \.isWhitespace))
         activeProvider = provider
+        isShowingOtherSuggestions = false
         suppressActivation = false
         isFocused = true
         pendingCursorOffset = text.count + 1
@@ -386,7 +432,12 @@ struct SearchOverlay: View {
     private func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
-            dismiss()
+            // A chip with nothing after it opens that site's front page.
+            if let provider = activeProvider, let home = SearchSubmission.home(of: provider) {
+                onSubmit(home)
+            } else {
+                dismiss()
+            }
         } else {
             guard let submission = SearchSubmission.make(text: text, provider: activeProvider) else { return }
             onSubmit(submission)

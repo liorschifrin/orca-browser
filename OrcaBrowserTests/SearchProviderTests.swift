@@ -107,6 +107,18 @@ final class SearchProviderTests: XCTestCase {
         XCTAssertNotNil(restored.site(id: "imdb"))
     }
 
+    func testChipWithNoQueryOpensTheSitesFrontPage() throws {
+        XCTAssertEqual(youtube.homeURL?.absoluteString, "https://www.youtube.com/")
+        XCTAssertEqual(providers.first { $0.id == "maps" }?.homeURL?.absoluteString, "https://www.google.com/maps")
+        let custom = SearchProvider(name: "Docs", shortcuts: ["d"], template: "https://docs.example.com/find/%s?x=1#frag")
+        XCTAssertEqual(custom.homeURL?.absoluteString, "https://docs.example.com/")
+        for provider in providers { XCTAssertNotNil(provider.homeURL, provider.name) }
+        let home = try XCTUnwrap(SearchSubmission.home(of: youtube))
+        XCTAssertEqual(home.providerID, "youtube")
+        XCTAssertEqual(home.text, "")
+        XCTAssertEqual(home.resolvedURL?.absoluteString, "https://www.youtube.com/")
+    }
+
     func testExplicitSubmissionAndNormalBrowsing() throws {
         let submission = try XCTUnwrap(SearchSubmission.make(text: "  lofi beats  ", provider: youtube))
         XCTAssertEqual(submission.providerID, "youtube")

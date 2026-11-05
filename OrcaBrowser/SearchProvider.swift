@@ -80,6 +80,23 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         return nil
     }
 
+    /// Where the site's front page is, for when a chip is entered with no query.
+    private static let homePages = [
+        "maps": "https://www.google.com/maps",
+        "google-images": "https://www.google.com/imghp",
+        "ai-mode": "https://www.google.com/?udm=50",
+    ]
+
+    var homeURL: URL? {
+        if let page = Self.homePages[id] { return URL(string: page) }
+        guard var components = URLComponents(string: template.replacingOccurrences(of: "%s", with: "query")),
+              components.host?.isEmpty == false else { return nil }
+        components.path = "/"
+        components.query = nil
+        components.fragment = nil
+        return components.url
+    }
+
     func url(for query: String) -> URL? {
         guard Self.templateError(template) == nil else { return nil }
         // Encode UTF-8 bytes, including %, +, &, # and /. Substitute once so a
@@ -141,6 +158,12 @@ struct SearchSubmission {
     var providerID: String? = nil
 
     var resolvedURL: URL? { url ?? Destination.url(for: text) }
+
+    /// Opening a site with nothing to search for goes to its front page.
+    static func home(of provider: SearchProvider) -> Self? {
+        guard let url = provider.homeURL else { return nil }
+        return Self(text: "", url: url, providerID: provider.id)
+    }
 
     static func make(text: String, provider: SearchProvider?) -> Self? {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
