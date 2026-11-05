@@ -71,7 +71,10 @@ final class FormSuggestions {
         let context = AutofillFieldContext(info, url: webView.url)
         let builtin = info["kind"] as? String
         let rule = AutofillRules.shared.matchingRule(context: context)
-        let kind = context.isSensitive ? nil : (rule?.category ?? builtin)
+        let chosen = rule?.category ?? builtin
+        let kind = context.isSensitive ? nil : chosen.flatMap {
+            AutofillRules.shared.categoryAllowed($0, on: webView.url) ? $0 : nil
+        }
         activeWebView = webView
         isPrivate = privateTab
         fieldContext = context
