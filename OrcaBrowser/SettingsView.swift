@@ -75,7 +75,7 @@ struct SettingsView: View {
                 }
                 Section {
                     Toggle("Suggest saved form values", isOn: $settings.formSuggestionsEnabled)
-                    NavigationLink("Manage saved values") { SavedFormValuesView() }
+                    NavigationLink("Manage autofill categories and rules") { AutofillSettingsView() }
                 } header: {
                     Text("Form suggestions")
                 } footer: {
