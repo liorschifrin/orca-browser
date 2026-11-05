@@ -35,6 +35,11 @@ final class AppSettings {
     private static let autoArchiveTabsKey = "autoArchiveTabs"
     private static let autoArchiveDaysKey = "autoArchiveDays"
     private static let savesClipboardHistoryKey = "savesClipboardHistory"
+    private static let formSuggestionsEnabledKey = "formSuggestionsEnabled"
+
+    var formSuggestionsEnabled: Bool {
+        didSet { defaults.set(formSuggestionsEnabled, forKey: Self.formSuggestionsEnabledKey) }
+    }
 
     /// Remembers everything copied in the app and whatever is on the
     /// clipboard when it opens. On by default.
@@ -127,6 +132,7 @@ final class AppSettings {
         self.defaults = defaults
         voiceQueryOptions = defaults.data(forKey: Self.voiceQueryOptionsKey)
             .flatMap { try? JSONDecoder().decode(VoiceQueryOptions.self, from: $0) } ?? .defaults
+        formSuggestionsEnabled = defaults.object(forKey: Self.formSuggestionsEnabledKey) as? Bool ?? true
         savesClipboardHistory = defaults.object(forKey: Self.savesClipboardHistoryKey) as? Bool ?? true
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)
