@@ -7,16 +7,14 @@ struct SearchProvider: Codable, Identifiable, Equatable {
     var template: String
     var isEnabled = true
 
-    // Add built-ins here with a stable ID; saved customizations take precedence.
-    static let builtIns: [SearchProvider] = [
-        .init(id: "youtube", name: "YouTube", shortcuts: ["yt"], template: "https://www.youtube.com/results?search_query=%s"),
-        .init(id: "wikipedia", name: "Wikipedia", shortcuts: ["w", "wiki"], template: "https://en.wikipedia.org/wiki/Special:Search?search=%s"),
-        .init(id: "reddit", name: "Reddit", shortcuts: ["r", "reddit"], template: "https://www.reddit.com/search/?q=%s"),
-        .init(id: "amazon", name: "Amazon", shortcuts: ["a", "amz"], template: "https://www.amazon.com/s?k=%s"),
-        .init(id: "google-images", name: "Google Images", shortcuts: ["gi", "img"], template: "https://www.google.com/search?udm=2&q=%s"),
-        .init(id: "google-translate", name: "Google Translate", shortcuts: ["gt", "tr"], template: "https://translate.google.com/?sl=auto&tl=en&text=%s&op=translate"),
-        .init(id: "imdb", name: "IMDb", shortcuts: ["imdb"], template: "https://www.imdb.com/find/?q=%s"),
-    ]
+    // How the chip is drawn; set from the site this came from.
+    var icon = SiteIconChoice.site
+    var color = SiteColor.site
+
+    private enum CodingKeys: String, CodingKey { case id, name, shortcuts, template, isEnabled }
+
+    /// Built-ins live in `SearchSite.builtIns`.
+    static var builtIns: [SearchProvider] { SearchSite.builtIns.filter { !$0.shortcuts.isEmpty }.map(\.provider) }
 
     nonisolated static func normalize(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -130,33 +128,6 @@ struct SearchProvider: Codable, Identifiable, Equatable {
             guard provider.isEnabled, let rank = rank(provider) else { return nil }
             return (provider, rank, index)
         }.sorted { ($0.1, $0.2) < ($1.1, $1.2) }.map(\.0)
-    }
-}
-
-/// Overrides and tombstones allow new built-ins without resurrecting removals.
-struct SearchProviderPreferences: Codable {
-    var overrides: [SearchProvider] = []
-    var removedIDs: Set<String> = []
-
-    var providers: [SearchProvider] {
-        var result = SearchProvider.builtIns.filter { !removedIDs.contains($0.id) }.map { builtIn in
-            overrides.first(where: { $0.id == builtIn.id }) ?? builtIn
-        }
-        for provider in overrides where !removedIDs.contains(provider.id) && !result.contains(where: { $0.id == provider.id }) {
-            result.append(provider)
-        }
-        return result
-    }
-
-    mutating func save(_ provider: SearchProvider) {
-        overrides.removeAll { $0.id == provider.id }
-        overrides.append(provider.normalized())
-        removedIDs.remove(provider.id)
-    }
-
-    mutating func remove(_ provider: SearchProvider) {
-        overrides.removeAll { $0.id == provider.id }
-        removedIDs.insert(provider.id)
     }
 }
 

@@ -171,7 +171,7 @@ struct SearchOverlay: View {
         guard activeProvider == nil, !suppressActivation,
               let match = SearchProvider.activation(for: text, in: settings.searchProviders) else { return }
         activeProvider = match.provider
-        typedShortcut = SearchProvider.normalize(String(text.drop(while: \.isWhitespace).prefix(while: { !$0.isWhitespace })))
+        typedShortcut = String(text.drop(while: \.isWhitespace).prefix(while: { !$0.isWhitespace }))
         text = match.query
         pendingCursorOffset = text.count + 1
         selection = TextSelection(insertionPoint: shownText.endIndex)
@@ -221,7 +221,7 @@ struct SearchOverlay: View {
         // Replace the shortcut (or matched first word) with the inline chip.
         let trimmed = text.drop(while: \.isWhitespace)
         let end = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
-        typedShortcut = SearchProvider.normalize(String(trimmed[..<end]))
+        typedShortcut = String(trimmed[..<end])
         text = String(trimmed[end...].drop(while: \.isWhitespace))
         activeProvider = provider
         suppressActivation = false
@@ -268,10 +268,16 @@ struct SearchOverlay: View {
     private var field: some View {
         HStack(spacing: 8) {
             if let provider = activeProvider {
-                // Part of the text: delete removes it, × clears it with the rest.
-                SearchProviderChip(provider: provider)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .accessibilityIdentifier("search-provider-active")
+                // Part of the text: delete or its × turns it back into what was typed.
+                Button { dissolveProvider(keeping: text) } label: {
+                    SearchProviderChip(provider: provider, showsClose: true)
+                }
+                .buttonStyle(.plain)
+                .fixedSize(horizontal: true, vertical: false)
+                .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
+                .accessibilityLabel("\(provider.name) search")
+                .accessibilityHint("Turns it back into the text you typed")
+                .accessibilityIdentifier("search-provider-active")
             } else {
                 appendButton
             }
@@ -285,6 +291,7 @@ struct SearchOverlay: View {
 
             clearButton
         }
+        .animation(.snappy(duration: 0.18), value: activeProvider?.id)
         .padding(.horizontal, 10)
         .frame(minHeight: 52)
         .background(.regularMaterial, in: .capsule)

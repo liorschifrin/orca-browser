@@ -13,10 +13,21 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Search") {
-                    NavigationLink("Search providers") {
-                        SearchProviderSettings(settings: settings)
+                Section {
+                    NavigationLink {
+                        SearchSitesSettings(settings: settings)
+                    } label: {
+                        HStack {
+                            Text("Search sites")
+                            Spacer()
+                            Text("\(settings.searchSites.sites.count)")
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                } header: {
+                    Text("Search")
+                } footer: {
+                    Text("Sites you can search directly by typing a shortcut, or by voice.")
                 }
                 Section {
                     Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)
@@ -84,16 +95,6 @@ struct SettingsView: View {
                     Text("History")
                 }
                 Section {
-                    NavigationLink {
-                        VoiceQueryOptionsView(settings: settings)
-                    } label: {
-                        HStack {
-                            Text("Voice search options")
-                            Spacer()
-                            Text("\(settings.voiceQueryOptions.active.count) enabled")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
                     Picker("Speech recognition", selection: $settings.voiceSearchProvider) {
                         ForEach(VoiceSearchProvider.allCases) { provider in
                             Text(provider.title).tag(provider)

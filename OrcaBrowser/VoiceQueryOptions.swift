@@ -21,6 +21,14 @@ struct VoiceQueryOptions: Codable, Equatable {
         self.enabled = selected.isEmpty ? [self.order[0]] : Set(selected)
     }
 
+    /// The order as given, without the built-in destinations being added back.
+    init(exactOrder order: [VoiceQueryDestination], enabled: Set<VoiceQueryDestination>) {
+        var seen: Set<VoiceQueryDestination> = []
+        self.order = order.filter { seen.insert($0).inserted }
+        let selected = self.order.filter { enabled.contains($0) }.prefix(9)
+        self.enabled = selected.isEmpty ? Set(self.order.prefix(1)) : Set(selected)
+    }
+
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.enabled == rhs.enabled && lhs.order.count == rhs.order.count &&
         zip(lhs.order, rhs.order).allSatisfy { left, right in

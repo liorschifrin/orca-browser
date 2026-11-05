@@ -3,6 +3,7 @@ import XCTest
 
 final class SearchProviderTests: XCTestCase {
     let providers = SearchProvider.builtIns
+    var youtube: SearchProvider { providers.first { $0.id == "youtube" }! }
 
     func testAllBuiltInsAreValidAndRender() throws {
         for provider in providers {
@@ -14,7 +15,7 @@ final class SearchProviderTests: XCTestCase {
     }
 
     func testUTF8EncodingAndLiteralPlaceholder() throws {
-        let provider = providers[0]
+        let provider = youtube
         let query = "žluťoučký kůň & # 😀 + / %s"
         let url = try XCTUnwrap(provider.url(for: query))
         XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, query)
@@ -40,7 +41,7 @@ final class SearchProviderTests: XCTestCase {
         for input in ["yt", "ytmusic jazz", "https://yt.com", "yt.com hi", "youtube jazz", "best yt music"] {
             XCTAssertNil(SearchProvider.activation(for: input, in: providers), input)
         }
-        var disabled = providers[0]
+        var disabled = youtube
         disabled.isEnabled = false
         XCTAssertNil(SearchProvider.activation(for: "yt jazz", in: [disabled]))
     }
@@ -51,7 +52,7 @@ final class SearchProviderTests: XCTestCase {
         XCTAssertEqual(SearchProvider.suggestions(for: "youtube.com", in: providers).first?.id, "youtube")
         XCTAssertTrue(SearchProvider.suggestions(for: "  ", in: providers).isEmpty)
         XCTAssertEqual(SearchProvider.bestSuggestion(for: "YOU", in: providers + [exact])?.id, exact.id)
-        XCTAssertEqual(SearchProvider.bestSuggestion(for: "g", in: providers)?.id, "google-images")
+        XCTAssertEqual(SearchProvider.bestSuggestion(for: "g", in: providers)?.id, "google")
         XCTAssertNil(SearchProvider.bestSuggestion(for: "unmatched", in: providers))
         XCTAssertNil(SearchProvider.bestSuggestion(for: "  ", in: providers))
     }
@@ -74,40 +75,40 @@ final class SearchProviderTests: XCTestCase {
         XCTAssertEqual(candidate.normalized().shortcuts, ["ex"])
         candidate.shortcuts = [" YT "]
         XCTAssertTrue(candidate.validationError(among: providers)?.contains("YouTube") == true)
-        var disabled = providers[0]
+        var disabled = youtube
         disabled.isEnabled = false
         XCTAssertNotNil(candidate.validationError(among: [disabled]))
         for shortcuts in [[], [""], ["foo bar"], ["example.com"], ["x", " X "], [String(repeating: "a", count: 21)]] {
             candidate.shortcuts = shortcuts
             XCTAssertNotNil(candidate.validationError(among: []))
         }
-        candidate = providers[0]
+        candidate = youtube
         XCTAssertNil(candidate.validationError(among: providers)) // Editing itself is allowed.
     }
 
     func testPreferencesRoundTripPreservesEditsAndRemovals() throws {
-        var preferences = SearchProviderPreferences()
-        var youtube = providers[0]
+        var preferences = SearchSitePreferences()
+        var youtube = try XCTUnwrap(preferences.site(id: "youtube"))
         youtube.shortcuts = ["video"]
-        youtube.isEnabled = false
-        preferences.save(youtube)
-        preferences.remove(providers[1])
-        let custom = SearchProvider(name: "Custom", shortcuts: ["custom"], template: "https://example.com/?q=%s")
-        preferences.save(custom)
+        youtube.usesTyping = false
+        XCTAssertNil(preferences.save(youtube))
+        XCTAssertNil(preferences.remove("wikipedia"))
+        let custom = SearchSite(name: "Custom", template: "https://example.com/?q=%s", shortcuts: ["custom"])
+        XCTAssertNil(preferences.save(custom))
         let data = try JSONEncoder().encode(preferences)
-        let restored = try JSONDecoder().decode(SearchProviderPreferences.self, from: data)
-        XCTAssertEqual(restored.providers.first, youtube)
-        XCTAssertFalse(restored.providers.contains { $0.id == "wikipedia" })
-        XCTAssertTrue(restored.providers.contains(custom))
-        XCTAssertTrue(restored.providers.contains { $0.id == "imdb" })
+        let restored = try JSONDecoder().decode(SearchSitePreferences.self, from: data)
+        XCTAssertEqual(restored.site(id: "youtube"), youtube)
+        XCTAssertNil(restored.site(id: "wikipedia"))
+        XCTAssertEqual(restored.site(id: custom.id), custom)
+        XCTAssertNotNil(restored.site(id: "imdb"))
     }
 
     func testExplicitSubmissionAndNormalBrowsing() throws {
-        let submission = try XCTUnwrap(SearchSubmission.make(text: "  lofi beats  ", provider: providers[0]))
+        let submission = try XCTUnwrap(SearchSubmission.make(text: "  lofi beats  ", provider: youtube))
         XCTAssertEqual(submission.providerID, "youtube")
         XCTAssertEqual(submission.text, "lofi beats")
         XCTAssertEqual(submission.resolvedURL?.host(), "www.youtube.com")
-        XCTAssertNil(SearchSubmission.make(text: "  ", provider: providers[0]))
+        XCTAssertNil(SearchSubmission.make(text: "  ", provider: youtube))
         for address in ["example.com", "localhost:3000", "https://example.com/path?q=1"] {
             XCTAssertNotEqual(Destination.url(for: address)?.host(), "www.google.com")
         }

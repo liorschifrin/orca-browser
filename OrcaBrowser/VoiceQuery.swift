@@ -92,6 +92,18 @@ struct VoiceQueryDestination: Identifiable, Codable, Hashable {
     var color: String
     /// nil preserves the built-in action, including ChatGPT's app handoff.
     var searchTemplate: String?
+    /// Set when the destination comes from a search site; then the site's icon
+    /// and colour settings decide how it is drawn.
+    var appearance: Appearance?
+
+    struct Appearance: Equatable {
+        var icon: SiteIconChoice
+        var color: SiteColor
+        var siteID: String
+        var host: String
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, rawValue, symbol, color, searchTemplate }
 
     static let allCases = VoiceQueryBuiltin.allCases.map { builtin in
         VoiceQueryDestination(id: builtin.rawValue, rawValue: builtin.rawValue,
@@ -110,8 +122,9 @@ struct VoiceQueryDestination: Identifiable, Codable, Hashable {
     static let symbols = ["magnifyingglass", "sparkles", "play.rectangle", "bubble.left.and.bubble.right", "cart", "map", "text.bubble", "book", "magnifyingglass.circle", "globe", "star", "music.note"]
 
     init(id: String = UUID().uuidString, rawValue: String, symbol: String = "globe",
-         color: String = "blue", searchTemplate: String? = nil) {
+         color: String = "blue", searchTemplate: String? = nil, appearance: Appearance? = nil) {
         self.id = id
+        self.appearance = appearance
         self.rawValue = rawValue
         self.symbol = symbol
         self.color = color
@@ -127,7 +140,10 @@ struct VoiceQueryDestination: Identifiable, Codable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     var selectionColor: Color {
-        switch color {
+        if let appearance {
+            return SiteAppearance.color(siteID: appearance.siteID, host: appearance.host, setting: appearance.color)
+        }
+        return switch color {
         case "purple": .purple
         case "red": .red
         case "teal": .teal
@@ -392,9 +408,8 @@ struct VoiceQueryOverlay: View {
                     query.finish(onSearch: onSearch)
                 } label: {
                     VStack(spacing: 8) {
-                        Image(systemName: destination.symbol)
+                        VoiceDestinationIcon(destination: destination, tint: selected ? destination.selectionColor : .secondary)
                             .font(query.destinations.count >= 7 ? .title3 : .title2)
-                            .foregroundStyle(selected ? destination.selectionColor : .secondary)
                         Text(destination.rawValue).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.85)
                     }
                     .foregroundStyle(.primary)
@@ -432,6 +447,21 @@ struct VoiceQueryOverlay: View {
         case .transcribing: "Finishing transcription…"
         case .recording:
             query.isCancelling ? "Release to cancel" : query.destination == .chatGPT ? "Release to open ChatGPT" : "Release to search \(query.destination.rawValue)"
+        }
+    }
+}
+
+/// The destination's icon: a symbol, or the site's own icon.
+struct VoiceDestinationIcon: View {
+    let destination: VoiceQueryDestination
+    let tint: Color
+
+    var body: some View {
+        if let appearance = destination.appearance, appearance.icon == .site {
+            SiteIconView(icon: .site, siteID: appearance.siteID, host: appearance.host, tint: tint)
+                .frame(width: 26, height: 26)
+        } else {
+            Image(systemName: destination.symbol).foregroundStyle(tint)
         }
     }
 }
