@@ -81,14 +81,17 @@ struct SearchOverlay: View {
                                 .foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
-                        Button {
-                            UIPasteboard.general.string = answer.result
-                        } label: {
-                            Image(systemName: "doc.on.doc")
-                                .frame(minWidth: 44, minHeight: 44)
+                        if answer.isCopyable {
+                            Button {
+                                UIPasteboard.general.string = answer.result
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                                    .frame(minWidth: 44, minHeight: 44)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Copy result")
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Copy result")
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 8)
@@ -296,6 +299,7 @@ enum SmartSearchAnswer {
     struct Answer {
         let result: String
         let kind: String
+        var isCopyable = true
     }
 
     static func evaluate(_ raw: String, now: Date = Date(), localZone: TimeZone = .current) -> Answer? {
@@ -328,15 +332,25 @@ enum SmartSearchAnswer {
               hour <= 23, minute <= 59, let abbreviation = group(4) else { return nil }
         let meridiem = group(3)
         guard meridiem == nil || (1...12).contains(hour) else { return nil }
-        let zoneID: String
+        // Generic region abbreviations follow daylight-saving rules; explicit
+        // standard/daylight abbreviations refer to their literal UTC offsets.
+        let source: TimeZone?
         switch abbreviation {
-        case "pt", "pst", "pdt": zoneID = "America/Los_Angeles"
-        case "et", "est", "edt": zoneID = "America/New_York"
-        case "ct", "cst", "cdt": zoneID = "America/Chicago"
-        case "mt", "mst", "mdt": zoneID = "America/Denver"
-        default: zoneID = "Etc/UTC"
+        case "pt": source = TimeZone(identifier: "America/Los_Angeles")
+        case "pst": source = TimeZone(secondsFromGMT: -8 * 3600)
+        case "pdt": source = TimeZone(secondsFromGMT: -7 * 3600)
+        case "et": source = TimeZone(identifier: "America/New_York")
+        case "est": source = TimeZone(secondsFromGMT: -5 * 3600)
+        case "edt": source = TimeZone(secondsFromGMT: -4 * 3600)
+        case "ct": source = TimeZone(identifier: "America/Chicago")
+        case "cst": source = TimeZone(secondsFromGMT: -6 * 3600)
+        case "cdt": source = TimeZone(secondsFromGMT: -5 * 3600)
+        case "mt": source = TimeZone(identifier: "America/Denver")
+        case "mst": source = TimeZone(secondsFromGMT: -7 * 3600)
+        case "mdt": source = TimeZone(secondsFromGMT: -6 * 3600)
+        default: source = TimeZone(identifier: "Etc/UTC")
         }
-        guard let source = TimeZone(identifier: zoneID) else { return nil }
+        guard let source else { return nil }
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = source
         let sourceHour: Int
@@ -346,7 +360,7 @@ enum SmartSearchAnswer {
             sourceHour = hour
         } else {
             // A bare 8:30 could mean AM or PM. Do not guess.
-            return Answer(result: "Specify AM or PM", kind: "Time zone conversion")
+            return Answer(result: "Specify AM or PM", kind: "Time zone conversion", isCopyable: false)
         }
         let today = calendar.dateComponents([.year, .month, .day], from: now)
         var components = today
@@ -420,6 +434,10 @@ enum SmartSearchAnswer {
         guard normalized.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789")) != nil,
               normalized.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789.+-*/()% ").inverted) == nil,
               normalized.contains(where: { "+-*/%".contains($0) }) else { return nil }
+        // Avoid treating date/phone-like digit groups as arithmetic.
+        guard normalized.range(of: #"^\d+(-\d+){2,}$"#, options: .regularExpression) == nil else { return nil }
+        // Bounds recursive parsing on the UI thread, including nested unary operators.
+        guard normalized.count <= 200 else { return nil }
         var parser = ArithmeticParser(Array(normalized))
         guard let value = parser.parse(), value.isFinite else { return nil }
         return Answer(result: formatted(value), kind: "Calculation")
