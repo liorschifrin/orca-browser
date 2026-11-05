@@ -312,11 +312,11 @@ enum SmartSearchAnswer {
     }
 
     private static func time(_ query: String, now: Date, localZone: TimeZone) -> Answer? {
-        let pattern = #"^([0-9]{1,2}):([0-9]{2})\\s*(am|pm)?\\s*(pt|pst|pdt|et|est|edt|ct|cst|cdt|mt|mst|mdt|utc|gmt)$"#
+        let pattern = #"^([0-9]{1,2}):([0-9]{2})\s*(am|pm)?\s*(pt|pst|pdt|et|est|edt|ct|cst|cdt|mt|mst|mdt|utc|gmt)$"#
         guard let match = query.lowercased().range(of: pattern, options: .regularExpression) else { return nil }
         let parts = query.lowercased()[match].split(whereSeparator: { $0.isWhitespace })
         let compact = parts.joined(separator: " ")
-        let pattern2 = #"^([0-9]{1,2}):([0-9]{2})\\s*(am|pm)?\\s*(pt|pst|pdt|et|est|edt|ct|cst|cdt|mt|mst|mdt|utc|gmt)$"#
+        let pattern2 = #"^([0-9]{1,2}):([0-9]{2})\s*(am|pm)?\s*(pt|pst|pdt|et|est|edt|ct|cst|cdt|mt|mst|mdt|utc|gmt)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern2),
               let m = regex.firstMatch(in: compact, range: NSRange(compact.startIndex..., in: compact)) else { return nil }
         func group(_ i: Int) -> String? {
@@ -357,7 +357,7 @@ enum SmartSearchAnswer {
         formatter.timeZone = localZone
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        return Answer(result: formatter.string(from: date), kind: "Local time (\\(localZone.abbreviation(for: date) ?? localZone.identifier))")
+        return Answer(result: formatter.string(from: date), kind: "Local time (\(localZone.abbreviation(for: date) ?? localZone.identifier))")
     }
 
     private struct Unit {
@@ -396,7 +396,7 @@ enum SmartSearchAnswer {
     }()
 
     private static func conversion(_ query: String) -> Answer? {
-        let pattern = #"^(-?\\d+(?:\\.\\d+)?)\\s*([a-z0-9]+)\\s+(?:to|in)\\s+([a-z0-9]+)$"#
+        let pattern = #"^(-?\d+(?:\.\d+)?)\s*([a-z0-9]+)\s+(?:to|in)\s+([a-z0-9]+)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
               let match = regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)),
               match.numberOfRanges == 4,
@@ -409,7 +409,7 @@ enum SmartSearchAnswer {
               from.dimension == to.dimension else { return nil }
         let base = (amount + from.offset) * from.factor
         let converted = base / to.factor - to.offset
-        return Answer(result: "\\(formatted(converted)) \\(to.label)", kind: "Unit conversion")
+        return Answer(result: "\(formatted(converted)) \(to.label)", kind: "Unit conversion")
     }
 
     private static func calculation(_ query: String) -> Answer? {
