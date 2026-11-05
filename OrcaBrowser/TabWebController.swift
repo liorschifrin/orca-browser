@@ -31,6 +31,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         configuration.userContentController.addUserScript(
             ShortsFilter.redirectUserScript(enabled: AppSettings.shared.opensShortsAsVideos)
         )
+        configuration.userContentController.addUserScript(FormSuggestions.script)
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
         configuration.userContentController.addUserScript(PlaybackControl.userScript)
         configuration.userContentController.addUserScript(YouTubeHeader.userScript(
@@ -75,6 +76,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     /// Stops the page and cuts it loose from the tab, which is letting go of it.
     func detach() {
+        FormSuggestions.shared.clear(for: webView)
         observations = []
         for name in Self.messageNames {
             webView.configuration.userContentController.removeScriptMessageHandler(
@@ -93,10 +95,14 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         BackgroundPlayback.pictureInPictureMessageName,
         PlaybackControl.messageName,
         YouTubeHeader.chaptersMessageName,
+        FormSuggestions.messageName,
     ]
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         switch message.name {
+        case FormSuggestions.messageName:
+            guard let tab, AppSettings.shared.formSuggestionsEnabled else { return }
+            FormSuggestions.shared.receive(message.body, from: webView, privateTab: tab.isIncognito)
         case BackgroundPlayback.pictureInPictureMessageName:
             guard let body = message.body as? [String: Any], let active = body["active"] as? Bool else { return }
             tab?.pictureInPictureChanged(active: active)
@@ -170,6 +176,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// Called once the first bytes of a new page arrive, i.e. the old page is
     /// about to be replaced.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        FormSuggestions.shared.clear(for: webView)
         tab?.pageDidCommit()
         // Hidden banners often leave the page unable to scroll.
         if ContentBlocker.shared.hidesBanners(on: webView.url, privateRules: tab?.privateRules) {
