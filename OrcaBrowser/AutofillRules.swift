@@ -140,6 +140,21 @@ final class AutofillRules {
         persist()
     }
 
+    func categoryAllowed(_ id: String, on url: URL?, automatic: Bool = true) -> Bool {
+        guard let category = category(id), category.enabled, (!automatic || category.automatic) else { return false }
+        let host = url?.host?.lowercased() ?? ""
+        let found = category.domains.contains { domain in
+            let d = domain.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            let bare = d.hasPrefix("*.") ? String(d.dropFirst(2)) : d
+            return !bare.isEmpty && (host == bare || (d.hasPrefix("*.") && host.hasSuffix("." + bare)))
+        }
+        switch category.siteMode {
+        case .everywhere: return true
+        case .only: return found
+        case .except: return !found
+        }
+    }
+
     func deleteCategory(_ id: String) {
         // Built-in categories remain available; custom categories can be deleted.
         guard UUID(uuidString: id) != nil else { return }
@@ -168,7 +183,7 @@ final class AutofillRules {
 
     func matchingCategory(context: AutofillFieldContext) -> String? {
         guard !context.isSensitive else { return nil }
-        return rules.filter { $0.enabled && $0.automatic && matches($0, context: context) }
+        return rules.filter { $0.enabled && $0.automatic && categoryAllowed($0.category, on: context.url) && matches($0, context: context) }
             .sorted { $0.priority == $1.priority ? $0.id.uuidString < $1.id.uuidString : $0.priority > $1.priority }
             .first?.category
     }
