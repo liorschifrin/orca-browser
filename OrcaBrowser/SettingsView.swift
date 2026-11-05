@@ -73,9 +73,11 @@ struct SettingsView: View {
                 } footer: {
                     Text("Keeps text and images you copy, and what is on the clipboard each time you open Orca, with no expiry. Tap the clipboard button above the keyboard to use them. Nothing new is saved while an Incognito tab or search is showing, and items from password managers are skipped.")
                 }
-                Section("Form suggestions") {
+                Section {
                     Toggle("Suggest saved form values", isOn: $settings.formSuggestionsEnabled)
                     NavigationLink("Manage saved values") { SavedFormValuesView() }
+                } header: {
+                    Text("Form suggestions")
                 } footer: {
                     Text("Saved on this device only. Values are saved only when you tap Save; incognito never saves new values.")
                 }
