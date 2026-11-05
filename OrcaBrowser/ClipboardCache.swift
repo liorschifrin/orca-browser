@@ -98,6 +98,15 @@ final class ClipboardCache {
         }
     }
 
+    /// Copies text the same way: ours, and in the history unless Incognito is showing.
+    func copy(text: String) {
+        UIPasteboard.general.string = text
+        noteOwnWrite(text: text)
+        if AppSettings.shared.savesClipboardHistory {
+            ClipboardHistory.shared.record(text: text, addsNew: !isPrivate)
+        }
+    }
+
     /// The clipboard changed while the app was running.
     func pasteboardChanged() {
         if isPrivate { privateChangeCount = UIPasteboard.general.changeCount }
