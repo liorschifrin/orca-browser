@@ -62,6 +62,7 @@ private struct AutofillCategoryEditor: View {
     @State private var editingRule: AutofillRule?
     @State private var categoryName = ""
     @State private var showingRename = false
+    @State private var categoryDomains = ""
     @Environment(\.dismiss) private var dismiss
 
     private var category: AutofillCategory? { rules.category(categoryID) }
@@ -70,6 +71,43 @@ private struct AutofillCategoryEditor: View {
     var body: some View {
         List {
             if let category {
+                Section("Availability") {
+                    Toggle("Enabled", isOn: Binding(
+                        get: { self.category?.enabled ?? true },
+                        set: { new in
+                            guard var updated = self.category else { return }
+                            updated.enabled = new
+                            rules.updateCategory(updated)
+                        }
+                    ))
+                    Toggle("Suggest automatically", isOn: Binding(
+                        get: { self.category?.automatic ?? true },
+                        set: { new in
+                            guard var updated = self.category else { return }
+                            updated.automatic = new
+                            rules.updateCategory(updated)
+                        }
+                    ))
+                    Picker("Websites", selection: Binding(
+                        get: { self.category?.siteMode ?? .everywhere },
+                        set: { new in
+                            guard var updated = self.category else { return }
+                            updated.siteMode = new
+                            rules.updateCategory(updated)
+                        }
+                    )) {
+                        Text("All websites").tag(AutofillRule.SiteMode.everywhere)
+                        Text("Only listed websites").tag(AutofillRule.SiteMode.only)
+                        Text("Except listed websites").tag(AutofillRule.SiteMode.except)
+                    }
+                    if category.siteMode != .everywhere {
+                        TextField("Domains, comma-separated", text: $categoryDomains)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .onSubmit(saveCategoryDomains)
+                        Button("Save website list", action: saveCategoryDomains)
+                    }
+                }
                 Section {
                     if category.dynamic == .none {
                         ForEach(store.items.filter { $0.kind == categoryID }) { item in
@@ -134,6 +172,7 @@ private struct AutofillCategoryEditor: View {
             }
         }
         .navigationTitle(category?.title ?? "Autofill")
+        .onAppear { categoryDomains = category?.domains.joined(separator: ", ") ?? "" }
         .sheet(item: $editingRule) { rule in
             NavigationStack {
                 AutofillRuleEditor(rule: rule) { updated in
@@ -164,6 +203,14 @@ private struct AutofillCategoryEditor: View {
             Button("Save") { rules.renameCategory(categoryID, to: categoryName) }
             Button("Cancel", role: .cancel) {}
         }
+    }
+
+    private func saveCategoryDomains() {
+        guard var updated = category else { return }
+        updated.domains = categoryDomains.split(separator: ",").map {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        rules.updateCategory(updated)
     }
 }
 
