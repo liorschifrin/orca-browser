@@ -75,7 +75,7 @@ final class FormSuggestions {
         fieldToken = info["token"] as? String ?? ""
         matchedRule = rule
         activeKind = kind
-        candidate = kind == nil ? "" : String((info["value"] as? String ?? "").prefix(257))
+        candidate = context.isSensitive ? "" : String((info["value"] as? String ?? "").prefix(257))
         generation += 1
     }
 
@@ -129,6 +129,26 @@ final class FormSuggestions {
         let encoded = (try? JSONSerialization.data(withJSONObject: [value]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         webView.evaluateJavaScript("window.__orcaFillFocusedFormField && window.__orcaFillFocusedFormField(\(encoded)[0])")
+    }
+
+    func rememberField(as category: String) {
+        guard !isSensitive, let context = fieldContext,
+              AutofillRules.shared.category(category) != nil else { return }
+        let sources: [AutofillRule.MatchSource] = [.id, .name, .ariaLabel, .label, .placeholder]
+        guard let source = sources.first(where: { !(context.attributes[$0.rawValue] ?? "").isEmpty }),
+              let pattern = context.attributes[source.rawValue], !pattern.isEmpty,
+              let host = context.url?.host else { return }
+        var rule = AutofillRule(category: category)
+        rule.source = source
+        rule.operation = .exact
+        rule.pattern = pattern
+        rule.siteMode = .only
+        rule.domains = [host]
+        rule.pageURLContains = context.url?.path.contains("/forms/") == true
+            ? (context.url?.path ?? "") : ""
+        rule.priority = 250
+        AutofillRules.shared.saveRule(rule)
+        selectCategory(category)
     }
 
     func selectCategory(_ category: String) {
