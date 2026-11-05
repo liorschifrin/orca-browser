@@ -101,7 +101,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         switch message.name {
         case FormSuggestions.messageName:
-            guard let tab, AppSettings.shared.formSuggestionsEnabled else { return }
+            guard message.frameInfo.isMainFrame, let tab,
+                  AppSettings.shared.formSuggestionsEnabled else { return }
             FormSuggestions.shared.receive(message.body, from: webView, privateTab: tab.isIncognito)
         case BackgroundPlayback.pictureInPictureMessageName:
             guard let body = message.body as? [String: Any], let active = body["active"] as? Bool else { return }
