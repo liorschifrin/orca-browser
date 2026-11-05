@@ -105,7 +105,9 @@ final class AutofillRules {
                 AutofillRule(category: "birthday", source: .autocomplete, pattern: "bday", priority: 200),
                 AutofillRule(category: "birthday", source: .label, pattern: "date of birth", priority: 150),
                 AutofillRule(category: "birthday", source: .name, pattern: "birth", priority: 120),
-                AutofillRule(category: "birthday", source: .id, pattern: "dob", priority: 120)
+                AutofillRule(category: "birthday", source: .id, pattern: "dob", priority: 120),
+                AutofillRule(category: "today", source: .label, pattern: "today", priority: 130),
+                AutofillRule(category: "currentYear", source: .label, pattern: "current year", priority: 130)
             ]
         }
     }
