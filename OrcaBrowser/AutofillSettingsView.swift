@@ -10,6 +10,9 @@ struct AutofillSettingsView: View {
 
     var body: some View {
         List {
+            if let error = values.storageError {
+                Section { Text(error).foregroundStyle(.red) }
+            }
             Section {
                 ForEach(rules.categories) { category in
                     NavigationLink {
