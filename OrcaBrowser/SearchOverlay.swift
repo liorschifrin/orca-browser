@@ -68,6 +68,32 @@ struct SearchOverlay: View {
                 if clipboardCache.access == .needsPermission {
                     pastePermissionChip
                 }
+                if let answer = SmartSearchAnswer.evaluate(text) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "equal")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(answer.result)
+                                .font(.headline)
+                                .textSelection(.enabled)
+                            Text(answer.kind)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Button {
+                            UIPasteboard.general.string = answer.result
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .frame(minWidth: 44, minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Copy result")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: .rect(cornerRadius: 16))
+                }
                 field
             }
                 .animation(.snappy(duration: 0.2), value: isShowingClipboard)
@@ -260,5 +286,212 @@ struct SearchOverlay: View {
     private func dismiss() {
         isFocused = false
         onDismiss()
+    }
+}
+
+
+// MARK: - Offline smart search answers
+
+enum SmartSearchAnswer {
+    struct Answer {
+        let result: String
+        let kind: String
+    }
+
+    static func evaluate(_ raw: String, now: Date = Date(), localZone: TimeZone = .current) -> Answer? {
+        let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return nil }
+        return time(query, now: now, localZone: localZone)
+            ?? conversion(query)
+            ?? calculation(query)
+    }
+
+    private static func formatted(_ number: Double) -> String {
+        guard number.isFinite else { return "" }
+        return number.formatted(.number.precision(.fractionLength(0...6)))
+    }
+
+    private static func time(_ query: String, now: Date, localZone: TimeZone) -> Answer? {
+        let pattern = #"^([0-9]{1,2}):([0-9]{2})\\s*(am|pm)?\\s*(pt|pst|pdt|et|est|edt|ct|cst|cdt|mt|mst|mdt|utc|gmt)$"#
+        guard let match = query.lowercased().range(of: pattern, options: .regularExpression) else { return nil }
+        let parts = query.lowercased()[match].split(whereSeparator: { $0.isWhitespace })
+        let compact = parts.joined(separator: " ")
+        let pattern2 = #"^([0-9]{1,2}):([0-9]{2})\\s*(am|pm)?\\s*(pt|pst|pdt|et|est|edt|ct|cst|cdt|mt|mst|mdt|utc|gmt)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern2),
+              let m = regex.firstMatch(in: compact, range: NSRange(compact.startIndex..., in: compact)) else { return nil }
+        func group(_ i: Int) -> String? {
+            let r = m.range(at: i)
+            guard r.location != NSNotFound, let range = Range(r, in: compact) else { return nil }
+            return String(compact[range])
+        }
+        guard let hour = Int(group(1) ?? ""), let minute = Int(group(2) ?? ""),
+              hour <= 23, minute <= 59, let abbreviation = group(4) else { return nil }
+        let meridiem = group(3)
+        guard meridiem == nil || (1...12).contains(hour) else { return nil }
+        let zoneID: String
+        switch abbreviation {
+        case "pt", "pst", "pdt": zoneID = "America/Los_Angeles"
+        case "et", "est", "edt": zoneID = "America/New_York"
+        case "ct", "cst", "cdt": zoneID = "America/Chicago"
+        case "mt", "mst", "mdt": zoneID = "America/Denver"
+        default: zoneID = "Etc/UTC"
+        }
+        guard let source = TimeZone(identifier: zoneID) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = source
+        let sourceHour: Int
+        if let meridiem {
+            sourceHour = (hour % 12) + (meridiem == "pm" ? 12 : 0)
+        } else if hour > 12 || hour == 0 {
+            sourceHour = hour
+        } else {
+            // A bare 8:30 could mean AM or PM. Do not guess.
+            return Answer(result: "Specify AM or PM", kind: "Time zone conversion")
+        }
+        let today = calendar.dateComponents([.year, .month, .day], from: now)
+        var components = today
+        components.hour = sourceHour
+        components.minute = minute
+        guard let date = calendar.date(from: components) else { return nil }
+        let formatter = DateFormatter()
+        formatter.timeZone = localZone
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return Answer(result: formatter.string(from: date), kind: "Local time (\\(localZone.abbreviation(for: date) ?? localZone.identifier))")
+    }
+
+    private struct Unit {
+        let dimension: String
+        let factor: Double
+        let offset: Double
+        let label: String
+    }
+
+    private static let units: [String: Unit] = {
+        var result: [String: Unit] = [:]
+        func add(_ aliases: [String], _ dimension: String, _ factor: Double, _ label: String, offset: Double = 0) {
+            for alias in aliases { result[alias] = Unit(dimension: dimension, factor: factor, offset: offset, label: label) }
+        }
+        add(["m", "meter", "meters"], "length", 1, "m")
+        add(["km", "kilometer", "kilometers"], "length", 1000, "km")
+        add(["mi", "mile", "miles"], "length", 1609.344, "mi")
+        add(["ft", "foot", "feet"], "length", 0.3048, "ft")
+        add(["in", "inch", "inches"], "length", 0.0254, "in")
+        add(["cm"], "length", 0.01, "cm")
+        add(["mm"], "length", 0.001, "mm")
+        add(["kg", "kilogram", "kilograms"], "mass", 1, "kg")
+        add(["g", "gram", "grams"], "mass", 0.001, "g")
+        add(["lb", "lbs", "pound", "pounds"], "mass", 0.45359237, "lb")
+        add(["oz", "ounce", "ounces"], "mass", 0.028349523125, "oz")
+        add(["l", "liter", "liters", "litre", "litres"], "volume", 1, "L")
+        add(["ml", "milliliter", "milliliters"], "volume", 0.001, "mL")
+        add(["gal", "gallon", "gallons"], "volume", 3.785411784, "US gal")
+        add(["cup", "cups"], "volume", 0.2365882365, "US cups")
+        add(["sqm", "m2"], "area", 1, "m²")
+        add(["sqft", "ft2"], "area", 0.09290304, "ft²")
+        add(["c", "celsius"], "temperature", 1, "°C")
+        add(["f", "fahrenheit"], "temperature", 5.0 / 9, "°F", offset: -32)
+        add(["k", "kelvin"], "temperature", 1, "K", offset: -273.15)
+        return result
+    }()
+
+    private static func conversion(_ query: String) -> Answer? {
+        let pattern = #"^(-?\\d+(?:\\.\\d+)?)\\s*([a-z0-9]+)\\s+(?:to|in)\\s+([a-z0-9]+)$"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: query, range: NSRange(query.startIndex..., in: query)),
+              match.numberOfRanges == 4,
+              let amountRange = Range(match.range(at: 1), in: query),
+              let fromRange = Range(match.range(at: 2), in: query),
+              let toRange = Range(match.range(at: 3), in: query),
+              let amount = Double(query[amountRange]),
+              let from = units[String(query[fromRange]).lowercased()],
+              let to = units[String(query[toRange]).lowercased()],
+              from.dimension == to.dimension else { return nil }
+        let base = (amount + from.offset) * from.factor
+        let converted = base / to.factor - to.offset
+        return Answer(result: "\\(formatted(converted)) \\(to.label)", kind: "Unit conversion")
+    }
+
+    private static func calculation(_ query: String) -> Answer? {
+        // Restrict inputs to arithmetic, never execute user input as code.
+        let normalized = query.replacingOccurrences(of: "×", with: "*")
+            .replacingOccurrences(of: "÷", with: "/")
+            .replacingOccurrences(of: "−", with: "-")
+        guard normalized.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789")) != nil,
+              normalized.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789.+-*/()% ").inverted) == nil,
+              normalized.contains(where: { "+-*/%".contains($0) }) else { return nil }
+        var parser = ArithmeticParser(Array(normalized))
+        guard let value = parser.parse(), value.isFinite else { return nil }
+        return Answer(result: formatted(value), kind: "Calculation")
+    }
+
+    private struct ArithmeticParser {
+        let characters: [Character]
+        var index = 0
+
+        init(_ characters: [Character]) { self.characters = characters }
+
+        mutating func skipSpaces() {
+            while index < characters.count && characters[index].isWhitespace { index += 1 }
+        }
+
+        mutating func consume(_ char: Character) -> Bool {
+            skipSpaces()
+            guard index < characters.count && characters[index] == char else { return false }
+            index += 1
+            return true
+        }
+
+        mutating func parse() -> Double? {
+            guard let value = expression() else { return nil }
+            skipSpaces()
+            return index == characters.count ? value : nil
+        }
+
+        mutating func expression() -> Double? {
+            guard var value = term() else { return nil }
+            while true {
+                if consume("+") {
+                    guard let next = term() else { return nil }
+                    value += next
+                } else if consume("-") {
+                    guard let next = term() else { return nil }
+                    value -= next
+                } else { return value }
+            }
+        }
+
+        mutating func term() -> Double? {
+            guard var value = factor() else { return nil }
+            while true {
+                if consume("*") {
+                    guard let next = factor() else { return nil }
+                    value *= next
+                } else if consume("/") {
+                    guard let next = factor(), next != 0 else { return nil }
+                    value /= next
+                } else { return value }
+            }
+        }
+
+        mutating func factor() -> Double? {
+            if consume("-") { return factor().map { -$0 } }
+            if consume("+") { return factor() }
+            if consume("(") {
+                guard let value = expression(), consume(")") else { return nil }
+                return percentage(value)
+            }
+            skipSpaces()
+            let start = index
+            while index < characters.count && (characters[index].isNumber || characters[index] == ".") {
+                index += 1
+            }
+            guard start < index, let value = Double(String(characters[start..<index])) else { return nil }
+            return percentage(value)
+        }
+
+        mutating func percentage(_ value: Double) -> Double {
+            consume("%") ? value / 100 : value
+        }
     }
 }
