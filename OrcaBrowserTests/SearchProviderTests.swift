@@ -51,6 +51,10 @@ final class SearchProviderTests: XCTestCase {
         XCTAssertEqual(SearchProvider.suggestions(for: "YOU", in: providers + [exact]).map(\.id), [exact.id, "youtube"])
         XCTAssertEqual(SearchProvider.suggestions(for: "youtube.com", in: providers).first?.id, "youtube")
         XCTAssertTrue(SearchProvider.suggestions(for: "  ", in: providers).isEmpty)
+        // A space after a partial word means it wasn't a site.
+        XCTAssertEqual(SearchProvider.suggestions(for: "you", in: providers).first?.id, "youtube")
+        XCTAssertTrue(SearchProvider.suggestions(for: "you ", in: providers).isEmpty)
+        XCTAssertTrue(SearchProvider.suggestions(for: "you tube", in: providers).isEmpty)
         XCTAssertEqual(SearchProvider.bestSuggestion(for: "YOU", in: providers + [exact])?.id, exact.id)
         XCTAssertEqual(SearchProvider.bestSuggestion(for: "g", in: providers)?.id, "google")
         XCTAssertNil(SearchProvider.bestSuggestion(for: "unmatched", in: providers))

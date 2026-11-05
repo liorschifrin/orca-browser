@@ -112,7 +112,10 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         suggestions(for: input, in: providers).first
     }
 
+    /// Offered only while the first word is still being typed: once a space
+    /// follows it, it wasn't a site after all.
     static func suggestions(for input: String, in providers: [Self]) -> [Self] {
+        guard !input.drop(while: \.isWhitespace).contains(where: \.isWhitespace) else { return [] }
         let token = normalize(String(input.trimmingCharacters(in: .whitespacesAndNewlines).prefix(while: { !$0.isWhitespace })))
         guard !token.isEmpty else { return [] }
         func rank(_ provider: Self) -> Int? {

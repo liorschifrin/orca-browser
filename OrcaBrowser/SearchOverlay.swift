@@ -63,20 +63,22 @@ struct SearchOverlay: View {
             }
 
             VStack(spacing: 10) {
-                suggestionRow
                 if settings.savesClipboardHistory {
                     if isShowingClipboard {
                         ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
                             .transition(.opacity.combined(with: .offset(y: 12)))
                     }
                 }
-                ClipboardControls(
-                    isOpen: $isShowingClipboard,
-                    showsHistory: settings.savesClipboardHistory,
-                    text: clipboardText,
-                    accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
-                    action: useClipboard
-                )
+                HStack(spacing: 0) {
+                    if let provider = suggestedProvider { suggestionChip(provider) }
+                    ClipboardControls(
+                        isOpen: $isShowingClipboard,
+                        showsHistory: settings.savesClipboardHistory,
+                        text: clipboardText,
+                        accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
+                        action: useClipboard
+                    )
+                }
                 if clipboardCache.access == .needsPermission {
                     pastePermissionChip
                 }
@@ -200,21 +202,15 @@ struct SearchOverlay: View {
         clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Offers the provider the first word could mean; tapping it makes the chip.
-    @ViewBuilder
-    private var suggestionRow: some View {
-        if let provider = suggestedProvider {
-            HStack {
-                Button { selectProvider(provider) } label: {
-                    SearchProviderChip(provider: provider)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Search \(provider.name)")
-                .accessibilityHint("Selects this provider and keeps the query after the first word")
-                .accessibilityIdentifier("search-provider-suggestion")
-                Spacer(minLength: 0)
-            }
+    /// Offers the site the first word could mean, at the left of the clipboard row.
+    private func suggestionChip(_ provider: SearchProvider) -> some View {
+        Button { selectProvider(provider) } label: {
+            SearchProviderChip(provider: provider)
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Search \(provider.name)")
+        .accessibilityHint("Turns the word you typed into this site's chip")
+        .accessibilityIdentifier("search-provider-suggestion")
     }
 
     private func selectProvider(_ provider: SearchProvider) {

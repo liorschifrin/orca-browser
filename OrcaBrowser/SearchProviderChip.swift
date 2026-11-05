@@ -15,7 +15,7 @@ struct SearchProviderChip: View {
                 .frame(width: 16, height: 16)
                 .background(.white, in: .circle)
                 .accessibilityHidden(true)
-            Text(provider.name)
+            Text(displayName)
                 .font(.system(size: 11, weight: .bold))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -31,9 +31,14 @@ struct SearchProviderChip: View {
         .padding(.trailing, 7)
         .frame(height: 22)
         .background(fill, in: .capsule)
-        .frame(maxWidth: 140)
+        // Exactly as wide as its name, wherever it is placed.
+        .fixedSize(horizontal: true, vertical: false)
         // The chip is small; the tap area around it is not.
         .padding(.vertical, 7)
         .contentShape(.rect)
+    }
+
+    private var displayName: String {
+        provider.name.count > 18 ? provider.name.prefix(17) + "…" : provider.name
     }
 }
