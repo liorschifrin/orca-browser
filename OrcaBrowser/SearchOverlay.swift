@@ -30,10 +30,13 @@ struct SearchOverlay: View {
     @State private var shouldMatchShortcut = false
     /// Where to put the cursor once the field has taken a programmatic edit.
     @State private var pendingCursorOffset: Int?
+    @State private var hasEditedText = false
+    @State private var isShowingClipboard = false
     @State private var selection: TextSelection?
-    private let settings = AppSettings.shared
     private let clipboardCache = ClipboardCache.shared
+    private let settings = AppSettings.shared
     @Environment(\.colorScheme) private var systemColorScheme
+    @Environment(\.scenePhase) private var scenePhase
 
     /// @FocusState tracks (and controls) whether the field has the keyboard.
     @FocusState private var isFocused: Bool
@@ -61,8 +64,25 @@ struct SearchOverlay: View {
 
             VStack(spacing: 10) {
                 suggestionRow
+                if settings.savesClipboardHistory {
+                    if isShowingClipboard {
+                        ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
+                            .transition(.opacity.combined(with: .offset(y: 12)))
+                    }
+                }
+                ClipboardControls(
+                    isOpen: $isShowingClipboard,
+                    showsHistory: settings.savesClipboardHistory,
+                    text: clipboardText,
+                    accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
+                    action: useClipboard
+                )
+                if clipboardCache.access == .needsPermission {
+                    pastePermissionChip
+                }
                 field
             }
+                .animation(.snappy(duration: 0.2), value: isShowingClipboard)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .offset(y: isPresented ? 0 : 24)
@@ -85,19 +105,25 @@ struct SearchOverlay: View {
             if isPresented {
                 resetInput()
                 isFocused = true
-                clipboardCache.refresh()
+                clipboardCache.refresh(userInitiated: true)
             }
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
                 resetInput()
                 isFocused = true
-                clipboardCache.refresh()
+                clipboardCache.refresh(userInitiated: true)
             } else {
                 isFocused = false
+                isShowingClipboard = false
             }
         }
-        .onChange(of: text) { _, _ in
+        // Back from Settings with search still open: pick up a changed choice.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, isPresented { clipboardCache.refresh(userInitiated: true) }
+        }
+        .onChange(of: text) { _, newText in
+            if newText != initialText { hasEditedText = true }
             if let offset = pendingCursorOffset {
                 pendingCursorOffset = nil
                 let shown = shownText
@@ -134,6 +160,7 @@ struct SearchOverlay: View {
         suppressActivation = false
         shouldMatchShortcut = false
         pendingCursorOffset = nil
+        hasEditedText = false
         activeProvider = settings.searchProviders.first { $0.id == initialProviderID && $0.isEnabled }
         typedShortcut = nil
         // Restoring a remembered ordinary query must not reinterpret it as a shortcut.
@@ -173,26 +200,18 @@ struct SearchOverlay: View {
         clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var showsClipboard: Bool { !clipboardText.isEmpty && clipboardText != text }
-
+    /// Offers the provider the first word could mean; tapping it makes the chip.
     @ViewBuilder
     private var suggestionRow: some View {
-        if suggestedProvider != nil || showsClipboard {
-            HStack(spacing: 8) {
-                if let provider = suggestedProvider {
-                    Button { selectProvider(provider) } label: {
-                        SearchProviderChip(provider: provider)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Search \(provider.name)")
-                    .accessibilityHint("Selects this provider and keeps the query after the first word")
-                    .accessibilityIdentifier("search-provider-suggestion")
-                    .layoutPriority(1)
+        if let provider = suggestedProvider {
+            HStack {
+                Button { selectProvider(provider) } label: {
+                    SearchProviderChip(provider: provider)
                 }
-                if showsClipboard {
-                    clipboardChip
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Search \(provider.name)")
+                .accessibilityHint("Selects this provider and keeps the query after the first word")
+                .accessibilityIdentifier("search-provider-suggestion")
                 Spacer(minLength: 0)
             }
         }
@@ -211,26 +230,39 @@ struct SearchOverlay: View {
         selection = TextSelection(insertionPoint: shownText.endIndex)
     }
 
-    /// Shows what was copied; tapping goes straight to it.
-    private var clipboardChip: some View {
-        Button {
+    private var shouldNavigateClipboard: Bool {
+        Self.shouldNavigateClipboard(text: text, hasEditedText: hasEditedText)
+    }
+
+    static func shouldNavigateClipboard(text: String, hasEditedText: Bool) -> Bool {
+        text.isEmpty || !hasEditedText
+    }
+
+    private func useClipboard() {
+        isShowingClipboard = false
+        if shouldNavigateClipboard {
             onSubmit(SearchSubmission(text: clipboardText))
-        } label: {
+        } else {
+            ClipboardHistory.typeIntoField(clipboardCache.text)
+        }
+    }
+
+    /// Shown whenever pasting has been refused or prompted, until a quick read
+    /// shows "Paste from Other Apps" is set to Allow.
+    private var pastePermissionChip: some View {
+        Button(action: clipboardCache.openSettings) {
             HStack(spacing: 8) {
-                Image(systemName: "doc.on.clipboard")
-                Text(clipboardText)
+                Image(systemName: "gearshape")
+                Text("Always allow paste in Settings")
                     .lineLimit(1)
-                    .truncationMode(.middle)
             }
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 12)
-            .frame(height: 32)
+            .font(.subheadline)
+            .padding(.horizontal, 14)
+            .frame(height: 38)
             .background(.regularMaterial, in: .capsule)
-            .frame(minHeight: 44)
-            .contentShape(.capsule)
         }
         .buttonStyle(PressableButtonStyle())
-        .accessibilityLabel("Go to copied text: \(clipboardText)")
+        .accessibilityHint("Opens Settings so the clipboard can be read without asking each time")
     }
 
     private var field: some View {
@@ -366,6 +398,13 @@ struct SearchOverlay: View {
         activateShortcutIfNeeded()
         isFocused = true
         selection = TextSelection(insertionPoint: shownText.endIndex)
+    }
+
+    /// Types the item where the cursor is, without submitting, and puts it
+    /// back on the clipboard at the top of the history.
+    private func insertFromHistory(_ item: ClipboardItem) {
+        isShowingClipboard = false
+        ClipboardHistory.shared.insert(item)
     }
 
     private func dismiss() {

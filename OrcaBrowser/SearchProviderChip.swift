@@ -6,22 +6,22 @@ struct SearchProviderChip: View {
     let provider: SearchProvider
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             icon
-                .frame(width: 22, height: 22)
+                .frame(width: 18, height: 18)
                 .background(.white, in: .circle)
                 .accessibilityHidden(true)
             Text(provider.name)
                 .font(.caption.weight(.bold))
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .frame(maxWidth: 88)
         }
         .foregroundStyle(textColor)
-        .padding(.leading, 5)
-        .padding(.trailing, 11)
-        .frame(height: 32)
+        .padding(.leading, 4)
+        .padding(.trailing, 9)
+        .frame(height: 26)
         .background(brandColor, in: .capsule)
+        .frame(maxWidth: 150)
         .frame(minHeight: 44)
         .contentShape(.capsule)
     }
@@ -32,11 +32,11 @@ struct SearchProviderChip: View {
             Image(asset)
                 .resizable()
                 .scaledToFit()
-                .frame(width: 14, height: 14)
+                .frame(width: 11, height: 11)
                 .foregroundStyle(logoColor)
         } else {
             Image(systemName: "globe")
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(logoColor)
         }
     }

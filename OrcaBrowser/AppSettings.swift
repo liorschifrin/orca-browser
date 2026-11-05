@@ -34,6 +34,13 @@ final class AppSettings {
     private static let showDebugStatsKey = "showDebugStats"
     private static let autoArchiveTabsKey = "autoArchiveTabs"
     private static let autoArchiveDaysKey = "autoArchiveDays"
+    private static let savesClipboardHistoryKey = "savesClipboardHistory"
+
+    /// Remembers everything copied in the app and whatever is on the
+    /// clipboard when it opens. On by default.
+    var savesClipboardHistory: Bool {
+        didSet { defaults.set(savesClipboardHistory, forKey: Self.savesClipboardHistoryKey) }
+    }
 
     var autoArchiveTabs: Bool {
         didSet { defaults.set(autoArchiveTabs, forKey: Self.autoArchiveTabsKey) }
@@ -135,6 +142,7 @@ final class AppSettings {
             ?? SearchProviderPreferences()
         voiceQueryOptions = defaults.data(forKey: Self.voiceQueryOptionsKey)
             .flatMap { try? JSONDecoder().decode(VoiceQueryOptions.self, from: $0) } ?? .defaults
+        savesClipboardHistory = defaults.object(forKey: Self.savesClipboardHistoryKey) as? Bool ?? true
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)
         let hidesShorts = defaults.bool(forKey: Self.hideShortsKey)
