@@ -24,7 +24,7 @@ enum FormFieldKind: String, Codable, CaseIterable, Identifiable {
 
 struct SavedFormValue: Codable, Identifiable {
     var id: UUID
-    var kind: FormFieldKind
+    var kind: String
     var value: String
     var uses: Int
 }
@@ -35,7 +35,11 @@ final class FormSuggestions {
     private static let service = "OrcaBrowser.savedFormValues"
     private static let account = "values"
     private(set) var items: [SavedFormValue] = []
-    private(set) var activeKind: FormFieldKind?
+    private(set) var activeKind: String?
+    private(set) var fieldContext: AutofillFieldContext?
+    private(set) var isSensitive = true
+    private(set) var fieldToken = ""
+    private(set) var matchedRule: AutofillRule?
     private(set) var candidate = ""
     private weak var activeWebView: WKWebView?
     private var isPrivate = false
@@ -49,7 +53,8 @@ final class FormSuggestions {
             .sorted { $0.uses == $1.uses ? $0.value < $1.value : $0.uses > $1.uses }
     }
     var canSave: Bool {
-        guard let kind = activeKind, !isPrivate else { return false }
+        guard let kind = activeKind, !isPrivate, !isSensitive,
+              AutofillRules.shared.category(kind)?.dynamic == .none else { return false }
         let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
         return !value.isEmpty && value.count <= 256 &&
             !items.contains { $0.kind == kind && $0.value == value }
@@ -59,9 +64,16 @@ final class FormSuggestions {
         guard let info = body as? [String: Any] else { return }
         // Never accept messages from subframes, hidden tabs or an unrelated page.
         guard webView.window != nil, !webView.isHidden else { return }
-        let kind = (info["kind"] as? String).flatMap(FormFieldKind.init(rawValue:))
+        let context = AutofillFieldContext(info, url: webView.url)
+        let builtin = info["kind"] as? String
+        let rule = AutofillRules.shared.matchingRule(context: context)
+        let kind = context.isSensitive ? nil : (rule?.category ?? builtin)
         activeWebView = webView
         isPrivate = privateTab
+        fieldContext = context
+        isSensitive = context.isSensitive
+        fieldToken = info["token"] as? String ?? ""
+        matchedRule = rule
         activeKind = kind
         candidate = kind == nil ? "" : String((info["value"] as? String ?? "").prefix(257))
         generation += 1
@@ -71,12 +83,15 @@ final class FormSuggestions {
         guard activeWebView === webView else { return }
         activeKind = nil
         candidate = ""
+        fieldContext = nil
+        matchedRule = nil
+        fieldToken = ""
         activeWebView = nil
         generation += 1
     }
 
     func fill(_ item: SavedFormValue) {
-        guard item.kind == activeKind, let webView = activeWebView,
+        guard item.kind == activeKind, !isSensitive, let webView = activeWebView,
               webView.window != nil, !webView.isHidden else { return }
         let encoded = (try? JSONSerialization.data(withJSONObject: [item.value], options: [.fragmentsAllowed]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
@@ -94,11 +109,50 @@ final class FormSuggestions {
         }
     }
 
+    var activeTitle: String {
+        activeKind.flatMap { AutofillRules.shared.category($0)?.title } ?? "Field"
+    }
+
+    var dynamicSuggestion: String? {
+        guard let kind = activeKind, !isSensitive else { return nil }
+        return AutofillRules.shared.dynamicValue(for: kind, inputType: fieldContext?.attributes["inputType"] ?? "")
+    }
+
+    func fillDynamic() {
+        guard let value = dynamicSuggestion else { return }
+        fillText(value)
+    }
+
+    func fillText(_ value: String) {
+        guard !isSensitive, let webView = activeWebView,
+              webView.window != nil, !webView.isHidden else { return }
+        let encoded = (try? JSONSerialization.data(withJSONObject: [value]))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+        webView.evaluateJavaScript("window.__orcaFillFocusedFormField && window.__orcaFillFocusedFormField(\(encoded)[0])")
+    }
+
+    func selectCategory(_ category: String) {
+        guard !isSensitive, AutofillRules.shared.category(category) != nil else { return }
+        activeKind = category
+        matchedRule = nil
+    }
+
+    func deleteCategory(_ category: String) {
+        items.removeAll { $0.kind == category }
+        persist()
+    }
+
+    func addValue(category: String, value: String) {
+        let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard AutofillRules.shared.category(category) != nil, !clean.isEmpty, clean.count <= 256,
+              !items.contains(where: { $0.kind == category && $0.value == clean }) else { return }
+        items.append(SavedFormValue(id: UUID(), kind: category, value: clean, uses: 0))
+        persist()
+    }
+
     func saveCandidate() {
         guard canSave, let kind = activeKind else { return }
-        let value = candidate.trimmingCharacters(in: .whitespacesAndNewlines)
-        items.append(SavedFormValue(id: UUID(), kind: kind, value: value, uses: 0))
-        persist()
+        addValue(category: kind, value: candidate)
     }
 
     func delete(_ item: SavedFormValue) {
@@ -156,14 +210,33 @@ final class FormSuggestions {
         ['city', /address-level2|city|town/i],
         ['region', /address-level1|state|province|region|county/i],
         ['postalCode', /postal-code|zip|post.?code/i],
-        ['country', /country/i]
+        ['country', /country/i],
+        ['birthday', /bday|birth.?date|date.?of.?birth|dob/i]
       ];
       const forbidden = /password|passcode|credit.?card|card.?number|cardholder|cc-|cvc|cvv|security.?code|expir|iban|routing|account.?number|one.?time.?code|otp|verification/i;
+      function fieldAttributes(el) {
+        const label = el.labels ? Array.from(el.labels).map(l => l.textContent).join(' ') : '';
+        return {autocomplete: el.autocomplete || '', name: el.name || '', id: el.id || '',
+          label: label.slice(0,500), placeholder: (el.placeholder || '').slice(0,500),
+          ariaLabel: (el.getAttribute('aria-label') || '').slice(0,500),
+          inputType: el.type || '', cssSelector: el.id ? '#' + CSS.escape(el.id) :
+          (el.name ? '[name="' + CSS.escape(el.name) + '"]' : '')};
+      }
+      function isSensitive(el) {
+        if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return true;
+        const type = (el.getAttribute('type') || 'text').toLowerCase();
+        if (!['text','email','tel','search','date','month','number'].includes(type) &&
+            !(el instanceof HTMLTextAreaElement)) return true;
+        if (el.disabled || el.readOnly) return true;
+        const a = fieldAttributes(el);
+        return forbidden.test(Object.values(a).join(' ')) ||
+          (el.form && /payment|checkout-card|credit-card/i.test(el.form.getAttribute('name') || ''));
+      }
       function classify(el) {
         if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return null;
-        if (el.disabled || el.readOnly || el.type === 'hidden') return null;
+        if (isSensitive(el)) return null;
         const type = (el.getAttribute('type') || 'text').toLowerCase();
-        if (!['text','email','tel','search'].includes(type) && !(el instanceof HTMLTextAreaElement)) return null;
+        if (!['text','email','tel','search','date','month','number'].includes(type) && !(el instanceof HTMLTextAreaElement)) return null;
         const form = el.form;
         const metadata = [el.autocomplete, el.name, el.id, el.placeholder, el.getAttribute('aria-label'),
           el.labels ? Array.from(el.labels).map(l => l.textContent).join(' ') : ''].join(' ');
@@ -181,13 +254,20 @@ final class FormSuggestions {
         return match ? match[0] : null;
       }
       let last = null;
+      let tokenSequence = 0;
+      document.addEventListener('focusin', e => {
+        if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
+          e.target.setAttribute('data-orca-field-token', String(++tokenSequence));
+      }, true);
       function report(el) {
         const kind = el ? classify(el) : null;
-        const value = kind ? String(el.value || '').slice(0,257) : '';
+        const value = el && !isSensitive(el) ? String(el.value || '').slice(0,257) : '';
         const key = kind + ':' + value;
         if (last === key) return;
         last = key;
-        window.webkit.messageHandlers.orcaFormField.postMessage({kind, value});
+        const sensitive = el ? isSensitive(el) : false;
+        const attributes = el ? fieldAttributes(el) : {};
+        window.webkit.messageHandlers.orcaFormField.postMessage({kind, value, sensitive, attributes, token});
       }
       document.addEventListener('focusin', e => report(e.target), true);
       document.addEventListener('input', e => {
@@ -195,12 +275,12 @@ final class FormSuggestions {
       }, true);
       document.addEventListener('focusout', () => {
         setTimeout(() => {
-          if (!classify(document.activeElement)) report(null);
+          if (!(document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement)) report(null);
         }, 100);
       }, true);
       window.__orcaFillFocusedFormField = value => {
         const el = document.activeElement;
-        if (!classify(el) || typeof value !== 'string') return false;
+        if (isSensitive(el) || typeof value !== 'string') return false;
         const prototype = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
         setter.call(el, value);
@@ -220,7 +300,7 @@ struct SavedFormValuesView: View {
     var body: some View {
         List {
             ForEach(FormFieldKind.allCases) { kind in
-                let values = store.items.filter { $0.kind == kind }
+                let values = store.items.filter { $0.kind == kind.rawValue }
                 if !values.isEmpty {
                     Section(kind.title) {
                         ForEach(values) { item in
