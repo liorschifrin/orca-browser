@@ -64,6 +64,10 @@ final class FormSuggestions {
         guard let info = body as? [String: Any] else { return }
         // Never accept messages from subframes, hidden tabs or an unrelated page.
         guard webView.window != nil, !webView.isHidden else { return }
+        guard let token = info["token"] as? String, !token.isEmpty else {
+            clear(for: webView)
+            return
+        }
         let context = AutofillFieldContext(info, url: webView.url)
         let builtin = info["kind"] as? String
         let rule = AutofillRules.shared.matchingRule(context: context)
@@ -72,7 +76,7 @@ final class FormSuggestions {
         isPrivate = privateTab
         fieldContext = context
         isSensitive = context.isSensitive
-        fieldToken = info["token"] as? String ?? ""
+        fieldToken = token
         matchedRule = rule
         activeKind = kind
         candidate = context.isSensitive ? "" : String((info["value"] as? String ?? "").prefix(257))
@@ -95,7 +99,7 @@ final class FormSuggestions {
               webView.window != nil, !webView.isHidden else { return }
         let encoded = (try? JSONSerialization.data(withJSONObject: [item.value], options: [.fragmentsAllowed]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        let script = "window.__orcaFillFocusedFormField && window.__orcaFillFocusedFormField(\(encoded)[0])"
+        let script = "window.__orcaFillFocusedFormField && window.__orcaFillFocusedFormField(\(encoded)[0], \(fieldToken))"
         let currentGeneration = generation
         webView.evaluateJavaScript(script) { [weak self] result, error in
             Task { @MainActor in
@@ -128,7 +132,7 @@ final class FormSuggestions {
               webView.window != nil, !webView.isHidden else { return }
         let encoded = (try? JSONSerialization.data(withJSONObject: [value]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        webView.evaluateJavaScript("window.__orcaFillFocusedFormField && window.__orcaFillFocusedFormField(\(encoded)[0])")
+        webView.evaluateJavaScript("window.__orcaFillFocusedFormField && window.__orcaFillFocusedFormField(\(encoded)[0], \(fieldToken))")
     }
 
     func rememberField(as category: String) {
@@ -293,13 +297,10 @@ final class FormSuggestions {
       document.addEventListener('input', e => {
         if (e.target === document.activeElement) report(e.target);
       }, true);
-      document.addEventListener('focusout', () => {
-        setTimeout(() => {
-          if (!(document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement)) report(null);
-        }, 100);
-      }, true);
-      window.__orcaFillFocusedFormField = value => {
-        const el = document.activeElement;
+      // Keep the last field target while the manual picker sheet is open.
+      // Native clears the target on navigation or tab teardown.
+      window.__orcaFillFocusedFormField = (value, token) => {
+        const el = document.querySelector('[data-orca-field-token="' + token + '"]');
         if (isSensitive(el) || typeof value !== 'string') return false;
         const prototype = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(prototype, 'value').set;
