@@ -35,6 +35,7 @@ final class FormSuggestions {
     private static let service = "OrcaBrowser.savedFormValues"
     private static let account = "values"
     private(set) var items: [SavedFormValue] = []
+    private(set) var storageError: String?
     private(set) var activeKind: String?
     private(set) var fieldContext: AutofillFieldContext?
     private(set) var isSensitive = true
@@ -209,22 +210,32 @@ final class FormSuggestions {
                                     kSecReturnData as String: true,
                                     kSecMatchLimit as String: kSecMatchLimitOne]
         var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data,
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { items = []; return }
+        guard status == errSecSuccess, let data = result as? Data,
               let values = try? JSONDecoder().decode([SavedFormValue].self, from: data) else { return }
         items = values
     }
 
     private func persist() {
-        guard let data = try? JSONEncoder().encode(items) else { return }
+        guard let data = try? JSONEncoder().encode(items) else {
+            storageError = "Could not encode saved values."
+            return
+        }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                     kSecAttrService as String: Self.service,
                                     kSecAttrAccount as String: Self.account]
         let attributes: [String: Any] = [kSecValueData as String: data,
                                          kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
         let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
+        let finalStatus = status == errSecItemNotFound
+            ? SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
+            : status
+        if finalStatus != errSecSuccess {
+            storageError = "Could not save changes to Keychain (\(finalStatus))."
+            reload()
+        } else {
+            storageError = nil
         }
     }
 
