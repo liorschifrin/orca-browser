@@ -49,6 +49,10 @@ struct AutofillCategory: Codable, Identifiable {
     var id: String
     var title: String
     var dynamic: DynamicValue = .none
+    var enabled = true
+    var automatic = true
+    var siteMode: AutofillRule.SiteMode = .everywhere
+    var domains: [String] = []
     enum DynamicValue: String, Codable, CaseIterable, Identifiable {
         case none, today, currentYear
         var id: String { rawValue }
@@ -127,6 +131,12 @@ final class AutofillRules {
         guard !clean.isEmpty, clean.count <= 80,
               let index = categories.firstIndex(where: { $0.id == id }) else { return }
         categories[index].title = clean
+        persist()
+    }
+
+    func updateCategory(_ category: AutofillCategory) {
+        guard let index = categories.firstIndex(where: { $0.id == category.id }) else { return }
+        categories[index] = category
         persist()
     }
 
