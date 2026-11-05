@@ -224,10 +224,12 @@ struct ClipboardFloating: View {
     let onShowAll: () -> Void
 
     private let clipboardCache = ClipboardCache.shared
+    private let forms = FormSuggestions.shared
+    private let settings = AppSettings.shared
     @State private var keyboardHeight: CGFloat = 0
     @State private var isOpen = false
 
-    private var isShown: Bool { isEnabled && keyboardHeight > 0 }
+    private var isShown: Bool { keyboardHeight > 0 && (isEnabled || (settings.formSuggestionsEnabled && forms.activeKind != nil)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -243,6 +245,33 @@ struct ClipboardFloating: View {
                     .clipboardHitRegion()
                     .transition(.opacity.combined(with: .offset(y: 12)))
                 }
+                if settings.formSuggestionsEnabled, let kind = forms.activeKind {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(forms.suggestions) { item in
+                                Button(item.value) { forms.fill(item) }
+                                    .font(.subheadline)
+                                    .padding(.horizontal, 12)
+                                    .frame(height: 38)
+                                    .background(.regularMaterial, in: .capsule)
+                                    .clipboardHitRegion()
+                            }
+                            if forms.canSave {
+                                Button {
+                                    forms.saveCandidate()
+                                } label: {
+                                    Label("Save \(kind.title)", systemImage: "plus.circle")
+                                }
+                                .font(.subheadline)
+                                .padding(.horizontal, 12)
+                                .frame(height: 38)
+                                .background(.regularMaterial, in: .capsule)
+                                .clipboardHitRegion()
+                            }
+                        }
+                    }
+                }
+                if isEnabled {
                 ClipboardControls(
                     isOpen: $isOpen,
                     showsHistory: true,
@@ -251,6 +280,7 @@ struct ClipboardFloating: View {
                 ) {
                     isOpen = false
                     onPasteClipboard(clipboardCache.text)
+                }
                 }
             }
         }
