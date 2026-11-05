@@ -251,6 +251,12 @@ struct AutofillManualPicker: View {
             List {
                 ForEach(rules.categories) { category in
                     Section(category.title) {
+                        if store.fieldContext != nil && !store.isSensitive {
+                            Button("Remember this field as \(category.title) on this site") {
+                                store.rememberField(as: category.id)
+                                onDone()
+                            }
+                        }
                         if let generated = rules.dynamicValue(for: category.id,
                             inputType: store.fieldContext?.attributes["inputType"] ?? "") {
                             Button(generated) {
