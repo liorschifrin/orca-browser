@@ -88,12 +88,18 @@ final class FormSuggestions {
 
     func clear(for webView: WKWebView) {
         guard activeWebView === webView else { return }
+        reset()
+    }
+
+    func reset() {
         activeKind = nil
         candidate = ""
         fieldContext = nil
         matchedRule = nil
         fieldToken = ""
         activeWebView = nil
+        isPrivate = false
+        isSensitive = true
         generation += 1
     }
 
@@ -231,11 +237,11 @@ final class FormSuggestions {
         ['firstName', /given-name|first.?name|fname/i],
         ['lastName', /family-name|last.?name|surname|lname/i],
         ['email', /email|e-mail/i],
-        ['phone', /tel|phone|mobile/i],
-        ['addressLine2', /address-line2|address.?2|apt|apartment|suite|unit/i],
+        ['phone', /\\b(?:tel|telephone|phone|mobile)\\b/i],
+        ['addressLine2', /\\b(?:address[-_ ]?line[-_ ]?2|address[-_ ]?2|apt|apartment|suite|unit)\\b/i],
         ['street', /address-line1|street-address|street|address.?1|shipping.?address|billing.?address/i],
-        ['city', /address-level2|city|town/i],
-        ['region', /address-level1|state|province|region|county/i],
+        ['city', /\\b(?:address[-_ ]?level[-_ ]?2|city|town)\\b/i],
+        ['region', /\\b(?:address[-_ ]?level[-_ ]?1|state|province|region|county)\\b/i],
         ['postalCode', /postal-code|zip|post.?code/i],
         ['country', /country/i],
         ['birthday', /bday|birth.?date|date.?of.?birth|dob/i]
