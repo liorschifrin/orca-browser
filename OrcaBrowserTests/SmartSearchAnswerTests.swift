@@ -37,6 +37,7 @@ struct SmartSearchAnswerTests {
         ("50% of 80", "40"),
         ("5 * 10%", "0.5"),
         ("1,000 + 1", "1001"),
+        ("1e5+1", "100001"),
     ])
     func calculates(query: String, copied: String) throws {
         let result = try #require(answer(query))
@@ -47,7 +48,7 @@ struct SmartSearchAnswerTests {
     @Test(arguments: [
         "555-1234", "94103-1234", "11/5/2024", "2024-11-05", "555-12-3456",
         "+1", "-5", "5", "100%", "50%", "(5)", "10 % 3", "10%3",
-        "1/0", "2+", "(1+2", "1+2)", "0x10", "1e5+1", "2024", "3.14", "1.2.3",
+        "1/0", "2+", "(1+2", "1+2)", "0x10", "2024", "3.14", "1.2.3",
         "best pizza", "iphone 15 pro", "7-eleven", "24 hour fitness", "",
     ])
     func ordinarySearchesAreLeftAlone(query: String) {
