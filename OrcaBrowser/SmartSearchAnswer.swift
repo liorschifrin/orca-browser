@@ -573,7 +573,9 @@ enum SmartSearchAnswer {
     private static func zone(named raw: String) -> (zone: TimeZone, label: String)? {
         var name = normalizedPlace(raw)
         if name.hasPrefix("the ") { name.removeFirst(4) }
-        if let zone = zone(abbreviation: name) { return (zone, name.uppercased()) }
+        if let zone = zone(abbreviation: name) {
+            return (zone, name == "cst" ? "CST (UTC−06:00)" : name.uppercased())
+        }
         guard let identifier = citiesToZones[name], let zone = TimeZone(identifier: identifier) else { return nil }
         var label = title(name)
         if multiZoneCountries.contains(name), let city = identifier.split(separator: "/").last {
@@ -652,25 +654,55 @@ enum SmartSearchAnswer {
         let sourceZone = source?.zone ?? localZone
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = sourceZone
-        var components = calendar.dateComponents([.year, .month, .day], from: now)
-        components.hour = hour
-        components.minute = minute
-        guard let date = calendar.date(from: components),
-              // A time skipped by a clock change comes back shifted: no such time.
-              calendar.component(.hour, from: date) == hour,
-              calendar.component(.minute, from: date) == minute else { return nil }
+        guard let day = calendar.dateInterval(of: .day, for: now) else { return nil }
+        let start = day.start.addingTimeInterval(-1)
+        let components = DateComponents(hour: hour, minute: minute, second: 0)
+        guard let date = calendar.nextDate(after: start, matching: components, matchingPolicy: .strict, repeatedTimePolicy: .first),
+              calendar.isDate(date, inSameDayAs: now) else { return nil }
 
-        let result = describe(date, in: destination.zone, relativeTo: now, referenceZone: destination.zone)
+        let firstOffset = sourceZone.secondsFromGMT(for: date)
+        let offsets = Set([firstOffset, sourceZone.secondsFromGMT(for: day.start), sourceZone.secondsFromGMT(for: day.end.addingTimeInterval(-1))])
+        let dates = offsets.compactMap { offset -> Date? in
+            let occurrence = date.addingTimeInterval(TimeInterval(firstOffset - offset))
+            guard calendar.isDate(occurrence, inSameDayAs: now),
+                  calendar.component(.hour, from: occurrence) == hour,
+                  calendar.component(.minute, from: occurrence) == minute,
+                  calendar.component(.second, from: occurrence) == 0 else { return nil }
+            return occurrence
+        }.sorted()
+        let result = dates.map { occurrence in
+            let clock = describe(occurrence, in: destination.zone, relativeTo: now, referenceZone: destination.zone)
+            return dates.count == 1 ? clock : "\(clock) (\(utcOffset(in: destination.zone, at: occurrence)))"
+        }.joined(separator: " or ")
         let shownHour = meridiem == nil ? hour : (hour % 12 == 0 ? 12 : hour % 12)
         let shownClock = String(format: "%d:%02d", shownHour, minute) + (meridiem.map { $0 == "p" ? " PM" : " AM" } ?? "")
         let zoneName = destination.zone.abbreviation(for: date) ?? destination.zone.identifier
-        let shownDestination = destination.label == "your time" ? "your time (\(zoneName))" : destination.label
+        let shownDestination = destination.label == "your time" && dates.count == 1 ? "your time (\(zoneName))" : destination.label
+        var detail = "\(shownClock) \(source?.label ?? "your time") in \(shownDestination)"
+        if dates.count > 1 { detail += " · occurs twice during clock change" }
+        let dayFormatter = ISO8601DateFormatter()
+        dayFormatter.formatOptions = [.withFullDate]
+        dayFormatter.timeZone = sourceZone
+        let sourceDay = dayFormatter.string(from: date)
+        dayFormatter.timeZone = destination.zone
+        let destinationDays = dates.map { dayFormatter.string(from: $0) }.reduce(into: [String]()) { days, day in
+            if !days.contains(day) { days.append(day) }
+        }
+        if destinationDays.contains(where: { $0 != sourceDay }) {
+            detail += " · \(sourceDay) → \(destinationDays.joined(separator: " / "))"
+        }
         return Answer(
             result: result,
-            detail: "\(shownClock) \(source?.label ?? "your time") in \(shownDestination)",
+            detail: detail,
             copyText: result,
             fieldText: result
         )
+    }
+
+    private static func utcOffset(in zone: TimeZone, at date: Date) -> String {
+        let seconds = zone.secondsFromGMT(for: date)
+        let minutes = abs(seconds) / 60
+        return String(format: "UTC%@%02d:%02d", seconds < 0 ? "−" : "+", minutes / 60, minutes % 60)
     }
 
     /// "9:00 PM", with the day when it isn't the reference day there.

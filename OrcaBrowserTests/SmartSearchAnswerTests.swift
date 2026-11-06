@@ -245,4 +245,49 @@ struct SmartSearchAnswerTests {
         #expect(SmartSearchAnswer.evaluate("2:30 am pt", now: springForward, localZone: newYork) == nil)
         #expect(SmartSearchAnswer.evaluate("3:30 am pt", now: springForward, localZone: newYork) != nil)
     }
+
+    @Test func repeatedTimesShowBothOccurrences() throws {
+        let fallBack = try #require(ISO8601DateFormatter().date(from: "2026-11-01T12:00:00Z"))
+        let result = try #require(SmartSearchAnswer.evaluate("1:30am pt to utc", now: fallBack, localZone: newYork))
+        #expect(plain(result.copyText) == "8:30 AM (UTC+00:00) or 9:30 AM (UTC+00:00)")
+        #expect(result.detail.contains("occurs twice during clock change"))
+        #expect(result.fieldText == result.copyText)
+        #expect(plain(try #require(SmartSearchAnswer.evaluate("1:30am pdt to utc", now: fallBack, localZone: newYork)).copyText) == "8:30 AM")
+        #expect(plain(try #require(SmartSearchAnswer.evaluate("1:30am pst to utc", now: fallBack, localZone: newYork)).copyText) == "9:30 AM")
+    }
+
+    @Test func repeatedDestinationClocksHaveDistinctOffsets() throws {
+        let fallBack = try #require(ISO8601DateFormatter().date(from: "2026-11-01T12:00:00Z"))
+        let pacific = try #require(TimeZone(identifier: "America/Los_Angeles"))
+        let result = try #require(SmartSearchAnswer.evaluate("1:30am pt", now: fallBack, localZone: pacific))
+        #expect(plain(result.copyText) == "1:30 AM (UTC−07:00) or 1:30 AM (UTC−08:00)")
+        #expect(result.detail.hasPrefix("1:30 AM PT in your time ·"))
+    }
+
+    @Test func halfHourClockChangesShowBothOccurrences() throws {
+        let fallBack = try #require(ISO8601DateFormatter().date(from: "2026-04-05T12:00:00Z"))
+        let result = try #require(SmartSearchAnswer.evaluate("1:45am lord howe to utc", now: fallBack, localZone: newYork))
+        #expect(plain(result.copyText) == "2:45 PM yesterday (UTC+00:00) or 3:15 PM yesterday (UTC+00:00)")
+        #expect(result.detail.contains("2026-04-05 → 2026-04-04"))
+    }
+
+    @Test func cstNamesTheChosenOffset() throws {
+        let source = try #require(answer("9am cst to utc"))
+        #expect(plain(source.copyText) == "3:00 PM")
+        #expect(source.detail.contains("CST (UTC−06:00)"))
+        #expect(try #require(answer("9am utc to cst")).detail.contains("CST (UTC−06:00)"))
+        #expect(try #require(answer("time cst")).detail == "Time in CST (UTC−06:00)")
+        #expect(plain(try #require(answer("9am china to utc")).copyText) == "1:00 AM")
+    }
+
+    @Test func dateCrossingsStayVisibleWhenZonesAlreadyHaveDifferentDates() throws {
+        let midnightBoundary = try #require(ISO8601DateFormatter().date(from: "2026-11-06T06:00:00Z"))
+        let eastbound = try #require(SmartSearchAnswer.evaluate("11:30pm pt to et", now: midnightBoundary, localZone: newYork))
+        #expect(plain(eastbound.copyText) == "2:30 AM")
+        #expect(eastbound.detail.contains("2026-11-05 → 2026-11-06"))
+        let westbound = try #require(SmartSearchAnswer.evaluate("1am et to pt", now: midnightBoundary, localZone: newYork))
+        #expect(plain(westbound.copyText) == "10:00 PM")
+        #expect(westbound.detail.contains("2026-11-06 → 2026-11-05"))
+        #expect(try #require(answer("9am pt to et")).detail == "9:00 AM PT in ET")
+    }
 }
