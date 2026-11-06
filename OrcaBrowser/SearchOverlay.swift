@@ -203,12 +203,13 @@ struct SearchOverlay: View {
         selection = TextSelection(range: Self.index(0, in: shown)..<Self.index(shown.utf16.count, in: shown))
     }
 
-    /// The text field counts in UTF-16 units. The chip marker is one unit but
-    /// three bytes, so positions have to be built that way to land where meant.
+    /// Builds a cursor position in the text field's UTF-16 units; the ASCII
+    /// chip marker occupies one unit, and queries can contain multibyte text.
     private static func index(_ offset: Int, in string: String) -> String.Index {
         String.Index(utf16Offset: min(max(0, offset), string.utf16.count), in: string)
     }
 
+    /// Restores the remembered query and enabled provider without interpreting an ordinary query as a shortcut.
     private func resetInput() {
         suppressActivation = false
         shouldMatchShortcut = false
