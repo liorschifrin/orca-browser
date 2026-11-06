@@ -149,12 +149,42 @@ struct StackMetrics {
     }
 }
 
+struct CardPreviewLayout {
+    let cardSize: CGSize
+    let pageSize: CGSize
+    let contentTop: CGFloat
+    let expansion: CGFloat
+
+    private var progress: CGFloat { min(1, max(0, expansion)) }
+    private var widthScale: CGFloat { cardSize.width / max(1, pageSize.width) }
+
+    var scale: CGFloat {
+        let fillScale = max(widthScale, cardSize.height / max(1, pageSize.height))
+        return fillScale + (widthScale - fillScale) * progress
+    }
+
+    var height: CGFloat {
+        cardSize.height + (pageSize.height * widthScale - cardSize.height) * progress
+    }
+
+    var topInset: CGFloat { contentTop * progress }
+}
+
+private struct CardExpansionKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
 /// Lets a card's thumbnail know what corner radius the deck wants right now.
 private struct CardCornerRadiusKey: EnvironmentKey {
     static let defaultValue: CGFloat = StackMetrics.cornerRadius
 }
 
 extension EnvironmentValues {
+    var cardExpansion: CGFloat {
+        get { self[CardExpansionKey.self] }
+        set { self[CardExpansionKey.self] = newValue }
+    }
+
     var cardCornerRadius: CGFloat {
         get { self[CardCornerRadiusKey.self] }
         set { self[CardCornerRadiusKey.self] = newValue }
@@ -192,6 +222,7 @@ struct StackEffect: ViewModifier, Animatable {
         let pose = metrics.pose(relative: relative, entrance: entrance, expand: expand, startTilt: startTilt)
 
         content
+            .environment(\.cardExpansion, expand)
             // The card's picture reads this to round its own corners.
             .environment(\.cardCornerRadius, pose.cornerRadius)
             .overlay {
