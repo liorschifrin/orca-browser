@@ -30,6 +30,10 @@ struct SearchOverlay: View {
     @State private var shouldMatchShortcut = false
     /// The suggestion was held: the other sites that match are shown too.
     @State private var isShowingOtherSuggestions = false
+    @State private var suggestionHoldTask: Task<Void, Never>?
+    @State private var suggestionDidHold = false
+    @State private var suggestionDidMove = false
+    @State private var suggestionTouchStart = CGPoint.zero
     /// Everything is selected, the chip included: typing starts over without it.
     @State private var isChipSelected = false
     /// Where to put the cursor once the field has taken a programmatic edit.
@@ -263,20 +267,47 @@ struct SearchOverlay: View {
     /// row. Tap to use it; hold to see the other sites that match.
     private func suggestionChip(_ provider: SearchProvider) -> some View {
         SearchProviderChip(provider: provider)
-            .onTapGesture { selectProvider(provider) }
-            .onLongPressGesture(minimumDuration: 0.35) {
-                guard !otherSuggestions.isEmpty else { return }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                isShowingOtherSuggestions.toggle()
+            // Raw touches, like the back button: SwiftUI's long press waits too long.
+            .overlay {
+                TouchSurface(
+                    onBegan: { point in suggestionTouchBegan(at: point) },
+                    onMoved: { point in
+                        if hypot(point.x - suggestionTouchStart.x, point.y - suggestionTouchStart.y) > 14 {
+                            suggestionDidMove = true
+                            suggestionHoldTask?.cancel()
+                        }
+                    },
+                    onEnded: { _ in
+                        suggestionHoldTask?.cancel()
+                        if !suggestionDidHold, !suggestionDidMove { selectProvider(provider) }
+                    },
+                    onCancelled: { suggestionHoldTask?.cancel() }
+                )
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Search \(provider.name)")
             .accessibilityHint("Turns the word you typed into this site's chip")
             .accessibilityAddTraits(.isButton)
+            .accessibilityAction { selectProvider(provider) }
             .accessibilityAction(named: "Show other sites") {
                 if !otherSuggestions.isEmpty { isShowingOtherSuggestions.toggle() }
             }
             .accessibilityIdentifier("search-provider-suggestion")
+    }
+
+    /// Holding opens the other matches as quickly as holding the back button.
+    private func suggestionTouchBegan(at point: CGPoint) {
+        suggestionDidHold = false
+        suggestionDidMove = false
+        suggestionTouchStart = point
+        suggestionHoldTask?.cancel()
+        suggestionHoldTask = Task {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled, !otherSuggestions.isEmpty else { return }
+            suggestionDidHold = true
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            isShowingOtherSuggestions = true
+        }
     }
 
     private var otherSuggestionsRow: some View {
