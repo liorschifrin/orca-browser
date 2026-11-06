@@ -206,7 +206,13 @@ struct BrowserView: View {
             Text(voiceQuery.speech.errorMessage ?? "")
         }
         // Save when leaving the app: iOS may close it without further notice.
-        .onChange(of: isSearching) { InteractionBudget.shared.isSearching = isSearching }
+        .onChange(of: isShowingPrivately, initial: true) {
+            ClipboardCache.shared.isPrivate = isShowingPrivately
+        }
+        .onChange(of: isSearching, initial: true) {
+            InteractionBudget.shared.isSearching = isSearching
+            ClipboardOverlay.shared.isSuppressed = isSearching
+        }
         .onChange(of: isSwitching) { InteractionBudget.shared.isSwitching = isSwitching }
         .onChange(of: scenePhase) {
             // The switch can be decided while the app is still coming forward
@@ -230,6 +236,7 @@ struct BrowserView: View {
                 if scenePhase == .background { lockIncognito() }
                 store.save()
                 HistoryStore.flushIfNeeded()
+                ClipboardHistory.shared.save()
             }
         }
         .onChange(of: store.slide) { startSlideIfVisible() }
@@ -361,6 +368,7 @@ struct BrowserView: View {
             if store.selectedTab?.isBlank == true, !isSearching { openSearch() }
             if isSwitching { switcherReloadTrigger += 1 }
             ContentBlocker.shared.start()
+            ClipboardOverlay.shared.install()
             ClipboardCache.shared.refresh()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
@@ -372,11 +380,16 @@ struct BrowserView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in
-            ClipboardCache.shared.refresh()
+            ClipboardCache.shared.pasteboardChanged()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             store.unloadBackgroundTabs()
         }
+    }
+
+    /// An Incognito tab or an Incognito search is what's on screen.
+    private var isShowingPrivately: Bool {
+        isSearching ? searchIsIncognito : store.selectedTab?.isIncognito == true
     }
 
     private func archiveInactiveTabs() {
