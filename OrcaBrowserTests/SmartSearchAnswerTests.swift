@@ -48,7 +48,7 @@ struct SmartSearchAnswerTests {
         "555-1234", "94103-1234", "11/5/2024", "2024-11-05", "555-12-3456",
         "+1", "-5", "5", "100%", "50%", "(5)", "10 % 3", "10%3",
         "1/0", "2+", "(1+2", "1+2)", "0x10", "1e5+1", "2024", "3.14", "1.2.3",
-        "best pizza", "iphone 15 pro", "7-eleven", "24 hours", "",
+        "best pizza", "iphone 15 pro", "7-eleven", "24 hour fitness", "",
     ])
     func ordinarySearchesAreLeftAlone(query: String) {
         #expect(answer(query) == nil)
@@ -93,9 +93,37 @@ struct SmartSearchAnswerTests {
         #expect(digits == expected.filter { $0 != " " })
     }
 
-    @Test(arguments: ["1 kg to km", "1 foo to bar", "1 m to", "to km", "5 c to", "1" + String(repeating: "0", count: 400) + " m to km"])
+    @Test(arguments: ["1 kg to km", "1 foo to bar", "4k", "5g", "10 m", "5 in", "1st", "5 ha", "0 k", "to km", "5 c to z", "1" + String(repeating: "0", count: 400) + " m to km"])
     func nonsenseConversionsAreLeftAlone(query: String) {
         #expect(answer(query) == nil)
+    }
+
+    @Test(arguments: [
+        ("2mi", "3.218688 km"),
+        ("2 mi", "3.218688 km"),
+        ("10 km", "6.21371192 mi"),
+        ("100 c", "212 °F"),
+        ("100 f", "37.77777778 °C"),
+        ("150 lbs", "68.0388555 kg"),
+        ("12 oz", "340.1942775 g"),
+        ("60 mph", "96.56064 km/h"),
+        ("90 min", "1.5 h"),
+        ("1 gb", "1000 MB"),
+        ("2 mi to", "3.218688 km"),
+        ("1 m to", "3.2808399 ft"),
+        ("5 c to", "41 °F"),
+    ])
+    func aloneANumberAndUnitConvertToTheLikelyOne(query: String, expected: String) throws {
+        let result = try #require(answer(query))
+        // The grouping separator depends on the device's region.
+        #expect(plain(result.result).replacingOccurrences(of: ",", with: "") == expected)
+    }
+
+    @Test func aPartlyTypedTargetPicksTheLikelyUnit() throws {
+        #expect(try #require(answer("2 mi to k")).result == "3.218688 km")
+        #expect(try #require(answer("2 kg to l")).result.hasSuffix("lb"))
+        #expect(try #require(answer("5 ft to c")).result == "152.4 cm")
+        #expect(answer("5 ft to z") == nil)
     }
 
     // MARK: Time zones
@@ -125,12 +153,37 @@ struct SmartSearchAnswerTests {
         #expect(plain(try #require(answer("1am et to pt")).copyText) == "10:00 PM yesterday")
     }
 
-    @Test func citiesWorkOnlyInAnExplicitConversion() throws {
+    @Test func citiesAndCountriesConvert() throws {
         #expect(plain(try #require(answer("9am tokyo to new york")).copyText) == "7:00 PM yesterday")
-        #expect(answer("9:00 paris") == nil)
+        // 9 PM in Paris (CET, UTC+1) is 3 PM in New York.
+        #expect(plain(try #require(answer("9pm Paris")).copyText) == "3:00 PM")
+        #expect(plain(try #require(answer("9pm india")).copyText) == "10:30 AM")
+        #expect(plain(try #require(answer("9:00 paris")).copyText) == "3:00 AM")
+        #expect(plain(try #require(answer("9am in tokyo")).copyText) == "11:00 PM")
     }
 
-    @Test(arguments: ["25:00 pt", "13pm pt", "0am pt", "9:61 pt", "9 pt", "pt", "9am", "9am foo", "9am pt to foo"])
+    @Test func currentTimeInAPlace() throws {
+        // Noon UTC.
+        for query in ["time in sf", "sf time", "what time is it in SF", "current time in San Francisco"] {
+            let result = try #require(answer(query), "\(query)")
+            #expect(plain(result.copyText) == "4:00 AM", "\(query)")
+        }
+        #expect(plain(try #require(answer("what's the time in London?")).copyText) == "12:00 PM")
+        #expect(plain(try #require(answer("time in the uk")).copyText) == "12:00 PM")
+        #expect(plain(try #require(answer("tokyo time")).copyText) == "9:00 PM")
+        #expect(try #require(answer("time in japan")).detail == "Time in Japan")
+        #expect(try #require(answer("time in usa")).detail == "Time in USA (New York)")
+        #expect(answer("time in nowhereland") == nil)
+        #expect(answer("lunch time") == nil)
+    }
+
+    @Test func everyListedPlaceHasARealTimeZone() {
+        for (name, identifier) in SmartSearchAnswer.countries.merging(SmartSearchAnswer.extraCities, uniquingKeysWith: { $1 }) {
+            #expect(TimeZone(identifier: identifier) != nil, "\(name) → \(identifier)")
+        }
+    }
+
+    @Test(arguments: ["25:00 pt", "13pm pt", "0am pt", "9:61 pt", "9 paris", "pt", "9am", "9am foo", "9am pt to foo", "1 mile in paris"])
     func invalidTimesAreLeftAlone(query: String) {
         #expect(answer(query) == nil)
     }

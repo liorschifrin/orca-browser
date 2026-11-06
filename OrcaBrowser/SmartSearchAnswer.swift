@@ -13,11 +13,16 @@ enum SmartSearchAnswer {
         let copyText: String
     }
 
-    static func evaluate(_ raw: String, now: Date = Date(), localZone: TimeZone = .current) -> Answer? {
+    static func evaluate(
+        _ raw: String,
+        now: Date = Date(),
+        localZone: TimeZone = .current,
+        usesMetric: Bool = Locale.current.measurementSystem == .metric
+    ) -> Answer? {
         let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, query.count <= 200 else { return nil }
         return time(query.lowercased(), now: now, localZone: localZone)
-            ?? conversion(query.lowercased())
+            ?? conversion(query.lowercased(), usesMetric: usesMetric)
             ?? calculation(query)
     }
 
@@ -182,7 +187,6 @@ enum SmartSearchAnswer {
         }
     }
 
-    // MARK: Units
 
     private struct Unit {
         let dimension: String
@@ -191,12 +195,16 @@ enum SmartSearchAnswer {
         /// Added before scaling (temperature scales that don't start at zero).
         let offset: Double
         let label: String
+        /// Registration order, which ranks partly typed targets: "k" is km.
+        let order: Int
     }
 
     private static let units: [String: Unit] = {
         var result: [String: Unit] = [:]
         func add(_ aliases: [String], _ dimension: String, _ factor: Double, _ label: String, offset: Double = 0) {
-            for alias in aliases { result[alias] = Unit(dimension: dimension, factor: factor, offset: offset, label: label) }
+            for alias in aliases {
+                result[alias] = Unit(dimension: dimension, factor: factor, offset: offset, label: label, order: result.count)
+            }
         }
         add(["m", "meter", "meters", "metre", "metres"], "length", 1, "m")
         add(["km", "kilometer", "kilometers", "kilometre", "kilometres"], "length", 1000, "km")
@@ -233,9 +241,9 @@ enum SmartSearchAnswer {
         add(["acre", "acres"], "area", 4046.8564224, "acres")
         add(["ha", "hectare", "hectares"], "area", 10_000, "ha")
 
-        add(["mph"], "speed", 0.44704, "mph")
-        add(["kph", "kmh", "kmph"], "speed", 1000.0 / 3600, "km/h")
-        add(["mps", "ms"], "speed", 1, "m/s")
+        add(["mph", "mi/h"], "speed", 0.44704, "mph")
+        add(["kph", "kmh", "kmph", "km/h"], "speed", 1000.0 / 3600, "km/h")
+        add(["mps", "m/s"], "speed", 1, "m/s")
         add(["kn", "kt", "knot", "knots"], "speed", 1852.0 / 3600, "kn")
 
         add(["s", "sec", "secs", "second", "seconds"], "time", 1, "s")
@@ -260,17 +268,109 @@ enum SmartSearchAnswer {
         return result
     }()
 
+    private static let unitsByLabel: [String: Unit] = {
+        var result: [String: Unit] = [:]
+        for unit in units.values where result[unit.label] == nil { result[unit.label] = unit }
+        return result
+    }()
+
+    /// What a number and a unit alone convert to: "2 mi" is "2 mi to km".
+    private static func defaultTarget(for unit: Unit, usesMetric: Bool) -> Unit? {
+        let label: String? = switch unit.label {
+        case "mi": "km"
+        case "km": "mi"
+        case "m": "ft"
+        case "ft": "m"
+        case "in": "cm"
+        case "cm": "in"
+        case "mm": "in"
+        case "yd": "m"
+        case "nmi": "km"
+        case "kg": "lb"
+        case "lb": "kg"
+        case "oz": "g"
+        case "g": "oz"
+        case "mg": "g"
+        case "t": "lb"
+        case "st": "kg"
+        case "L": usesMetric ? "mL" : "US gal"
+        case "mL": "US fl oz"
+        case "US gal": "L"
+        case "US qt": "L"
+        case "US pt": "mL"
+        case "US cups": "mL"
+        case "US fl oz": "mL"
+        case "tbsp": "mL"
+        case "tsp": "mL"
+        case "m²": "ft²"
+        case "ft²": "m²"
+        case "km²": "mi²"
+        case "mi²": "km²"
+        case "acres": "ha"
+        case "ha": "acres"
+        case "mph": "km/h"
+        case "km/h": "mph"
+        case "m/s": "km/h"
+        case "kn": "km/h"
+        case "s": "min"
+        case "min": "h"
+        case "h": "min"
+        case "days": "h"
+        case "weeks": "days"
+        case "B": "KB"
+        case "KB": "MB"
+        case "MB": "GB"
+        case "GB": "MB"
+        case "TB": "GB"
+        case "KiB": "MiB"
+        case "MiB": "GiB"
+        case "GiB": "MiB"
+        case "TiB": "GiB"
+        case "°C": "°F"
+        case "°F": "°C"
+        case "K": "°C"
+        default: nil
+        }
+        return label.flatMap { unitsByLabel[$0] }
+    }
+
+    /// Short or common words that follow a number for other reasons ("5g",
+    /// "4k", "10 m" for million, "1 in"). With a target typed they convert;
+    /// on their own they stay ordinary searches.
+    private static let needsExplicitTarget: Set<String> = ["k", "g", "m", "s", "d", "t", "b", "h", "in", "st", "ha"]
+
+    /// The unit a partly typed target means: an exact name in the same
+    /// dimension, otherwise the first common unit that starts with it.
+    private static func target(named typed: String, dimension: String) -> Unit? {
+        if let exact = units[typed], exact.dimension == dimension { return exact }
+        return units
+            .filter { $0.key.hasPrefix(typed) && $0.value.dimension == dimension }
+            .min { $0.value.order < $1.value.order }?.value
+    }
+
     private static let conversionRegex = try! NSRegularExpression(
-        pattern: #"^(-?(?:\d+(?:,\d{3})*|\d*)(?:\.\d+)?)\s*°?\s*([a-z][a-z0-9]*)\s+(?:to|in|into|as)\s+°?\s*([a-z][a-z0-9]*)$"#
+        pattern: #"^(-?(?:\d+(?:,\d{3})*|\d*)(?:\.\d+)?)\s*°?\s*([a-z][a-z0-9/]*)(?:\s+(to|in|into|as)(?:\s+°?\s*([a-z][a-z0-9/]*))?)?$"#
     )
 
-    private static func conversion(_ query: String) -> Answer? {
+    private static func conversion(_ query: String, usesMetric: Bool) -> Answer? {
         let ns = query as NSString
-        guard let match = conversionRegex.firstMatch(in: query, range: NSRange(location: 0, length: ns.length)),
-              let amount = Double(ns.substring(with: match.range(at: 1)).replacingOccurrences(of: ",", with: "")),
-              let from = units[ns.substring(with: match.range(at: 2))],
-              let to = units[ns.substring(with: match.range(at: 3))],
-              from.dimension == to.dimension else { return nil }
+        guard let match = conversionRegex.firstMatch(in: query, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        func group(_ i: Int) -> String? {
+            let r = match.range(at: i)
+            return r.location == NSNotFound ? nil : ns.substring(with: r)
+        }
+        guard let amount = group(1).flatMap({ Double($0.replacingOccurrences(of: ",", with: "")) }),
+              let fromName = group(2), let from = units[fromName] else { return nil }
+        let to: Unit
+        if let targetName = group(4) {
+            guard let found = target(named: targetName, dimension: from.dimension) else { return nil }
+            to = found
+        } else {
+            // "2 mi" or "2 mi to": the most likely unit.
+            guard group(3) != nil || !needsExplicitTarget.contains(fromName),
+                  let found = defaultTarget(for: from, usesMetric: usesMetric) else { return nil }
+            to = found
+        }
         let base = (amount + from.offset) * from.factor
         let converted = base / to.factor - to.offset
         guard converted.isFinite else { return nil }
@@ -315,53 +415,209 @@ enum SmartSearchAnswer {
         }
     }
 
-    private static let cityAliases = [
-        "nyc": "America/New_York", "la": "America/Los_Angeles", "sf": "America/Los_Angeles",
-        "uk": "Europe/London", "india": "Asia/Kolkata", "ist": "Asia/Kolkata",
+    /// Lowercase, no punctuation, single spaces: "St. John's" → "st johns".
+    private static func normalizedPlace(_ name: String) -> String {
+        name.lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: ".", with: "")
+            .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "’", with: "")
+            .split(whereSeparator: { $0.isWhitespace })
+            .joined(separator: " ")
+    }
+
+    /// Cities the time zone database has no entry of its own for, and
+    /// nicknames, mapped to the zone they keep time by.
+    static let extraCities: [String: String] = {
+        var result: [String: String] = [:]
+        func add(_ identifier: String, _ names: [String]) { for name in names { result[name] = identifier } }
+        add("America/Los_Angeles", ["sf", "san francisco", "la", "san jose", "seattle", "portland", "san diego", "las vegas",
+                                    "silicon valley", "sacramento", "oakland", "california", "washington state", "nevada"])
+        add("America/Phoenix", ["phoenix", "arizona"])
+        add("America/Denver", ["salt lake city", "colorado", "utah", "albuquerque", "boulder"])
+        add("America/Chicago", ["houston", "dallas", "austin", "san antonio", "new orleans", "minneapolis", "kansas city",
+                                "milwaukee", "st louis", "nashville", "texas", "oklahoma city", "memphis"])
+        add("America/New_York", ["nyc", "new york city", "boston", "washington", "washington dc", "dc", "philadelphia", "miami",
+                                 "atlanta", "orlando", "pittsburgh", "charlotte", "baltimore", "cleveland", "tampa",
+                                 "new jersey", "florida", "virginia", "massachusetts", "ohio", "ann arbor", "raleigh"])
+        add("Pacific/Honolulu", ["hawaii"])
+        add("America/Anchorage", ["alaska"])
+        add("America/Toronto", ["montreal", "ottawa", "quebec"])
+        add("America/Edmonton", ["calgary", "alberta"])
+        add("America/Vancouver", ["british columbia"])
+        add("America/Argentina/Buenos_Aires", ["buenos aires"])
+        add("America/Sao_Paulo", ["rio", "rio de janeiro", "brasilia"])
+        add("America/Mexico_City", ["mexico city"])
+        add("Asia/Kolkata", ["india", "mumbai", "delhi", "new delhi", "bangalore", "bengaluru", "hyderabad", "chennai",
+                             "calcutta", "pune", "ahmedabad", "ist"])
+        add("Asia/Shanghai", ["beijing", "shenzhen", "guangzhou", "chengdu", "wuhan", "tianjin", "chongqing"])
+        add("Asia/Tokyo", ["osaka", "kyoto", "yokohama", "nagoya", "sapporo"])
+        add("Asia/Ho_Chi_Minh", ["saigon", "hanoi", "vietnam"])
+        add("Asia/Dubai", ["abu dhabi", "uae", "united arab emirates", "sharjah"])
+        add("Asia/Qatar", ["doha", "qatar"])
+        add("Asia/Jerusalem", ["tel aviv", "israel"])
+        add("Asia/Tehran", ["iran"])
+        add("Asia/Manila", ["philippines"])
+        add("Asia/Bangkok", ["thailand"])
+        add("Asia/Singapore", ["singapore"])
+        add("Europe/London", ["uk", "united kingdom", "england", "britain", "great britain", "scotland", "wales", "edinburgh",
+                              "manchester", "glasgow", "birmingham", "liverpool", "cambridge", "oxford"])
+        add("Europe/Paris", ["lyon", "marseille", "nice"])
+        add("Europe/Berlin", ["munich", "frankfurt", "hamburg", "cologne", "stuttgart", "dusseldorf", "germany"])
+        add("Europe/Madrid", ["barcelona", "valencia", "seville", "spain"])
+        add("Europe/Rome", ["milan", "venice", "florence", "naples", "turin", "italy"])
+        add("Europe/Zurich", ["geneva", "basel", "switzerland"])
+        add("Europe/Amsterdam", ["rotterdam", "netherlands", "holland", "the hague"])
+        add("Europe/Brussels", ["belgium"])
+        add("Europe/Kyiv", ["kiev", "kyiv", "ukraine"])
+        add("Europe/Moscow", ["saint petersburg", "st petersburg", "russia"])
+        add("Europe/Istanbul", ["turkey", "turkiye", "ankara"])
+        add("Africa/Johannesburg", ["cape town", "pretoria", "south africa", "durban"])
+        add("Australia/Sydney", ["canberra", "australia"])
+        add("Pacific/Auckland", ["wellington", "new zealand", "nz"])
+        add("Asia/Seoul", ["south korea", "korea", "busan"])
+        add("Asia/Hong_Kong", ["hk", "hong kong"])
+        add("Asia/Kuala_Lumpur", ["malaysia"])
+        add("Asia/Taipei", ["taiwan"])
+        return result
+    }()
+
+    /// Countries (and a few regions) that keep a single time, or where one
+    /// city stands for the country; the multi-zone ones are listed below.
+    static let countries: [String: String] = [
+        "usa": "America/New_York", "us": "America/New_York", "united states": "America/New_York",
+        "united states of america": "America/New_York", "america": "America/New_York",
+        "canada": "America/Toronto", "mexico": "America/Mexico_City", "brazil": "America/Sao_Paulo",
+        "argentina": "America/Argentina/Buenos_Aires", "chile": "America/Santiago", "colombia": "America/Bogota",
+        "peru": "America/Lima", "venezuela": "America/Caracas", "cuba": "America/Havana",
+        "ecuador": "America/Guayaquil", "bolivia": "America/La_Paz", "uruguay": "America/Montevideo",
+        "paraguay": "America/Asuncion", "panama": "America/Panama", "costa rica": "America/Costa_Rica",
+        "guatemala": "America/Guatemala", "jamaica": "America/Jamaica", "puerto rico": "America/Puerto_Rico",
+        "dominican republic": "America/Santo_Domingo", "iceland": "Atlantic/Reykjavik",
+        "ireland": "Europe/Dublin", "portugal": "Europe/Lisbon", "france": "Europe/Paris",
+        "austria": "Europe/Vienna", "sweden": "Europe/Stockholm", "norway": "Europe/Oslo",
+        "denmark": "Europe/Copenhagen", "finland": "Europe/Helsinki", "poland": "Europe/Warsaw",
+        "czechia": "Europe/Prague", "czech republic": "Europe/Prague", "slovakia": "Europe/Bratislava",
+        "hungary": "Europe/Budapest", "romania": "Europe/Bucharest", "bulgaria": "Europe/Sofia",
+        "greece": "Europe/Athens", "serbia": "Europe/Belgrade", "croatia": "Europe/Zagreb",
+        "slovenia": "Europe/Ljubljana", "estonia": "Europe/Tallinn", "latvia": "Europe/Riga",
+        "lithuania": "Europe/Vilnius", "belarus": "Europe/Minsk", "cyprus": "Asia/Nicosia",
+        "malta": "Europe/Malta", "luxembourg": "Europe/Luxembourg", "monaco": "Europe/Monaco",
+        "egypt": "Africa/Cairo", "morocco": "Africa/Casablanca", "algeria": "Africa/Algiers",
+        "tunisia": "Africa/Tunis", "libya": "Africa/Tripoli", "nigeria": "Africa/Lagos", "ghana": "Africa/Accra",
+        "kenya": "Africa/Nairobi", "ethiopia": "Africa/Addis_Ababa", "tanzania": "Africa/Dar_es_Salaam",
+        "uganda": "Africa/Kampala", "senegal": "Africa/Dakar", "angola": "Africa/Luanda", "zimbabwe": "Africa/Harare",
+        "saudi arabia": "Asia/Riyadh", "saudi": "Asia/Riyadh", "iraq": "Asia/Baghdad", "kuwait": "Asia/Kuwait",
+        "jordan": "Asia/Amman", "lebanon": "Asia/Beirut", "syria": "Asia/Damascus", "oman": "Asia/Muscat",
+        "bahrain": "Asia/Bahrain", "yemen": "Asia/Aden", "afghanistan": "Asia/Kabul", "pakistan": "Asia/Karachi",
+        "bangladesh": "Asia/Dhaka", "sri lanka": "Asia/Colombo", "nepal": "Asia/Kathmandu",
+        "myanmar": "Asia/Yangon", "cambodia": "Asia/Phnom_Penh", "laos": "Asia/Vientiane",
+        "indonesia": "Asia/Jakarta", "china": "Asia/Shanghai", "japan": "Asia/Tokyo",
+        "north korea": "Asia/Pyongyang", "mongolia": "Asia/Ulaanbaatar", "kazakhstan": "Asia/Almaty",
+        "uzbekistan": "Asia/Tashkent", "georgia": "Asia/Tbilisi", "armenia": "Asia/Yerevan",
+        "azerbaijan": "Asia/Baku", "fiji": "Pacific/Fiji", "papua new guinea": "Pacific/Port_Moresby",
     ]
+
+    /// Countries that span several zones: the name stands for one city, which
+    /// the answer names so it isn't mistaken for the whole country.
+    private static let multiZoneCountries: Set<String> = [
+        "usa", "us", "united states", "united states of america", "america", "canada", "mexico", "brazil",
+        "russia", "australia", "indonesia", "kazakhstan", "mongolia", "china",
+    ]
+
+    private static let acronyms: Set<String> = ["usa", "us", "uk", "uae", "nz", "hk", "sf", "la", "nyc", "dc", "ist"]
 
     /// "tokyo", "new york", "los angeles" → the zone with that city name.
     private static let citiesToZones: [String: String] = {
         var result: [String: String] = [:]
         for identifier in TimeZone.knownTimeZoneIdentifiers {
             guard let city = identifier.split(separator: "/").last else { continue }
-            result[city.replacingOccurrences(of: "_", with: " ").lowercased()] = identifier
+            result[normalizedPlace(String(city))] = identifier
         }
-        return result.merging(cityAliases) { _, alias in alias }
+        return result
+            .merging(countries) { _, country in country }
+            .merging(extraCities) { _, extra in extra }
     }()
 
-    /// City names are only understood where a conversion is clearly asked for,
-    /// so "9:00 paris" on its own stays an ordinary search.
-    private static func zone(named name: String, allowsCities: Bool) -> (zone: TimeZone, label: String)? {
-        if let zone = zone(abbreviation: name) { return (zone, name.uppercased()) }
-        guard allowsCities, let identifier = citiesToZones[name], let zone = TimeZone(identifier: identifier) else { return nil }
-        if cityAliases[name] != nil { return (zone, name.uppercased()) }
-        let city = identifier.split(separator: "/").last.map { $0.replacingOccurrences(of: "_", with: " ") }
-        return (zone, city ?? name.capitalized)
+    private static func title(_ name: String) -> String {
+        name.split(separator: " ").map { word in
+            acronyms.contains(String(word)) ? word.uppercased() : word.prefix(1).uppercased() + word.dropFirst()
+        }.joined(separator: " ")
     }
 
-    private static let timeRegex = try! NSRegularExpression(
-        pattern: #"^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?\s+([a-z][a-z ]*?)(?:\s+(?:to|in|into)\s+([a-z][a-z ]*))?$"#
+    private static func zone(named raw: String) -> (zone: TimeZone, label: String)? {
+        var name = normalizedPlace(raw)
+        if name.hasPrefix("the ") { name.removeFirst(4) }
+        if let zone = zone(abbreviation: name) { return (zone, name.uppercased()) }
+        guard let identifier = citiesToZones[name], let zone = TimeZone(identifier: identifier) else { return nil }
+        var label = title(name)
+        if multiZoneCountries.contains(name), let city = identifier.split(separator: "/").last {
+            label += " (\(city.replacingOccurrences(of: "_", with: " ")))"
+        }
+        return (zone, label)
+    }
+
+    private static let place = #"[a-z][a-z .'’-]*?"#
+    private static let clock = #"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?"#
+    private static let nowRegex = try! NSRegularExpression(
+        pattern: #"^(?:what(?:'s|\s+is)?\s+(?:the\s+)?)?(?:current\s+|local\s+)?time(?:\s+is\s+it)?(?:\s+now)?\s+(?:in|at)\s+("# + place + #")\??$"#
+    )
+    private static let placeTimeRegex = try! NSRegularExpression(pattern: "^(" + place + #")\s+time$"#)
+    private static let clockRegex = try! NSRegularExpression(
+        pattern: "^" + clock + #"\s+("# + place + #")(?:\s+(?:to|in|into)\s+("# + place + #"))?$"#
+    )
+    private static let clockToPlaceRegex = try! NSRegularExpression(
+        pattern: "^" + clock + #"\s+(?:to|in|into)\s+("# + place + ")$"
     )
 
-    /// "3:30pm pt", "15:00 utc to est", "9 am et in tokyo". A time with no
-    /// zone isn't a question this answers, and a bare "8:30" with no am/pm is
-    /// read as a 24-hour clock (the detail line shows how it was read).
-    private static func time(_ query: String, now: Date, localZone: TimeZone) -> Answer? {
+    private typealias Place = (zone: TimeZone, label: String)
+
+    /// "time in paris", "what time is it in sf", "tokyo time", "9pm paris",
+    /// "3:30pm pt to et", "9am in tokyo". A clock time needs a colon or am/pm
+    /// ("9 paris" is just words), and a bare "8:30" with no am/pm is read as
+    /// a 24-hour clock (the detail line shows how it was read).
+    private static func time(_ rawQuery: String, now: Date, localZone: TimeZone) -> Answer? {
+        let query = rawQuery.replacingOccurrences(of: "’", with: "'")
         let ns = query as NSString
-        guard let match = timeRegex.firstMatch(in: query, range: NSRange(location: 0, length: ns.length)) else { return nil }
-        func group(_ i: Int) -> String? {
+        let whole = NSRange(location: 0, length: ns.length)
+        func group(_ match: NSTextCheckingResult, _ i: Int) -> String? {
             let r = match.range(at: i)
             return r.location == NSNotFound ? nil : ns.substring(with: r)
         }
-        let targetName = group(5)?.trimmingCharacters(in: .whitespaces)
-        guard let hourText = group(1), var hour = Int(hourText),
-              let sourceName = group(4),
-              let source = zone(named: sourceName.trimmingCharacters(in: .whitespaces), allowsCities: targetName != nil) else { return nil }
-        let minute = group(2).flatMap { Int($0) } ?? 0
-        let meridiem = group(3)?.first
-        // "9 pt" is just words; a time needs a colon or am/pm.
-        guard group(2) != nil || meridiem != nil, minute <= 59 else { return nil }
+
+        for regex in [nowRegex, placeTimeRegex] {
+            guard let match = regex.firstMatch(in: query, range: whole) else { continue }
+            guard let there = group(match, 1).flatMap(zone(named:)) else { return nil }
+            let result = describe(now, in: there.zone, relativeTo: now, referenceZone: localZone)
+            return Answer(result: result, detail: "Time in \(there.label)", copyText: result)
+        }
+
+        let source: Place?
+        let destination: Place
+        let match: NSTextCheckingResult
+        if let m = clockRegex.firstMatch(in: query, range: whole), let from = group(m, 4).flatMap(zone(named:)) {
+            match = m
+            source = from
+            if let target = group(m, 5) {
+                guard let to = zone(named: target) else { return nil }
+                destination = to
+            } else {
+                destination = (localZone, "your time")
+            }
+        } else if let m = clockToPlaceRegex.firstMatch(in: query, range: whole),
+                  let to = group(m, 4).flatMap(zone(named:)) {
+            match = m
+            source = nil
+            destination = to
+        } else {
+            return nil
+        }
+
+        guard var hour = group(match, 1).flatMap({ Int($0) }) else { return nil }
+        let minute = group(match, 2).flatMap { Int($0) } ?? 0
+        let meridiem = group(match, 3)?.first
+        guard group(match, 2) != nil || meridiem != nil, minute <= 59 else { return nil }
         if let meridiem {
             guard (1...12).contains(hour) else { return nil }
             hour = hour % 12 + (meridiem == "p" ? 12 : 0)
@@ -369,56 +625,49 @@ enum SmartSearchAnswer {
             guard hour <= 23 else { return nil }
         }
 
-        let destination: (zone: TimeZone, label: String)
-        if let targetName {
-            guard let target = zone(named: targetName, allowsCities: true) else { return nil }
-            destination = target
-        } else {
-            destination = (localZone, "your time")
-        }
-
-        var sourceCalendar = Calendar(identifier: .gregorian)
-        sourceCalendar.timeZone = source.zone
-        var components = sourceCalendar.dateComponents([.year, .month, .day], from: now)
+        let sourceZone = source?.zone ?? localZone
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = sourceZone
+        var components = calendar.dateComponents([.year, .month, .day], from: now)
         components.hour = hour
         components.minute = minute
-        guard let date = sourceCalendar.date(from: components),
+        guard let date = calendar.date(from: components),
               // A time skipped by a clock change comes back shifted: no such time.
-              sourceCalendar.component(.hour, from: date) == hour,
-              sourceCalendar.component(.minute, from: date) == minute else { return nil }
+              calendar.component(.hour, from: date) == hour,
+              calendar.component(.minute, from: date) == minute else { return nil }
 
-        var targetCalendar = Calendar(identifier: .gregorian)
-        targetCalendar.timeZone = destination.zone
+        let result = describe(date, in: destination.zone, relativeTo: now, referenceZone: destination.zone)
+        let shownHour = meridiem == nil ? hour : (hour % 12 == 0 ? 12 : hour % 12)
+        let shownClock = String(format: "%d:%02d", shownHour, minute) + (meridiem.map { $0 == "p" ? " PM" : " AM" } ?? "")
+        let zoneName = destination.zone.abbreviation(for: date) ?? destination.zone.identifier
+        let shownDestination = destination.label == "your time" ? "your time (\(zoneName))" : destination.label
+        return Answer(
+            result: result,
+            detail: "\(shownClock) \(source?.label ?? "your time") in \(shownDestination)",
+            copyText: result
+        )
+    }
+
+    /// "9:00 PM", with the day when it isn't the reference day there.
+    private static func describe(_ date: Date, in zone: TimeZone, relativeTo reference: Date, referenceZone: TimeZone) -> String {
         let clock = DateFormatter()
-        clock.timeZone = destination.zone
+        clock.timeZone = zone
         clock.locale = .current
         clock.dateStyle = .none
         clock.timeStyle = .short
-        var result = clock.string(from: date)
-        let dayOffset = targetCalendar.dateComponents(
-            [.day],
-            from: targetCalendar.startOfDay(for: now),
-            to: targetCalendar.startOfDay(for: date)
-        ).day ?? 0
-        switch dayOffset {
-        case 0: break
-        case 1: result += " tomorrow"
-        case -1: result += " yesterday"
-        default:
-            let day = DateFormatter()
-            day.timeZone = destination.zone
-            day.setLocalizedDateFormatFromTemplate("EEEMMMd")
-            result += ", " + day.string(from: date)
+        func day(_ date: Date, _ zone: TimeZone) -> Int {
+            Int(floor((date.timeIntervalSince1970 + Double(zone.secondsFromGMT(for: date))) / 86400))
         }
-
-        let zoneName = destination.zone.abbreviation(for: date) ?? destination.zone.identifier
-        let shown = destination.label == "your time" ? "your time (\(zoneName))" : destination.label
-        let sourceClock = String(format: "%d:%02d", meridiem == nil ? hour : (hour % 12 == 0 ? 12 : hour % 12), minute)
-        let suffix = meridiem.map { $0 == "p" ? " PM" : " AM" } ?? ""
-        return Answer(
-            result: result,
-            detail: "\(sourceClock)\(suffix) \(source.label) in \(shown)",
-            copyText: result
-        )
+        let time = clock.string(from: date)
+        switch day(date, zone) - day(reference, referenceZone) {
+        case 0: return time
+        case 1: return time + " tomorrow"
+        case -1: return time + " yesterday"
+        default:
+            let formatter = DateFormatter()
+            formatter.timeZone = zone
+            formatter.setLocalizedDateFormatFromTemplate("EEEMMMd")
+            return time + ", " + formatter.string(from: date)
+        }
     }
 }
