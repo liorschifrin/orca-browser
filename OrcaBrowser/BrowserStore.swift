@@ -270,6 +270,7 @@ final class BrowserStore {
         open(SearchSubmission(text: input), isIncognito: isIncognito)
     }
 
+    /// Opens a resolved submission in a compatible blank tab or a new tab, retaining its search provider.
     func open(_ submission: SearchSubmission, isIncognito: Bool? = nil) {
         let interval = PerformanceTrace.signposter.beginInterval("New tab submission")
         defer { PerformanceTrace.signposter.endInterval("New tab submission", interval) }

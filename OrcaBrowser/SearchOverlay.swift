@@ -222,6 +222,7 @@ struct SearchOverlay: View {
         text = initialText
     }
 
+    /// Converts a complete shortcut plus whitespace into a chip, retaining the query and original token.
     private func activateShortcutIfNeeded() {
         guard activeProvider == nil, !suppressActivation,
               let match = SearchProvider.activation(for: text, in: settings.searchProviders) else { return }
@@ -328,6 +329,7 @@ struct SearchOverlay: View {
         .accessibilityIdentifier("search-provider-others")
     }
 
+    /// Replaces the matched first token with a selected provider chip and focuses the remaining query.
     private func selectProvider(_ provider: SearchProvider) {
         // Replace the shortcut (or matched first word) with the inline chip.
         let trimmed = text.drop(while: \.isWhitespace)
@@ -350,6 +352,7 @@ struct SearchOverlay: View {
         text.isEmpty || !hasEditedText
     }
 
+    /// Opens clipboard text for an untouched entry, otherwise pastes it into the edited field.
     private func useClipboard() {
         isShowingClipboard = false
         if shouldNavigateClipboard {
@@ -509,6 +512,7 @@ struct SearchOverlay: View {
         .accessibilityAddTraits(.isToggle)
     }
 
+    /// Submits the selected site query, opens its homepage for an empty query, or dismisses an empty entry.
     private func submit() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty {
@@ -524,6 +528,7 @@ struct SearchOverlay: View {
         }
     }
 
+    /// Keeps the current entry open with one trailing space and activates a completed shortcut if present.
     private func appendToSearch() {
         onAppend()
         // Preserve the entry itself; normalize only its trailing whitespace.

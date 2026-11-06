@@ -141,6 +141,7 @@ final class AppSettings {
         didSet { defaults.set(allowsPageDialogs, forKey: Self.allowsPageDialogsKey) }
     }
 
+    /// Loads persisted preferences, migrating the separate typing and voice lists when needed.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.searchSitesKey),
