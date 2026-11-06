@@ -35,6 +35,13 @@ final class AppSettings {
     private static let autoArchiveTabsKey = "autoArchiveTabs"
     private static let autoArchiveDaysKey = "autoArchiveDays"
     private static let savesClipboardHistoryKey = "savesClipboardHistory"
+    private static let homeCityKey = "homeCity"
+
+    /// Named in time answers ("your time (Prague)") when the phone's time
+    /// zone doesn't name a city itself.
+    var homeCity: String {
+        didSet { defaults.set(homeCity, forKey: Self.homeCityKey) }
+    }
 
     /// Remembers everything copied in the app and whatever is on the
     /// clipboard when it opens. On by default.
@@ -127,6 +134,7 @@ final class AppSettings {
         self.defaults = defaults
         voiceQueryOptions = defaults.data(forKey: Self.voiceQueryOptionsKey)
             .flatMap { try? JSONDecoder().decode(VoiceQueryOptions.self, from: $0) } ?? .defaults
+        homeCity = defaults.string(forKey: Self.homeCityKey) ?? ""
         savesClipboardHistory = defaults.object(forKey: Self.savesClipboardHistoryKey) as? Bool ?? true
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)

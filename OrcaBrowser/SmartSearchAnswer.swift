@@ -19,11 +19,12 @@ enum SmartSearchAnswer {
         _ raw: String,
         now: Date = Date(),
         localZone: TimeZone = .current,
-        usesMetric: Bool = Locale.current.measurementSystem == .metric
+        usesMetric: Bool = Locale.current.measurementSystem == .metric,
+        homeCity: String? = nil
     ) -> Answer? {
         let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, query.count <= 200 else { return nil }
-        return time(query.lowercased(), now: now, localZone: localZone)
+        return time(query.lowercased(), now: now, localZone: localZone, homeCity: homeCity)
             ?? conversion(query.lowercased(), usesMetric: usesMetric)
             ?? calculation(query)
     }
@@ -432,6 +433,29 @@ enum SmartSearchAnswer {
         }
     }
 
+    /// Where a fixed-offset abbreviation is kept; the US ones name their
+    /// city through the zone they follow.
+    private static let abbreviationCities = [
+        "bst": "London", "cet": "Paris", "cest": "Paris", "eet": "Athens", "eest": "Athens",
+        "jst": "Tokyo", "kst": "Seoul", "hkt": "Hong Kong", "sgt": "Singapore",
+        "aest": "Sydney", "aedt": "Sydney",
+    ]
+
+    /// "America/New_York" → "New York". Offset-only zones have no city.
+    private static func city(of zone: TimeZone) -> String? {
+        let parts = zone.identifier.split(separator: "/")
+        guard parts.count >= 2, parts[0] != "Etc", parts[0] != "GMT" else { return nil }
+        return parts.last.map { $0.replacingOccurrences(of: "_", with: " ") }
+    }
+
+    /// "your time (New York)": the city of the phone's time zone, otherwise
+    /// the one chosen in Settings, otherwise the zone's own abbreviation.
+    private static func localLabel(_ zone: TimeZone, homeCity: String?, at date: Date) -> String {
+        let chosen = homeCity?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let place = city(of: zone) ?? (chosen?.isEmpty == false ? chosen : nil) ?? zone.abbreviation(for: date)
+        return place.map { "your time (\($0))" } ?? "your time"
+    }
+
     /// Lowercase, no punctuation, single spaces: "St. John's" → "st johns".
     private static func normalizedPlace(_ name: String) -> String {
         name.lowercased()
@@ -566,7 +590,11 @@ enum SmartSearchAnswer {
     private static func zone(named raw: String) -> (zone: TimeZone, label: String)? {
         var name = normalizedPlace(raw)
         if name.hasPrefix("the ") { name.removeFirst(4) }
-        if let zone = zone(abbreviation: name) { return (zone, name.uppercased()) }
+        if let zone = zone(abbreviation: name) {
+            // "PST" alone doesn't say where; name a city that keeps that time.
+            let city = city(of: zone) ?? abbreviationCities[name]
+            return (zone, name.uppercased() + (city.map { " (\($0))" } ?? ""))
+        }
         guard let identifier = citiesToZones[name], let zone = TimeZone(identifier: identifier) else { return nil }
         var label = title(name)
         if multiZoneCountries.contains(name), let city = identifier.split(separator: "/").last {
@@ -594,7 +622,7 @@ enum SmartSearchAnswer {
     /// "3:30pm pt to et", "9am in tokyo". A clock time needs a colon or am/pm
     /// ("9 paris" is just words), and a bare "8:30" with no am/pm is read as
     /// a 24-hour clock (the detail line shows how it was read).
-    private static func time(_ rawQuery: String, now: Date, localZone: TimeZone) -> Answer? {
+    private static func time(_ rawQuery: String, now: Date, localZone: TimeZone, homeCity: String?) -> Answer? {
         let query = rawQuery.replacingOccurrences(of: "’", with: "'")
         let ns = query as NSString
         let whole = NSRange(location: 0, length: ns.length)
@@ -620,7 +648,7 @@ enum SmartSearchAnswer {
                 guard let to = zone(named: target) else { return nil }
                 destination = to
             } else {
-                destination = (localZone, "your time")
+                destination = (localZone, localLabel(localZone, homeCity: homeCity, at: now))
             }
         } else if let m = clockToPlaceRegex.firstMatch(in: query, range: whole),
                   let to = group(m, 4).flatMap(zone(named:)) {
@@ -667,9 +695,8 @@ enum SmartSearchAnswer {
         }.joined(separator: " or ")
         let shownHour = meridiem == nil ? hour : (hour % 12 == 0 ? 12 : hour % 12)
         let shownClock = String(format: "%d:%02d", shownHour, minute) + (meridiem.map { $0 == "p" ? " PM" : " AM" } ?? "")
-        let zoneName = destination.zone.abbreviation(for: date) ?? destination.zone.identifier
-        let shownDestination = destination.label == "your time" && dates.count == 1 ? "your time (\(zoneName))" : destination.label
-        var detail = "\(shownClock) \(source?.label ?? "your time") in \(shownDestination)"
+        let sourceLabel = source?.label ?? localLabel(localZone, homeCity: homeCity, at: now)
+        var detail = "\(shownClock) \(sourceLabel) in \(destination.label)"
         if dates.count > 1 { detail += " · occurs twice during clock change" }
         let dayFormatter = ISO8601DateFormatter()
         dayFormatter.formatOptions = [.withFullDate]

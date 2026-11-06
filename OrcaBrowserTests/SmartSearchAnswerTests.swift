@@ -133,7 +133,32 @@ struct SmartSearchAnswerTests {
         // 9 AM PST on Nov 5 is noon in New York (EST).
         let result = try #require(answer("9am pst"))
         #expect(plain(result.copyText) == "12:00 PM")
-        #expect(result.detail.hasPrefix("9:00 AM PST in your time"))
+        #expect(result.detail.hasPrefix("9:00 AM PST (Los Angeles) in your time (New York)"))
+    }
+
+    @Test func abbreviationsNameACityThatKeepsThatTime() throws {
+        #expect(try #require(answer("time in pst")).detail == "Time in PST (Los Angeles)")
+        #expect(try #require(answer("time in cdt")).detail == "Time in CDT (Chicago)")
+        #expect(try #require(answer("time in jst")).detail == "Time in JST (Tokyo)")
+        #expect(try #require(answer("time in cest")).detail == "Time in CEST (Paris)")
+        #expect(try #require(answer("time in utc")).detail == "Time in UTC")
+    }
+
+    @Test func yourTimeNamesYourCity() throws {
+        #expect(try #require(answer("9pm paris")).detail.hasSuffix("in your time (New York)"))
+        #expect(try #require(answer("9am to tokyo")).detail.hasPrefix("9:00 AM your time (New York) in Tokyo"))
+    }
+
+    @Test func aZoneWithoutACityUsesTheCityFromSettings() throws {
+        let offsetOnly = try #require(TimeZone(identifier: "Etc/GMT-3"))
+        let chosen = SmartSearchAnswer.evaluate("9pm paris", now: now, localZone: offsetOnly, homeCity: " Riyadh ")
+        #expect(try #require(chosen).detail.hasSuffix("in your time (Riyadh)"))
+        // Nothing chosen: the zone's own name.
+        let unnamed = SmartSearchAnswer.evaluate("9pm paris", now: now, localZone: offsetOnly, homeCity: "")
+        #expect(try #require(unnamed).detail.hasSuffix("in your time (GMT+3)"))
+        // A zone that names a city wins over the setting.
+        let named = SmartSearchAnswer.evaluate("9pm paris", now: now, localZone: newYork, homeCity: "Riyadh")
+        #expect(try #require(named).detail.hasSuffix("in your time (New York)"))
     }
 
     @Test func usZonesFollowDaylightSavingWhicheverFormIsTyped() throws {
@@ -265,7 +290,7 @@ struct SmartSearchAnswerTests {
         let pacific = try #require(TimeZone(identifier: "America/Los_Angeles"))
         let result = try #require(SmartSearchAnswer.evaluate("1:30am pt", now: fallBack, localZone: pacific))
         #expect(plain(result.copyText) == "1:30 AM (UTC−07:00) or 1:30 AM (UTC−08:00)")
-        #expect(result.detail.hasPrefix("1:30 AM PT in your time ·"))
+        #expect(result.detail.hasPrefix("1:30 AM PT (Los Angeles) in your time (Los Angeles) ·"))
     }
 
     @Test func halfHourClockChangesShowBothOccurrences() throws {
@@ -287,6 +312,6 @@ struct SmartSearchAnswerTests {
         let westbound = try #require(SmartSearchAnswer.evaluate("1am et to pt", now: midnightBoundary, localZone: newYork))
         #expect(plain(westbound.copyText) == "10:00 PM")
         #expect(westbound.detail.contains("2026-11-06 → 2026-11-05"))
-        #expect(try #require(answer("9am pt to et")).detail == "9:00 AM PT in ET")
+        #expect(try #require(answer("9am pt to et")).detail == "9:00 AM PT (Los Angeles) in ET (New York)")
     }
 }
