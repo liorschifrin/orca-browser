@@ -79,6 +79,7 @@ struct SearchSitesSettings: View {
         }
     }
 
+    /// Shows a site with independent controls for typing and voice use.
     private func row(_ site: SearchSite) -> some View {
         HStack(spacing: 12) {
             Button { editing = site } label: {
@@ -104,6 +105,7 @@ struct SearchSitesSettings: View {
         }
     }
 
+    /// Describes voice position in the voice filter and shortcuts in the other filters.
     private func subtitle(_ site: SearchSite) -> String {
         if filter == .voice, let index = settings.searchSites.voiceSites.firstIndex(where: { $0.id == site.id }) {
             return index == 0 ? "Center · default" : index == 1 ? "1 · Left" : "\(index) · Clockwise"
@@ -111,6 +113,7 @@ struct SearchSitesSettings: View {
         return site.shortcuts.isEmpty ? "No shortcut" : site.shortcuts.joined(separator: ", ")
     }
 
+    /// Creates an accessible use toggle named for both its purpose and site.
     private func useButton(_ symbol: String, isOn: Bool, label: String, site: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
@@ -257,10 +260,12 @@ private struct SearchSiteEditor: View {
         return candidate.provider
     }
 
+    /// Resolves a stored color choice for the site preview.
     private func resolved(_ color: SiteColor) -> Color {
         SiteAppearance.color(siteID: site.id, host: site.host, setting: color)
     }
 
+    /// Validates and persists the editor fields, then prefetches the icon on success.
     private func save() {
         site.shortcuts = shortcuts.components(separatedBy: ",")
         if let message = settings.searchSites.save(site) {

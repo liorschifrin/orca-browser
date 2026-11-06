@@ -16,6 +16,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
     /// Built-ins live in `SearchSite.builtIns`.
     static var builtIns: [SearchProvider] { SearchSite.builtIns.filter { !$0.shortcuts.isEmpty }.map(\.provider) }
 
+    /// Trims surrounding whitespace and folds case for shortcut comparisons.
     nonisolated static func normalize(_ text: String) -> String {
         text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
@@ -24,6 +25,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         URLComponents(string: template.replacingOccurrences(of: "%s", with: "query"))?.host ?? ""
     }
 
+    /// Returns an editable provider with normalized shortcuts and trimmed fields.
     func normalized() -> Self {
         var copy = self
         copy.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +34,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         return copy
     }
 
+    /// Returns a settings error for invalid fields or shortcut conflicts, including disabled providers.
     func validationError(among providers: [Self]) -> String? {
         let candidate = normalized()
         guard !candidate.name.isEmpty, candidate.name.count <= 80 else {
@@ -53,6 +56,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         return Self.templateError(candidate.template)
     }
 
+    /// Validates one HTTPS query placeholder outside the authority, with bounded size and valid escapes.
     static func templateError(_ template: String) -> String? {
         guard template.utf8.count <= 2_048 else { return "The template must be at most 2,048 bytes long." }
         let parts = template.components(separatedBy: "%s")
@@ -97,6 +101,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         return components.url
     }
 
+    /// Encodes the query as UTF-8 URL data and replaces the sole placeholder once.
     func url(for query: String) -> URL? {
         guard Self.templateError(template) == nil else { return nil }
         // Encode UTF-8 bytes, including %, +, &, # and /. Substitute once so a
@@ -111,6 +116,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         return URL(string: parts[0] + encoded + parts[1])
     }
 
+    /// Finds an enabled provider by an exact, normalized shortcut.
     static func matchingShortcut(_ shortcut: String, in providers: [Self]) -> Self? {
         let keyword = normalize(shortcut)
         return providers.first { $0.isEnabled && $0.shortcuts.contains { normalize($0) == keyword } }
@@ -135,6 +141,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         guard !input.drop(while: \.isWhitespace).contains(where: \.isWhitespace) else { return [] }
         let token = normalize(String(input.trimmingCharacters(in: .whitespacesAndNewlines).prefix(while: { !$0.isWhitespace })))
         guard !token.isEmpty else { return [] }
+        /// Orders exact shortcuts before exact names/domains and then prefix matches.
         func rank(_ provider: Self) -> Int? {
             let shortcuts = provider.shortcuts.map(normalize)
             let name = normalize(provider.name)
@@ -165,6 +172,7 @@ struct SearchSubmission {
         return Self(text: "", url: url, providerID: provider.id)
     }
 
+    /// Builds a nonempty provider search, or defers ordinary input to normal URL resolution.
     static func make(text: String, provider: SearchProvider?) -> Self? {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return nil }

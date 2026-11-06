@@ -20,6 +20,7 @@ final class SiteIconStore {
         return base.appending(path: "SiteIcons", directoryHint: .isDirectory)
     }()
 
+    /// Returns the normalized host cache path for the stored PNG icon.
     private nonisolated static func file(_ host: String) -> URL {
         folder.appending(path: host.lowercased().replacingOccurrences(of: "/", with: "_") + ".png")
     }
@@ -53,10 +54,12 @@ final class SiteIconStore {
         load(host)
     }
 
+    /// Starts loading distinct uncached hosts without waiting for a view to request them.
     func prefetch(hosts: [String]) {
         for host in Set(hosts) where !host.isEmpty && images[host] == nil { load(host) }
     }
 
+    /// Coalesces pending requests and publishes an icon or remembers a failed attempt.
     private func load(_ host: String) {
         guard !pending.contains(host), !failed.contains(host) else { return }
         pending.insert(host)
@@ -73,6 +76,7 @@ final class SiteIconStore {
         }
     }
 
+    /// Reads the cached PNG first, otherwise fetches and atomically caches a site icon.
     private nonisolated static func loadFromDiskOrNetwork(_ host: String) async -> UIImage? {
         let url = file(host)
         if let data = try? Data(contentsOf: url), let image = UIImage(data: data) { return image }
@@ -84,6 +88,7 @@ final class SiteIconStore {
 
     // MARK: Fetching
 
+    /// Tries discovered homepage icons and favicon.ico with ephemeral, bounded requests.
     private nonisolated static func fetch(_ host: String) async -> UIImage? {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 8
@@ -128,6 +133,7 @@ final class SiteIconStore {
         return touch + plain
     }
 
+    /// Extracts a quoted HTML attribute from a link tag without depending on attribute order.
     private nonisolated static func attribute(_ name: String, in tag: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: "\\b\(name)\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)')", options: .caseInsensitive),
               let match = regex.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)) else { return nil }
@@ -139,6 +145,7 @@ final class SiteIconStore {
 }
 
 private extension UIImage {
+    /// Fits an icon into a square canvas while preserving its aspect ratio.
     nonisolated func square(side: CGFloat) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
@@ -186,6 +193,7 @@ enum SiteAppearance {
         }
     }
 
+    /// Returns a bundled fallback asset for known sites, or nil for other sites.
     static func bundledLogo(siteID: String) -> String? {
         switch siteID {
         case "youtube": "ProviderYoutube"

@@ -67,6 +67,7 @@ struct SearchSite: Codable, Identifiable, Equatable {
 
     var voiceID: String { Self.voiceIDs[id] ?? id }
 
+    /// Maps a legacy built-in voice identity to its stable unified site ID.
     static func siteID(forVoiceID voiceID: String) -> String {
         voiceIDs.first { $0.value == voiceID }?.key ?? voiceID
     }
@@ -88,6 +89,7 @@ struct SearchSite: Codable, Identifiable, Equatable {
                        icon: typingIcon, color: typingColor)
     }
 
+    /// Trims editable text and normalizes shortcuts before saving.
     func normalized() -> Self {
         var copy = self
         copy.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,6 +98,7 @@ struct SearchSite: Codable, Identifiable, Equatable {
         return copy
     }
 
+    /// Checks typing requirements, cross-site shortcut conflicts, and the shared URL template.
     func validationError(among sites: [Self]) -> String? {
         let candidate = normalized()
         if candidate.shortcuts.isEmpty {
@@ -133,6 +136,7 @@ struct SearchSite: Codable, Identifiable, Equatable {
         self.opensChatGPTApp = opensChatGPTApp
     }
 
+    /// Restores saved fields with defaults for properties introduced in later versions.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
@@ -166,6 +170,7 @@ struct SearchSitePreferences: Codable, Equatable {
         knownBuiltInIDs = Set(SearchSite.builtIns.map(\.id))
     }
 
+    /// Restores saved fields with defaults for properties introduced in later versions.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sites = try c.decode([SearchSite].self, forKey: .sites)
@@ -176,6 +181,7 @@ struct SearchSitePreferences: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey { case sites, removedIDs, knownBuiltInIDs }
 
+    /// Appends newly shipped built-ins without reviving removals or exceeding voice capacity.
     private mutating func reconcile() {
         for builtIn in SearchSite.builtIns where !knownBuiltInIDs.contains(builtIn.id) {
             knownBuiltInIDs.insert(builtIn.id)
@@ -226,6 +232,7 @@ struct SearchSitePreferences: Codable, Equatable {
     }
 
     @discardableResult
+    /// Changes typing or voice availability while enforcing shortcut and voice-count requirements.
     mutating func setUse(_ id: String, typing: Bool? = nil, voice: Bool? = nil) -> String? {
         guard var site = site(id: id) else { return nil }
         if let typing {
@@ -241,6 +248,7 @@ struct SearchSitePreferences: Codable, Equatable {
     }
 
     @discardableResult
+    /// Records a removal unless it would leave no sites or no voice destination.
     mutating func remove(_ id: String) -> String? {
         guard let site = site(id: id) else { return nil }
         if site.usesVoice, voiceCount <= 1 { return "Voice search needs at least one site." }
@@ -327,6 +335,7 @@ struct SearchSitePreferences: Codable, Equatable {
         return result
     }
 
+    /// Merges legacy voice ordering and customizations, preserving typing edits and shortcut ownership.
     private mutating func mergeLegacyVoice(_ options: VoiceQueryOptions) {
         var ordered: [SearchSite] = []
         for destination in options.order {
@@ -392,6 +401,7 @@ enum SiteColors {
         "bing": "#008373", "google-images": "#4285F4", "google-translate": "#4285F4", "imdb": "#F5C518",
     ]
 
+    /// Converts a legacy voice color name to RGB hex, defaulting unknown names to blue.
     static func hex(forName name: String) -> String {
         switch name {
         case "purple": "#AF52DE"
@@ -405,6 +415,7 @@ enum SiteColors {
         }
     }
 
+    /// Decodes a six-digit RGB hex color, returning nil for invalid input.
     static func color(hex: String) -> Color? {
         let digits = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         guard digits.count == 6, let value = UInt32(digits, radix: 16) else { return nil }
@@ -412,6 +423,7 @@ enum SiteColors {
                      blue: Double(value & 0xFF) / 255)
     }
 
+    /// Serializes a selected color as the RGB hex format used by site preferences.
     static func hex(of color: Color) -> String {
         var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
         UIColor(color).getRed(&red, green: &green, blue: &blue, alpha: &alpha)

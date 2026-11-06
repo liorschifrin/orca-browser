@@ -430,6 +430,7 @@ final class Tab: Identifiable {
             actualParts?.percentEncodedQuery = decodedQuery
             let expectedItems = expectedParts?.queryItems ?? []
             let actualItems = actualParts?.queryItems ?? []
+            /// Treats Google Images parameter aliases as the same search mode.
             func mode(_ items: [URLQueryItem]) -> String {
                 let udm = items.first { $0.name == "udm" }?.value
                 let tbm = items.first { $0.name == "tbm" }?.value
@@ -448,6 +449,7 @@ final class Tab: Identifiable {
 
     // MARK: - Actions
 
+    /// Starts navigation, retaining submitted search state or reconciling a later Google query.
     func load(_ url: URL, input: String? = nil, providerID: String? = nil) {
         guard !isClosed else { return }
         if let input {
