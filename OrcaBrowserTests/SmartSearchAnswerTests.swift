@@ -164,7 +164,7 @@ struct SmartSearchAnswerTests {
 
     @Test func currentTimeInAPlace() throws {
         // Noon UTC.
-        for query in ["time in sf", "sf time", "what time is it in SF", "current time in San Francisco"] {
+        for query in ["time in sf", "time sf", "time at sf", "sf time", "what time is it in SF", "current time in San Francisco"] {
             let result = try #require(answer(query), "\(query)")
             #expect(plain(result.copyText) == "4:00 AM", "\(query)")
         }
@@ -175,6 +175,12 @@ struct SmartSearchAnswerTests {
         #expect(try #require(answer("time in usa")).detail == "Time in USA (New York)")
         #expect(answer("time in nowhereland") == nil)
         #expect(answer("lunch time") == nil)
+    }
+
+    @Test func theFieldCanTakeTheAnswerWithItsUnit() throws {
+        #expect(try #require(answer("24*7")).fieldText == "168")
+        #expect(try #require(answer("2 mi")).fieldText == "3.218688 km")
+        #expect(plain(try #require(answer("time sf")).fieldText) == "4:00 AM")
     }
 
     @Test func everyListedPlaceHasARealTimeZone() {

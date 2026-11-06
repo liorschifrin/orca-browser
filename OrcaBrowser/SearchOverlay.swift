@@ -71,7 +71,7 @@ struct SearchOverlay: View {
                     pastePermissionChip
                 }
                 if let answer {
-                    SmartAnswerCard(answer: answer)
+                    SmartAnswerCard(answer: answer, onReplace: replaceText)
                         .transition(.opacity.combined(with: .offset(y: 12)))
                 }
                 field
@@ -258,6 +258,13 @@ struct SearchOverlay: View {
         selection = TextSelection(insertionPoint: text.endIndex)
     }
 
+    /// Swaps what's typed for an answer, with the cursor after it.
+    private func replaceText(with newText: String) {
+        text = newText
+        isFocused = true
+        selection = TextSelection(insertionPoint: text.endIndex)
+    }
+
     /// Types the item where the cursor is, without submitting, and puts it
     /// back on the clipboard at the top of the history.
     private func insertFromHistory(_ item: ClipboardItem) {
@@ -275,6 +282,7 @@ struct SearchOverlay: View {
 /// above the field with a button to copy it.
 private struct SmartAnswerCard: View {
     let answer: SmartSearchAnswer.Answer
+    let onReplace: (String) -> Void
     @State private var didCopy = false
 
     var body: some View {
@@ -290,6 +298,15 @@ private struct SmartAnswerCard: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
+            Button {
+                onReplace(answer.fieldText)
+            } label: {
+                Image(systemName: "arrow.up.backward")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Use result in search field")
             Button {
                 ClipboardCache.shared.copy(text: answer.copyText)
                 didCopy = true

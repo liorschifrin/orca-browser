@@ -11,6 +11,8 @@ enum SmartSearchAnswer {
         let detail: String
         /// What the copy button puts on the clipboard: plain, no digit grouping.
         let copyText: String
+        /// What replaces the search field's text: the copied value, with its unit.
+        let fieldText: String
     }
 
     static func evaluate(
@@ -73,7 +75,8 @@ enum SmartSearchAnswer {
         return Answer(
             result: format(value, grouped: true),
             detail: "Calculation",
-            copyText: format(value, grouped: false)
+            copyText: format(value, grouped: false),
+            fieldText: format(value, grouped: false)
         )
     }
 
@@ -377,7 +380,8 @@ enum SmartSearchAnswer {
         return Answer(
             result: "\(format(converted, grouped: true)) \(to.label)",
             detail: "\(format(amount, grouped: true)) \(from.label) →",
-            copyText: format(converted, grouped: false)
+            copyText: format(converted, grouped: false),
+            fieldText: "\(format(converted, grouped: false)) \(to.label)"
         )
     }
 
@@ -561,7 +565,7 @@ enum SmartSearchAnswer {
     private static let place = #"[a-z][a-z .'’-]*?"#
     private static let clock = #"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?"#
     private static let nowRegex = try! NSRegularExpression(
-        pattern: #"^(?:what(?:'s|\s+is)?\s+(?:the\s+)?)?(?:current\s+|local\s+)?time(?:\s+is\s+it)?(?:\s+now)?\s+(?:in|at)\s+("# + place + #")\??$"#
+        pattern: #"^(?:what(?:'s|\s+is)?\s+(?:the\s+)?)?(?:current\s+|local\s+)?time(?:\s+is\s+it)?(?:\s+now)?(?:\s+(?:in|at))?\s+("# + place + #")\??$"#
     )
     private static let placeTimeRegex = try! NSRegularExpression(pattern: "^(" + place + #")\s+time$"#)
     private static let clockRegex = try! NSRegularExpression(
@@ -590,7 +594,7 @@ enum SmartSearchAnswer {
             guard let match = regex.firstMatch(in: query, range: whole) else { continue }
             guard let there = group(match, 1).flatMap(zone(named:)) else { return nil }
             let result = describe(now, in: there.zone, relativeTo: now, referenceZone: localZone)
-            return Answer(result: result, detail: "Time in \(there.label)", copyText: result)
+            return Answer(result: result, detail: "Time in \(there.label)", copyText: result, fieldText: result)
         }
 
         let source: Place?
@@ -644,7 +648,8 @@ enum SmartSearchAnswer {
         return Answer(
             result: result,
             detail: "\(shownClock) \(source?.label ?? "your time") in \(shownDestination)",
-            copyText: result
+            copyText: result,
+            fieldText: result
         )
     }
 
