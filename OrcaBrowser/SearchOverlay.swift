@@ -30,6 +30,8 @@ struct SearchOverlay: View {
     @State private var shouldMatchShortcut = false
     /// The suggestion was held: the other sites that match are shown too.
     @State private var isShowingOtherSuggestions = false
+    /// Everything is selected, the chip included: typing starts over without it.
+    @State private var isChipSelected = false
     /// Where to put the cursor once the field has taken a programmatic edit.
     @State private var pendingCursorOffset: Int?
     @State private var hasEditedText = false
@@ -138,7 +140,7 @@ struct SearchOverlay: View {
             if let offset = pendingCursorOffset {
                 pendingCursorOffset = nil
                 let shown = shownText
-                selection = TextSelection(insertionPoint: shown.index(shown.startIndex, offsetBy: min(offset, shown.count)))
+                selection = TextSelection(insertionPoint: Self.index(offset, in: shown))
             }
             guard shouldMatchShortcut else { return }
             shouldMatchShortcut = false
@@ -147,24 +149,60 @@ struct SearchOverlay: View {
             activateShortcutIfNeeded()
         }
         .onChange(of: isFocused) { _, focused in
-            if focused, selectInitialText, !text.isEmpty {
-                // Keep the chip: typing over a remembered search replaces only its query.
-                let shown = shownText
-                let start = activeProvider == nil ? shown.startIndex : shown.index(after: shown.startIndex)
-                selection = TextSelection(range: start..<shown.endIndex)
+            if focused, selectInitialText, !text.isEmpty || activeProvider != nil {
+                // The chip is part of what's selected, so typing starts over without it.
+                selectEverything()
+                // The field takes its text in the same pass; once it has, select again.
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(60))
+                    // SwiftUI can't place a selection in text with accented letters
+                    // (its positions count bytes), so ask the field itself too.
+                    if isFocused, isPresented, !hasEditedText {
+                        UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
+                    }
+                }
             } else if !focused {
                 selection = nil
             }
         }
+        .onChange(of: selection) { _, new in
+            guard activeProvider != nil, let new, case .selection(let range) = new.indices else {
+                isChipSelected = false
+                return
+            }
+            let shown = shownText
+            // The positions came from the field and may be for text that has since changed.
+            guard range.lowerBound >= shown.startIndex, range.upperBound <= shown.endIndex else {
+                isChipSelected = false
+                return
+            }
+            isChipSelected = range.lowerBound.utf16Offset(in: shown) == 0
+                && range.upperBound.utf16Offset(in: shown) == shown.utf16.count
+        }
+        .onChange(of: activeProvider?.id) { _, id in
+            if id == nil { isChipSelected = false }
+        }
     }
 
     /// Stands in for the chip inside the text field. It is invisible and has no
-    /// width, but it is a real character, so pressing delete with the cursor
+    /// width, but it is a real character (a plain ASCII one, because the field
+    /// only places selections correctly in text where bytes and characters line up), so pressing delete with the cursor
     /// right after the chip removes it, and that is how we notice.
-    private static let chipMarker = "\u{200B}"
+    private static let chipMarker = "\u{1}"
 
     private var shownText: String {
         activeProvider == nil ? text : Self.chipMarker + text
+    }
+
+    private func selectEverything() {
+        let shown = shownText
+        selection = TextSelection(range: Self.index(0, in: shown)..<Self.index(shown.utf16.count, in: shown))
+    }
+
+    /// The text field counts in UTF-16 units. The chip marker is one unit but
+    /// three bytes, so positions have to be built that way to land where meant.
+    private static func index(_ offset: Int, in string: String) -> String.Index {
+        String.Index(utf16Offset: min(max(0, offset), string.utf16.count), in: string)
     }
 
     private func resetInput() {
@@ -173,6 +211,7 @@ struct SearchOverlay: View {
         pendingCursorOffset = nil
         hasEditedText = false
         isShowingOtherSuggestions = false
+        isChipSelected = false
         activeProvider = settings.searchProviders.first { $0.id == initialProviderID && $0.isEnabled }
         typedShortcut = nil
         // Restoring a remembered ordinary query must not reinterpret it as a shortcut.
@@ -185,8 +224,8 @@ struct SearchOverlay: View {
         activeProvider = match.provider
         typedShortcut = String(text.drop(while: \.isWhitespace).prefix(while: { !$0.isWhitespace }))
         text = match.query
-        pendingCursorOffset = text.count + 1
-        selection = TextSelection(insertionPoint: shownText.endIndex)
+        pendingCursorOffset = text.utf16.count + 1
+        selection = TextSelection(insertionPoint: Self.index(shownText.utf16.count, in: shownText))
     }
 
     /// The chip turns back into the word it came from, and the cursor sits
@@ -199,8 +238,8 @@ struct SearchOverlay: View {
         shouldMatchShortcut = false
         suppressActivation = !query.isEmpty
         text = query.isEmpty ? word : word + " " + query
-        pendingCursorOffset = word.count
-        selection = TextSelection(insertionPoint: text.index(text.startIndex, offsetBy: word.count))
+        pendingCursorOffset = word.utf16.count
+        selection = TextSelection(insertionPoint: Self.index(word.utf16.count, in: text))
     }
 
     private var suggestedProvider: SearchProvider? {
@@ -268,8 +307,8 @@ struct SearchOverlay: View {
         isShowingOtherSuggestions = false
         suppressActivation = false
         isFocused = true
-        pendingCursorOffset = text.count + 1
-        selection = TextSelection(insertionPoint: shownText.endIndex)
+        pendingCursorOffset = text.utf16.count + 1
+        selection = TextSelection(insertionPoint: Self.index(shownText.utf16.count, in: shownText))
     }
 
     private var shouldNavigateClipboard: Bool {
@@ -312,7 +351,7 @@ struct SearchOverlay: View {
             if let provider = activeProvider {
                 // Part of the text: delete or its × turns it back into what was typed.
                 Button { dissolveProvider(keeping: text) } label: {
-                    SearchProviderChip(provider: provider, showsClose: true)
+                    SearchProviderChip(provider: provider, showsClose: true, isSelected: isChipSelected)
                 }
                 .buttonStyle(.plain)
                 .fixedSize(horizontal: true, vertical: false)
@@ -358,6 +397,16 @@ struct SearchOverlay: View {
             set: { newValue in
                 if activeProvider != nil {
                     guard newValue.hasPrefix(Self.chipMarker) else {
+                        if isChipSelected {
+                            // Typed over a selection that included the chip: start over.
+                            isChipSelected = false
+                            activeProvider = nil
+                            typedShortcut = nil
+                            suppressActivation = false
+                            text = newValue.replacingOccurrences(of: Self.chipMarker, with: "")
+                            shouldMatchShortcut = true
+                            return
+                        }
                         // The delete key reached the chip.
                         dissolveProvider(keeping: newValue.replacingOccurrences(of: Self.chipMarker, with: ""))
                         return
@@ -451,7 +500,7 @@ struct SearchOverlay: View {
         if !text.isEmpty { text.append(" ") }
         activateShortcutIfNeeded()
         isFocused = true
-        selection = TextSelection(insertionPoint: shownText.endIndex)
+        selection = TextSelection(insertionPoint: Self.index(shownText.utf16.count, in: shownText))
     }
 
     /// Types the item where the cursor is, without submitting, and puts it

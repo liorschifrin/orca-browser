@@ -5,6 +5,8 @@ import SwiftUI
 struct SearchProviderChip: View {
     let provider: SearchProvider
     var showsClose = false
+    /// Highlighted like selected text: typing will replace it.
+    var isSelected = false
 
     var body: some View {
         let fill = SiteAppearance.color(siteID: provider.id, host: provider.domain, setting: provider.color)
@@ -31,6 +33,9 @@ struct SearchProviderChip: View {
         .padding(.trailing, 7)
         .frame(height: 22)
         .background(fill, in: .capsule)
+        .overlay {
+            if isSelected { Capsule().fill(Color.accentColor.opacity(0.55)) }
+        }
         // Exactly as wide as its name, wherever it is placed.
         .fixedSize(horizontal: true, vertical: false)
         // The chip is small; the tap area around it is not.
