@@ -18,6 +18,7 @@ struct BrowserView: View {
     // and the submitted text then replaces the current page.
     @State private var editingURL: URL?
     @State private var searchInitialText = ""
+    @State private var searchInitialProviderID: String?
     @State private var searchIsIncognito = false
     @State private var searchOpenedFromGoogle = false
     @State private var replaceGoogleSearchOnSubmit = false
@@ -114,13 +115,19 @@ struct BrowserView: View {
                     onPresented: tab.markPeekPresented,
                     onOpenNewTab: {
                         if let page = tab.takePeek() {
-                            if page.searchText.isEmpty { page.searchText = tab.searchText }
+                            if page.searchText.isEmpty {
+                                page.searchText = tab.searchText
+                                page.searchProviderID = tab.searchProviderID
+                            }
                             store.adoptPreview(page, inBackground: false)
                         }
                     },
                     onOpenBackground: {
                         if let page = tab.takePeek() {
-                            if page.searchText.isEmpty { page.searchText = tab.searchText }
+                            if page.searchText.isEmpty {
+                                page.searchText = tab.searchText
+                                page.searchProviderID = tab.searchProviderID
+                            }
                             store.adoptPreview(page, inBackground: true)
                         }
                     },
@@ -140,23 +147,24 @@ struct BrowserView: View {
                 isPresented: isSearching,
                 initialText: searchInitialText,
                 selectInitialText: editingURL == nil,
+                initialProviderID: searchInitialProviderID,
                 showsIncognitoToggle: editingURL == nil,
                 isInIncognitoWindow: store.space == .incognito,
                 isIncognito: $searchIsIncognito,
                 onAppend: {
                     replaceGoogleSearchOnSubmit = searchOpenedFromGoogle
                 },
-                onSubmit: { input in
+                onSubmit: { submission in
                     let isIncognito = searchIsIncognito
                     let replacing = editingURL != nil || (replaceGoogleSearchOnSubmit
                         && store.selectedTab?.isIncognito == isIncognito)
                     closeSearch()
                     Task {
                         if replacing, let tab = store.selectedTab,
-                           let url = Destination.url(for: input) {
-                            tab.load(url, input: input)
+                           let url = submission.resolvedURL {
+                            tab.load(url, input: submission.text, providerID: submission.providerID)
                         } else {
-                            store.open(input, isIncognito: isIncognito)
+                            store.open(submission, isIncognito: isIncognito)
                         }
                         closeSwitcher()
                     }
@@ -641,6 +649,7 @@ struct BrowserView: View {
     private func openSearch(editing url: URL? = nil) {
         InteractionBudget.shared.interacted()
         editingURL = url
+        searchInitialProviderID = url == nil ? store.selectedTab?.searchProviderID : nil
         searchIsIncognito = store.selectedTab?.isIncognito ?? false
         searchOpenedFromGoogle = url == nil
             && Destination.searchQuery(from: store.selectedTab?.url) != nil
