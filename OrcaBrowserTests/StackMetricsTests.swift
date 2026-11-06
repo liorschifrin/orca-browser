@@ -10,6 +10,40 @@ struct StackMetricsTests {
         #expect(abs(card.width / card.height - 402 / 874) < 0.0001)
     }
 
+    @Test func restingPreviewsFillCardsWithoutChromeInsets() {
+        let layout = previewLayout(expansion: 0)
+        #expect(layout.topInset == 0)
+        #expect(layout.height == metrics.cardHeight)
+        #expect(layout.pageSize.width * layout.scale >= metrics.cardWidth)
+        #expect(layout.pageSize.height * layout.scale >= metrics.cardHeight)
+    }
+
+    @Test func expandedPreviewsMatchTheBrowserViewport() {
+        let layout = previewLayout(expansion: 1)
+        let fullScreenScale = metrics.screen.width / metrics.cardWidth
+        #expect(abs(layout.topInset * fullScreenScale - metrics.topInset) < 0.001)
+        #expect(abs(layout.scale * fullScreenScale - 1) < 0.001)
+        #expect(abs(layout.height * fullScreenScale - layout.pageSize.height) < 0.001)
+    }
+
+    @Test func previewFramingInterpolatesDuringExpansion() {
+        let resting = previewLayout(expansion: 0)
+        let expanded = previewLayout(expansion: 1)
+        let halfway = previewLayout(expansion: 0.5)
+        #expect(abs(halfway.scale - (resting.scale + expanded.scale) / 2) < 0.001)
+        #expect(abs(halfway.height - (resting.height + expanded.height) / 2) < 0.001)
+        #expect(abs(halfway.topInset - expanded.topInset / 2) < 0.001)
+    }
+
+    private func previewLayout(expansion: CGFloat) -> CardPreviewLayout {
+        CardPreviewLayout(
+            cardSize: metrics.cardSize,
+            pageSize: CGSize(width: metrics.screen.width, height: metrics.screen.height - metrics.topInset - 34 - 70),
+            contentTop: metrics.contentTop,
+            expansion: expansion
+        )
+    }
+
     @Test func aFullyExpandedCardFillsTheScreen() {
         let pose = metrics.pose(relative: 3, entrance: 1, expand: 1, startTilt: 8)
         #expect(abs(pose.center.x - 201) < 0.001)
