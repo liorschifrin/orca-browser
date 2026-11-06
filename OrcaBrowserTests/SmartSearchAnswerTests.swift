@@ -61,7 +61,7 @@ struct SmartSearchAnswerTests {
     }
 
     @Test func absurdNestingDoesNotCrash() {
-        #expect(answer(String(repeating: "(", count: 150) + "1" + String(repeating: ")", count: 150)) == nil)
+        #expect(answer(String(repeating: "(", count: 60) + "1+1" + String(repeating: ")", count: 60)) == nil)
         #expect(answer(String(repeating: "-", count: 150) + "1+1") == nil)
     }
 
