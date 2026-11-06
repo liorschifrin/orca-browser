@@ -634,5 +634,11 @@ private struct SmartAnswerCard: View {
         .accessibilityElement(children: .contain)
         // A new answer is a new thing to copy.
         .onChange(of: answer) { didCopy = false }
+        // The checkmark only confirms the tap, so it fades back after a moment.
+        .task(id: didCopy) {
+            guard didCopy else { return }
+            try? await Task.sleep(for: .seconds(1.2))
+            didCopy = false
+        }
     }
 }
