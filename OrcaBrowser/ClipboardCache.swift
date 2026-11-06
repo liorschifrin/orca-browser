@@ -8,13 +8,14 @@ import UniformTypeIdentifiers
 /// iOS has no API for the "Paste from Other Apps" setting, and reading text
 /// another app copied can raise an Allow Paste prompt. So the cache learns
 /// what it can from how reads behave and remembers it across launches:
-/// - `allowed`: a quick read of new text we didn't copy ourselves. Safe to read
-///   in the background, so the clipboard chip is ready the instant search opens.
+/// - `allowed`: a quick read of new text we didn't copy ourselves, or the user
+///   tapped Settings to fix access. Background reads resume until a read fails,
+///   so the clipboard chip is ready the instant search opens.
 ///   Rereading text that was already read, or copied by us, proves nothing: iOS
 ///   doesn't ask again for text it has already let us read.
 /// - `needsPermission`: a read was refused, or took long enough that a prompt
 ///   was most likely shown. Reads wait until search opens, and the search
-///   panel keeps offering a way to Settings until a quick read proves it's on.
+///   panel offers a way to Settings until tapped or a quick read proves it's on.
 /// - `unknown`: nothing learned yet. Reads wait until search opens.
 ///
 /// Whatever a read finds is also remembered in `ClipboardHistory`. Pictures
@@ -128,7 +129,13 @@ final class ClipboardCache {
 
     /// Opens this app's page in Settings, where "Paste from Other Apps" lives.
     func openSettings() {
+        // Assume the user fixes permission in Settings. Keep that assumption
+        // until a later read actually fails, rather than warning on slow reads.
+        // A read started before this tap must not restore the stale warning.
+        refreshTask?.cancel()
+        refreshTask = nil
         deniedChangeCount = -1
+        setAccess(.allowed)
         guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
         UIApplication.shared.open(url)
     }
@@ -246,8 +253,10 @@ final class ClipboardCache {
         let isNew = snapshot.after != lastReadChangeCount
         lastReadChangeCount = snapshot.after
         UserDefaults.standard.set(snapshot.after, forKey: Self.lastReadCountKey)
-        // A slow read means a prompt, even if we thought pasting was allowed:
-        // reading in the background must stop, and the chip must show.
+        // A successful read supports the current allowed state even if it was
+        // slow (for example, Universal Clipboard). Only failed reads revoke it.
+        guard access != .allowed else { return }
+        // Without an allowed state yet, stay cautious about possible prompts.
         if afterPrompt || snapshot.duration > Self.promptThreshold {
             setAccess(.needsPermission)
         } else if isNew, snapshot.after != ownChangeCount, snapshot.text != ownCopiedText {
