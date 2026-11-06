@@ -130,6 +130,18 @@ struct SearchOverlay: View {
             if newText != initialText { hasEditedText = true }
             answer = SmartSearchAnswer.evaluate(newText)
         }
+        .task(id: isPresented && scenePhase == .active) {
+            guard isPresented, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                answer = SmartSearchAnswer.evaluate(text)
+                let delay = 60 - Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
     private var clipboardText: String {

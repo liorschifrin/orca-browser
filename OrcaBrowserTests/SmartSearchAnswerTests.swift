@@ -183,6 +183,50 @@ struct SmartSearchAnswerTests {
         #expect(plain(try #require(answer("time sf")).fieldText) == "4:00 AM")
     }
 
+    @Test(arguments: [
+        ("1 l to gal", "l"),
+        ("1 l to qt", "l"),
+        ("1 l to pt", "l"),
+        ("1 l to cups", "l"),
+        ("1 l to floz", "l"),
+        ("1 sqm to sqft", "sqm"),
+        ("1 sqkm to sqmi", "sqkm"),
+        ("1 sqft to sqm", "sqft"),
+        ("1 sqmi to sqkm", "sqmi"),
+        ("1 c to f", "c"),
+        ("1 gb to kib", "gb"),
+        ("1 mg to t", "mg"),
+    ])
+    func insertedConversionsCanBeConvertedAgain(query: String, originalUnit: String) throws {
+        let original = try #require(answer(query))
+        let convertedBack = try #require(answer(original.fieldText + " to " + originalUnit))
+        let amount = try #require(Double(convertedBack.copyText))
+        #expect(abs(amount - 1) < 0.000001)
+    }
+
+    @Test func scientificResultsCanContinueCalculations() throws {
+        for query in ["1000000000000000 * 2", "0.00000000001 / 2"] {
+            let original = try #require(answer(query))
+            let continued = try #require(answer(original.fieldText + " * 2"))
+            let originalValue = try #require(Double(original.copyText))
+            #expect(Double(continued.copyText) == originalValue * 2)
+        }
+        #expect(try #require(answer("1e+3 + 2E-1")).copyText == "1000.2")
+        #expect(try #require(answer("1e3 mi to km")).copyText == "1609.344")
+    }
+
+    @Test(arguments: ["1e + 2", "1e- * 2", "1e2e3 + 2", "e3 + 2", "1e999 * 2", "1e999 mi to km", "2E15"])
+    func invalidOrStandaloneScientificNumbersStaySearches(query: String) {
+        #expect(answer(query) == nil)
+    }
+
+    @Test func currentTimeUsesTheLatestEvaluationDate() throws {
+        let first = try #require(answer("time sf"))
+        let nextMinute = try #require(SmartSearchAnswer.evaluate("time sf", now: now.addingTimeInterval(60), localZone: newYork))
+        #expect(first.copyText != nextMinute.copyText)
+        #expect(plain(nextMinute.copyText) == "4:01 AM")
+    }
+
     @Test func everyListedPlaceHasARealTimeZone() {
         for (name, identifier) in SmartSearchAnswer.countries.merging(SmartSearchAnswer.extraCities, uniquingKeysWith: { $1 }) {
             #expect(TimeZone(identifier: identifier) != nil, "\(name) → \(identifier)")

@@ -66,7 +66,7 @@ enum SmartSearchAnswer {
         // "20% of 150"
         text = text.replacingOccurrences(of: #"(?i)\s+of\s+"#, with: "*", options: .regularExpression)
 
-        let allowed = CharacterSet(charactersIn: "0123456789.+-*/^()% ")
+        let allowed = CharacterSet(charactersIn: "0123456789.eE+-*/^()% ")
         guard text.rangeOfCharacter(from: allowed.inverted) == nil,
               text.rangeOfCharacter(from: .decimalDigits) != nil,
               !looksLikeDateOrPhoneNumber(text) else { return nil }
@@ -182,6 +182,17 @@ enum SmartSearchAnswer {
                       characters[index].isNumber || characters[index] == "." {
                     index += 1
                 }
+                if index < characters.count, characters[index] == "e" || characters[index] == "E" {
+                    index += 1
+                    if index < characters.count, characters[index] == "+" || characters[index] == "-" {
+                        index += 1
+                    }
+                    let exponentStart = index
+                    while index < characters.count, characters[index].isASCII, characters[index].isNumber {
+                        index += 1
+                    }
+                    guard index > exponentStart else { return nil }
+                }
                 guard start < index, let value = Double(String(characters[start..<index])) else { return nil }
                 operand = Operand(value: value)
             }
@@ -268,6 +279,13 @@ enum SmartSearchAnswer {
         add(["c", "celsius", "degc"], "temperature", 1, "°C")
         add(["f", "fahrenheit", "degf"], "temperature", 5.0 / 9, "°F", offset: -32)
         add(["k", "kelvin"], "temperature", 1, "K", offset: -273.15)
+        for unit in result.values.sorted(by: { $0.order < $1.order }) {
+            let alias = unit.label.lowercased()
+                .replacingOccurrences(of: "²", with: "2")
+                .replacingOccurrences(of: "°", with: "")
+                .replacingOccurrences(of: " ", with: "")
+            if result[alias] == nil { result[alias] = unit }
+        }
         return result
     }()
 
@@ -352,7 +370,7 @@ enum SmartSearchAnswer {
     }
 
     private static let conversionRegex = try! NSRegularExpression(
-        pattern: #"^(-?(?:\d+(?:,\d{3})*|\d*)(?:\.\d+)?)\s*°?\s*([a-z][a-z0-9/]*)(?:\s+(to|in|into|as)(?:\s+°?\s*([a-z][a-z0-9/]*))?)?$"#
+        pattern: #"^(-?(?:\d+(?:,\d{3})*|\d*)(?:\.\d+)?(?:e[+-]?\d+)?)\s*°?\s*((?:us\s+)?(?:fl\s+)?[a-z][a-z0-9/²]*)(?:\s+(to|in|into|as)(?:\s+°?\s*((?:us\s+)?(?:fl\s+)?[a-z][a-z0-9/²]*))?)?$"#
     )
 
     private static func conversion(_ query: String, usesMetric: Bool) -> Answer? {
@@ -361,6 +379,8 @@ enum SmartSearchAnswer {
         func group(_ i: Int) -> String? {
             let r = match.range(at: i)
             return r.location == NSNotFound ? nil : ns.substring(with: r)
+                .replacingOccurrences(of: "²", with: "2")
+                .replacingOccurrences(of: " ", with: "")
         }
         guard let amount = group(1).flatMap({ Double($0.replacingOccurrences(of: ",", with: "")) }),
               let fromName = group(2), let from = units[fromName] else { return nil }
