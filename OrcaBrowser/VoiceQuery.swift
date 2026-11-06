@@ -25,6 +25,7 @@ enum VoiceQueryBuiltin: String, CaseIterable, Identifiable, Codable {
         case .bing: "magnifyingglass.circle"
         }
     }
+    /// Resolves the tile color, honoring per-site appearance when available.
     var selectionColor: Color {
         switch self {
         case .google: .blue
@@ -139,6 +140,7 @@ struct VoiceQueryDestination: Identifiable, Codable, Hashable {
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
+    /// Resolves the tile color, honoring per-site appearance when available.
     var selectionColor: Color {
         if let appearance {
             return SiteAppearance.color(siteID: appearance.siteID, host: appearance.host, setting: appearance.color)
@@ -155,6 +157,7 @@ struct VoiceQueryDestination: Identifiable, Codable, Hashable {
         }
     }
 
+    /// Supplies the custom template or the built-in action URL for the voice editor.
     var editableTemplate: String {
         if let searchTemplate { return searchTemplate }
         return VoiceQueryBuiltin(rawValue: id)?.url(for: "{query}")?.absoluteString

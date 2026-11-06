@@ -6,6 +6,7 @@ enum SiteIconChoice: Codable, Equatable, Hashable {
     case site
     case symbol(String)
 
+    /// The selected SF Symbol name, or nil when the fetched site icon is selected.
     var symbolName: String? {
         if case .symbol(let name) = self { name } else { nil }
     }
@@ -72,10 +73,12 @@ struct SearchSite: Codable, Identifiable, Equatable {
         voiceIDs.first { $0.value == voiceID }?.key ?? voiceID
     }
 
+    /// The template host used to discover and cache the site icon.
     var host: String {
         URLComponents(string: template.replacingOccurrences(of: "%s", with: "query"))?.host ?? ""
     }
 
+    /// Projects voice appearance and routing, leaving the template unset for ChatGPT app handoff.
     var voiceDestination: VoiceQueryDestination {
         VoiceQueryDestination(
             id: voiceID, rawValue: name, symbol: voiceIcon.symbolName ?? "globe", color: voiceColor.name,
@@ -84,6 +87,7 @@ struct SearchSite: Codable, Identifiable, Equatable {
         )
     }
 
+    /// Projects typing shortcuts, enabled state, template, and chip appearance.
     var provider: SearchProvider {
         SearchProvider(id: id, name: name, shortcuts: shortcuts, template: template, isEnabled: usesTyping,
                        icon: typingIcon, color: typingColor)
@@ -199,6 +203,7 @@ struct SearchSitePreferences: Codable, Equatable {
 
     func site(id: String) -> SearchSite? { sites.first { $0.id == id } }
 
+    /// Projects all sites in order while enabling only the configured voice destinations.
     var voiceOptions: VoiceQueryOptions {
         let destinations = sites.map(\.voiceDestination)
         return VoiceQueryOptions(exactOrder: destinations, enabled: Set(sites.filter(\.usesVoice).map(\.voiceDestination)))

@@ -21,6 +21,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
+    /// The template host used for local name/domain suggestion matching.
     var domain: String {
         URLComponents(string: template.replacingOccurrences(of: "%s", with: "query"))?.host ?? ""
     }
@@ -91,6 +92,7 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         "ai-mode": "https://www.google.com/?udm=50",
     ]
 
+    /// Resolves the empty-query destination, using special built-in homepages where required.
     var homeURL: URL? {
         if let page = Self.homePages[id] { return URL(string: page) }
         guard var components = URLComponents(string: template.replacingOccurrences(of: "%s", with: "query")),
