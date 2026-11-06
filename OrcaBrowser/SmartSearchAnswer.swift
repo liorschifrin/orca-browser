@@ -407,22 +407,15 @@ enum SmartSearchAnswer {
 
     // MARK: Time zones
 
-    /// Abbreviations a person would type. The generic ones (PT, ET, …) follow
-    /// daylight saving; the specific ones (PST, EDT, …) are fixed offsets.
+    /// Abbreviations a person would type. The US ones follow daylight saving
+    /// whichever form is typed: "PST" or "PDT" almost always means "Pacific
+    /// time right now", so both read as PT, and likewise for ET, CT and MT.
     private static func zone(abbreviation: String) -> TimeZone? {
         switch abbreviation {
-        case "pt": TimeZone(identifier: "America/Los_Angeles")
-        case "et": TimeZone(identifier: "America/New_York")
-        case "ct": TimeZone(identifier: "America/Chicago")
-        case "mt": TimeZone(identifier: "America/Denver")
-        case "pst": TimeZone(secondsFromGMT: -8 * 3600)
-        case "pdt": TimeZone(secondsFromGMT: -7 * 3600)
-        case "mst": TimeZone(secondsFromGMT: -7 * 3600)
-        case "mdt": TimeZone(secondsFromGMT: -6 * 3600)
-        case "cst": TimeZone(secondsFromGMT: -6 * 3600)
-        case "cdt": TimeZone(secondsFromGMT: -5 * 3600)
-        case "est": TimeZone(secondsFromGMT: -5 * 3600)
-        case "edt": TimeZone(secondsFromGMT: -4 * 3600)
+        case "pt", "pst", "pdt": TimeZone(identifier: "America/Los_Angeles")
+        case "et", "est", "edt": TimeZone(identifier: "America/New_York")
+        case "ct", "cst", "cdt": TimeZone(identifier: "America/Chicago")
+        case "mt", "mst", "mdt": TimeZone(identifier: "America/Denver")
         case "utc", "gmt": TimeZone(secondsFromGMT: 0)
         case "bst": TimeZone(secondsFromGMT: 3600)
         case "cet": TimeZone(secondsFromGMT: 3600)
@@ -573,9 +566,7 @@ enum SmartSearchAnswer {
     private static func zone(named raw: String) -> (zone: TimeZone, label: String)? {
         var name = normalizedPlace(raw)
         if name.hasPrefix("the ") { name.removeFirst(4) }
-        if let zone = zone(abbreviation: name) {
-            return (zone, name == "cst" ? "CST (UTC−06:00)" : name.uppercased())
-        }
+        if let zone = zone(abbreviation: name) { return (zone, name.uppercased()) }
         guard let identifier = citiesToZones[name], let zone = TimeZone(identifier: identifier) else { return nil }
         var label = title(name)
         if multiZoneCountries.contains(name), let city = identifier.split(separator: "/").last {

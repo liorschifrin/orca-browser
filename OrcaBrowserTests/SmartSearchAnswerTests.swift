@@ -136,11 +136,17 @@ struct SmartSearchAnswerTests {
         #expect(result.detail.hasPrefix("9:00 AM PST in your time"))
     }
 
-    @Test func genericZonesFollowDaylightSaving() throws {
-        // Nov 5: PT is PST (UTC-8), ET is EST (UTC-5).
-        #expect(plain(try #require(answer("9:00 am pt to et")).copyText) == "12:00 PM")
-        // PDT is UTC-7 no matter the date.
-        #expect(plain(try #require(answer("9:00 am pdt to et")).copyText) == "11:00 AM")
+    @Test func usZonesFollowDaylightSavingWhicheverFormIsTyped() throws {
+        // Nov 5: PT is PST (UTC-8), ET is EST (UTC-5). "PDT" means Pacific time too.
+        for query in ["9:00 am pt to et", "9:00 am pst to est", "9:00 am pdt to edt", "9:00 am pdt to et"] {
+            #expect(plain(try #require(answer(query)).copyText) == "12:00 PM", "\(query)")
+        }
+        // Summer: the same words give the summer offsets.
+        let july = try #require(ISO8601DateFormatter().date(from: "2026-07-01T12:00:00Z"))
+        let summer = try #require(SmartSearchAnswer.evaluate("9am pst to est", now: july, localZone: newYork))
+        #expect(plain(summer.copyText) == "12:00 PM")
+        let central = try #require(SmartSearchAnswer.evaluate("9am cst to utc", now: july, localZone: newYork))
+        #expect(plain(central.copyText) == "2:00 PM")
     }
 
     @Test func twentyFourHourTimesNeedNoMeridiem() throws {
@@ -252,8 +258,6 @@ struct SmartSearchAnswerTests {
         #expect(plain(result.copyText) == "8:30 AM (UTC+00:00) or 9:30 AM (UTC+00:00)")
         #expect(result.detail.contains("occurs twice during clock change"))
         #expect(result.fieldText == result.copyText)
-        #expect(plain(try #require(SmartSearchAnswer.evaluate("1:30am pdt to utc", now: fallBack, localZone: newYork)).copyText) == "8:30 AM")
-        #expect(plain(try #require(SmartSearchAnswer.evaluate("1:30am pst to utc", now: fallBack, localZone: newYork)).copyText) == "9:30 AM")
     }
 
     @Test func repeatedDestinationClocksHaveDistinctOffsets() throws {
@@ -271,12 +275,7 @@ struct SmartSearchAnswerTests {
         #expect(result.detail.contains("2026-04-05 → 2026-04-04"))
     }
 
-    @Test func cstNamesTheChosenOffset() throws {
-        let source = try #require(answer("9am cst to utc"))
-        #expect(plain(source.copyText) == "3:00 PM")
-        #expect(source.detail.contains("CST (UTC−06:00)"))
-        #expect(try #require(answer("9am utc to cst")).detail.contains("CST (UTC−06:00)"))
-        #expect(try #require(answer("time cst")).detail == "Time in CST (UTC−06:00)")
+    @Test func chinaStandardTimeIsStillSelectedByCountryName() throws {
         #expect(plain(try #require(answer("9am china to utc")).copyText) == "1:00 AM")
     }
 
