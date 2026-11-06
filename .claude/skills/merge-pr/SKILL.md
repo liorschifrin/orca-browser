@@ -11,8 +11,8 @@ link, what's blocking, options with your recommendation first). A plain message
 in a watched thread goes unseen. After the answer, `watch_pull_request` again if
 the PR is still open.
 
-1. **Open.** Stop on `main`, or on uncommitted changes (ask). Reuse an open PR
-   (`gh pr view`); stop if it's merged or closed. Otherwise
+1. **Open.** Stop on `main`. Commit any uncommitted changes first. Reuse an open PR
+   (`gh pr view`, and push your commits); stop if it's merged or closed. Otherwise
    `git fetch origin` and `git merge origin/main`, resolving conflicts (ask the user
    about judgment calls), then push and `gh pr create --base main` with a short
    plain title (the phone's what's-new panel shows it) and a few-line body. Then

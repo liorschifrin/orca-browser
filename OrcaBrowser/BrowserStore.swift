@@ -267,20 +267,25 @@ final class BrowserStore {
     /// Reuses a blank tab only when its privacy matches the requested mode.
     /// Without an explicit mode, new tabs inherit the current tab's privacy.
     func open(_ input: String, isIncognito: Bool? = nil) {
+        open(SearchSubmission(text: input), isIncognito: isIncognito)
+    }
+
+    /// Opens a resolved submission in a compatible blank tab or a new tab, retaining its search provider.
+    func open(_ submission: SearchSubmission, isIncognito: Bool? = nil) {
         let interval = PerformanceTrace.signposter.beginInterval("New tab submission")
         defer { PerformanceTrace.signposter.endInterval("New tab submission", interval) }
         InteractionBudget.shared.interacted()
-        guard let url = Destination.url(for: input) else { return }
+        guard let url = submission.resolvedURL else { return }
         // Everything opened inside the incognito window is private.
         let privateMode = space == .incognito || (isIncognito ?? selectedTab?.isIncognito ?? false)
 
         if let current = selectedTab, current.isBlank, current.isIncognito == privateMode {
             current.lastOpenedAt = .now
-            current.load(url, input: input)
+            current.load(url, input: submission.text, providerID: submission.providerID)
         } else {
             // Navigation never waits for a picture. Cards use a cached image
             // or a placeholder until a later idle capture.
-            let tab = makeTab(url: url, input: input, isIncognito: privateMode)
+            let tab = makeTab(url: url, input: submission.text, providerID: submission.providerID, isIncognito: privateMode)
             watch([tab])
             selectedTab?.lastViewed = .now
             selectedTab?.lastOpenedAt = .now
@@ -302,8 +307,8 @@ final class BrowserStore {
 
     /// A new tab for the space being shown: in the incognito window it joins
     /// the window's session.
-    private func makeTab(url: URL? = nil, input: String? = nil, isIncognito: Bool) -> Tab {
-        Tab(url: url, input: input, isIncognito: isIncognito, session: space == .incognito ? incognitoWindow?.session : nil)
+    private func makeTab(url: URL? = nil, input: String? = nil, providerID: String? = nil, isIncognito: Bool) -> Tab {
+        Tab(url: url, input: input, providerID: providerID, isIncognito: isIncognito, session: space == .incognito ? incognitoWindow?.session : nil)
     }
 
     /// Opens `url` in a new tab behind the current one, which stays showing.
