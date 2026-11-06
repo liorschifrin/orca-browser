@@ -363,9 +363,7 @@ final class Tab: Identifiable {
         if let current = view.url, current != url {
             url = current
             urlChanged = true
-            if searchProviderID == nil, let query = Destination.searchQuery(from: current) {
-                searchText = query
-            }
+            refreshSearchState(for: current)
             onChange?()
         }
         let previousTitle = title
@@ -419,6 +417,35 @@ final class Tab: Identifiable {
         }
     }
 
+    /// Google result navigation replaces a stale search, but retains a chip
+    /// when the current URL still matches that provider's search parameters.
+    func refreshSearchState(for url: URL) {
+        guard let query = Destination.searchQuery(from: url) else { return }
+        if let providerID = searchProviderID {
+            let provider = AppSettings.shared.searchProviders.first { $0.id == providerID }
+            let expected = provider?.url(for: query)
+            let expectedParts = expected.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+            var actualParts = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            let decodedQuery = actualParts?.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%20")
+            actualParts?.percentEncodedQuery = decodedQuery
+            let expectedItems = expectedParts?.queryItems ?? []
+            let actualItems = actualParts?.queryItems ?? []
+            func mode(_ items: [URLQueryItem]) -> String {
+                let udm = items.first { $0.name == "udm" }?.value
+                let tbm = items.first { $0.name == "tbm" }?.value
+                // Google can redirect its Images template to the older parameter.
+                if udm == "2" || tbm == "isch" { return "images" }
+                return "\(udm ?? "")/\(tbm ?? "")"
+            }
+            let matches = Destination.searchQuery(from: expected) == query
+                && expectedItems.filter { $0.name != "udm" && $0.name != "tbm" }
+                    .allSatisfy { actualItems.contains($0) }
+                && mode(expectedItems) == mode(actualItems)
+            if !matches { searchProviderID = nil }
+        }
+        searchText = query
+    }
+
     // MARK: - Actions
 
     func load(_ url: URL, input: String? = nil, providerID: String? = nil) {
@@ -426,8 +453,8 @@ final class Tab: Identifiable {
         if let input {
             searchProviderID = providerID
             searchText = providerID == nil ? (Destination.searchQuery(from: url) ?? input) : input
-        } else if searchProviderID == nil, let query = Destination.searchQuery(from: url) {
-            searchText = query
+        } else {
+            refreshSearchState(for: url)
         }
         isBlank = false
         loadError = nil

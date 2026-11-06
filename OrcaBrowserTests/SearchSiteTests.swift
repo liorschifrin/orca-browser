@@ -97,6 +97,55 @@ struct SearchSiteTests {
         #expect(migrated.site(id: "youtube")?.shortcuts == ["yt"])
     }
 
+    @Test(arguments: [false, true]) func migrationDoesNotReclaimRemovedShortcuts(voiceEnabled: Bool) throws {
+        let typing = Data(#"{"overrides":[{"id":"mine","name":"Mine","shortcuts":["A"],"template":"https://example.com/?q=%s"}],"removedIDs":["amazon"]}"#.utf8)
+        var options = VoiceQueryOptions.defaults
+        options.setEnabled(.amazon, voiceEnabled)
+        let migrated = SearchSitePreferences.migrated(typing: typing, voice: try JSONEncoder().encode(options))
+        let amazon = try #require(migrated.site(id: "amazon"))
+        #expect(!amazon.usesTyping)
+        #expect(amazon.usesVoice == voiceEnabled)
+        #expect(amazon.shortcuts == ["amz"])
+        let mine = try #require(migrated.site(id: "mine"))
+        #expect(mine.validationError(among: migrated.sites) == nil)
+    }
+
+    @Test(arguments: ["YouTube", "ChatGPT"]) func incompatibleLegacyVoiceTemplatePreservesTyping(id: String) throws {
+        let destination = VoiceQueryDestination(id: id, rawValue: id, searchTemplate: "http://example.com/?q={query}")
+        let options = VoiceQueryOptions(order: [destination], enabled: [destination])
+        let migrated = SearchSitePreferences.migrated(typing: nil, voice: try JSONEncoder().encode(options))
+        let site = try #require(migrated.site(id: SearchSite.siteID(forVoiceID: id)))
+        #expect(site.provider.url(for: "hello") != nil)
+        #expect(site.template == SearchSite.builtIns.first { $0.id == site.id }?.template)
+        #expect(!site.usesVoice)
+        let voice = try #require(migrated.voiceSites.first { $0.name == "\(id) (voice)" })
+        #expect(!voice.usesTyping)
+        #expect(!voice.opensChatGPTApp)
+        #expect(voice.voiceDestination.searchTemplate == destination.searchTemplate)
+    }
+
+    @Test func disabledTypingTemplateIsPreservedDuringVoiceMigration() throws {
+        let typing = Data(#"{"overrides":[{"id":"youtube","name":"YouTube","shortcuts":["yt"],"template":"https://www.youtube.com/results?search_query=%s&hl=cs","isEnabled":false}],"removedIDs":[]}"#.utf8)
+        let destination = VoiceQueryDestination(id: "YouTube", rawValue: "YouTube", searchTemplate: "https://example.com/?q={query}")
+        let options = VoiceQueryOptions(order: [destination], enabled: [destination])
+        let migrated = SearchSitePreferences.migrated(typing: typing, voice: try JSONEncoder().encode(options))
+        #expect(migrated.site(id: "youtube")?.template.hasSuffix("&hl=cs") == true)
+        #expect(migrated.site(id: "youtube")?.usesTyping == false)
+        #expect(migrated.voiceSites.first { $0.name == "YouTube (voice)" }?.template == "https://example.com/?q=%s")
+    }
+
+    @Test func removedTypingSiteKeepsSingleCustomVoiceEntry() throws {
+        let typing = Data(#"{"overrides":[],"removedIDs":["chatgpt"]}"#.utf8)
+        let destination = VoiceQueryDestination(id: "ChatGPT", rawValue: "ChatGPT", searchTemplate: "http://example.com/?q={query}")
+        let options = VoiceQueryOptions(order: [destination], enabled: [destination])
+        let migrated = SearchSitePreferences.migrated(typing: typing, voice: try JSONEncoder().encode(options))
+        let site = try #require(migrated.site(id: "chatgpt"))
+        #expect(!site.usesTyping)
+        #expect(!site.opensChatGPTApp)
+        #expect(site.voiceDestination.searchTemplate == destination.searchTemplate)
+        #expect(migrated.sites.filter { $0.name.hasPrefix("ChatGPT") }.count == 1)
+    }
+
     @Test func templatesRoundTripBetweenTypingAndVoiceSyntax() throws {
         let site = try #require(SearchSite.builtIns.first { $0.id == "amazon" })
         #expect(site.voiceDestination.searchTemplate == "https://www.amazon.com/s?k={query}")

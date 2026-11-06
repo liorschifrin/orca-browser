@@ -332,9 +332,16 @@ struct SearchSitePreferences: Codable, Equatable {
         for destination in options.order {
             let id = SearchSite.siteID(forVoiceID: destination.id)
             let builtInDefault = VoiceQueryDestination(rawValue: destination.id)
-            // Deleted from typing: keep it for voice only.
+            let taken = Set(sites.filter { $0.id != id }.flatMap(\.shortcuts).map(SearchProvider.normalize))
+            let hasExistingSite = sites.contains { $0.id == id }
+            // Deleted from typing: keep it for voice only without reclaiming shortcuts.
             var site = sites.first { $0.id == id }
-                ?? SearchSite.builtIns.first { $0.id == id }.map { var s = $0; s.usesTyping = false; return s }
+                ?? SearchSite.builtIns.first { $0.id == id }.map {
+                    var restored = $0
+                    restored.usesTyping = false
+                    restored.shortcuts.removeAll { taken.contains(SearchProvider.normalize($0)) }
+                    return restored
+                }
                 ?? SearchSite(id: id, name: destination.rawValue, template: "https://example.com/?q=%s", usesTyping: false)
             let wasEnabled = options.enabled.contains(destination)
             site.name = destination.rawValue
@@ -345,10 +352,11 @@ struct SearchSitePreferences: Codable, Equatable {
                 site.voiceColor = .custom(SiteColors.hex(forName: destination.color))
             }
             if let voiceTemplate = destination.searchTemplate?.replacingOccurrences(of: "{query}", with: "%s"),
-               voiceTemplate != site.template {
+               voiceTemplate != site.template || site.opensChatGPTApp {
                 let typingWasEdited = SearchSite.builtIns.first { $0.id == id }.map { $0.template != site.template } ?? false
-                if typingWasEdited {
-                    // Both were customised differently: keep both, rather than pick one.
+                let canShareTemplate = SearchProvider.templateError(voiceTemplate) == nil && !site.opensChatGPTApp
+                if hasExistingSite && (typingWasEdited || !canShareTemplate) {
+                    // Preserve typing when the voice customisation cannot serve both uses.
                     var voiceOnly = site
                     voiceOnly.id = UUID().uuidString
                     voiceOnly.name = "\(destination.rawValue) (voice)"
@@ -364,6 +372,7 @@ struct SearchSitePreferences: Codable, Equatable {
                 }
                 site.template = voiceTemplate
             }
+            if destination.searchTemplate != nil { site.opensChatGPTApp = false }
             site.usesVoice = wasEnabled
             ordered.append(site)
         }

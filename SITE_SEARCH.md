@@ -12,7 +12,7 @@ Automatic activation requires the complete shortcut and a whitespace boundary: `
 
 Use **Settings → Search sites** to manage everything in one list. Each site has a name, an HTTPS URL with exactly one `%s`, and two independent uses: **typing** (one or more shortcuts) and **voice** (a place in the voice layout, up to nine). The keyboard and microphone buttons on a row turn each use on or off; the Voice filter shows the layout preview and lets you drag to reorder. Each use has its own icon (the site's fetched icon, or an SF Symbol) and colour (the site's colour, or any colour you pick). Shortcuts are 1–20 ASCII letters/numbers with optional hyphens/underscores, and stay unique even when a site isn't used for typing.
 
-Built-in definitions are one-line entries in `OrcaBrowser/SearchSite.swift`, under `SearchSite.builtIns`. Use a stable, unique ID and unique shortcuts. The list is saved as `searchSites.v1`; built-ins added later appear at the end without overwriting edits or resurrecting removed sites. The first time it loads, it is built from the older `searchProviders.v1` and `voiceQueryOptions` settings, which are left untouched. If a site was customised differently in both, both are kept as separate entries. Search queries and provider IDs are saved with tabs.
+Built-in definitions are one-line entries in `OrcaBrowser/SearchSite.swift`, under `SearchSite.builtIns`. Use a stable, unique ID and unique shortcuts. The list is saved as `searchSites.v1`; built-ins added later appear at the end without overwriting edits or resurrecting removed sites. The first time it loads, it is built from the older `searchProviders.v1` and `voiceQueryOptions` settings, which are left untouched. If a site was customised differently in both, or its legacy voice template cannot serve typing, both are kept as separate entries. Restoring a removed site for voice does not reclaim shortcuts assigned to other sites. Explicit legacy ChatGPT voice templates keep their web destination. Search queries and provider IDs are saved with tabs. Later Google result navigation refreshes the query and clears a stale provider chip, while retaining a matching Google, Images, or AI Mode chip.
 
 Site icons are fetched from the site itself (its touch icon or favicon) once, kept in Application Support, and never include anything you search. Brand colours are hard-coded for the built-in sites; any other site uses the main colour of its icon.
 
@@ -20,7 +20,7 @@ Queries use UTF-8 percent-encoding with only URL-unreserved bytes left literal. 
 
 ## Validation
 
-The tests live in `OrcaBrowserTests/SearchProviderTests.swift` and run with the rest of the app's tests.
+The tests live in `OrcaBrowserTests/SearchProviderTests.swift`, `SearchSiteTests.swift`, and `TabSearchStateTests.swift`, and run with the rest of the app's tests.
 
 Tests cover built-ins, template rendering and validation, UTF-8 encoding and literal placeholders, path/fragment templates, shortcut boundaries and disabled providers, ranked suggestions, front pages, voice and typing limits, migration from the older separate lists, icon discovery, and existing address/search resolution.
 
