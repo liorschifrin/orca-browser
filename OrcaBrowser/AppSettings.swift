@@ -10,12 +10,11 @@ final class AppSettings {
     @ObservationIgnored private let defaults: UserDefaults
     private static let voiceQueryOptionsKey = "voiceQueryOptions"
 
+    /// The voice layout, as the sites that use voice. Changes go back into
+    /// the shared list of sites.
     var voiceQueryOptions: VoiceQueryOptions {
-        didSet {
-            if let data = try? JSONEncoder().encode(voiceQueryOptions) {
-                defaults.set(data, forKey: Self.voiceQueryOptionsKey)
-            }
-        }
+        get { searchSites.voiceOptions }
+        set { searchSites.apply(newValue) }
     }
 
     private static let hideShortsKey = "hideShorts"
@@ -48,6 +47,25 @@ final class AppSettings {
 
     var autoArchiveDays: Int {
         didSet { defaults.set(autoArchiveDays, forKey: Self.autoArchiveDaysKey) }
+    }
+
+    // The older separate lists stay where they are, so an older build still finds them.
+    private static let legacySearchProvidersKey = "searchProviders.v1"
+    private static let searchSitesKey = "searchSites.v1"
+
+    /// Every place a search can go, for typing and for voice.
+    var searchSites: SearchSitePreferences {
+        didSet {
+            if let data = try? JSONEncoder().encode(searchSites) {
+                defaults.set(data, forKey: Self.searchSitesKey)
+            }
+        }
+    }
+
+    /// The sites with shortcuts, in typing form. Sites not used for typing are
+    /// included but switched off, so their shortcuts stay reserved.
+    var searchProviders: [SearchProvider] {
+        searchSites.sites.filter { !$0.shortcuts.isEmpty }.map(\.provider)
     }
 
     var voiceSearchProvider: VoiceSearchProvider {
@@ -123,10 +141,18 @@ final class AppSettings {
         didSet { defaults.set(allowsPageDialogs, forKey: Self.allowsPageDialogsKey) }
     }
 
+    /// Loads persisted preferences, migrating the separate typing and voice lists when needed.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        voiceQueryOptions = defaults.data(forKey: Self.voiceQueryOptionsKey)
-            .flatMap { try? JSONDecoder().decode(VoiceQueryOptions.self, from: $0) } ?? .defaults
+        if let data = defaults.data(forKey: Self.searchSitesKey),
+           let saved = try? JSONDecoder().decode(SearchSitePreferences.self, from: data) {
+            searchSites = saved
+        } else {
+            searchSites = SearchSitePreferences.migrated(
+                typing: defaults.data(forKey: Self.legacySearchProvidersKey),
+                voice: defaults.data(forKey: Self.voiceQueryOptionsKey)
+            )
+        }
         savesClipboardHistory = defaults.object(forKey: Self.savesClipboardHistoryKey) as? Bool ?? true
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)

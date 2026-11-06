@@ -32,6 +32,7 @@ Rules:
   Report each holder, its label and age, and let the user decide. Never take a
   slot unasked; if told to, use `--takeover N`.
 - Phone locked or unplugged: say so and stop.
+- Builds go to the iPhone. Add `--ipad` only when the thread is about the iPad or the user asks.
 - `--status` shows who holds each slot and the regular app.
 - `--as-main` installs your branch over the regular app, only when the user asks.
   It holds the app until the PR is merged or closed or you run `--main`; another

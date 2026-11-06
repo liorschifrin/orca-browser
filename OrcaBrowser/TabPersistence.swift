@@ -8,6 +8,7 @@ nonisolated struct SavedTab: Codable, Sendable {
     var title: String?
     var recency: Int
     var searchText: String? = nil
+    var searchProviderID: String? = nil
     var peek: SavedPeek? = nil
     var lastOpenedAt: Date? = nil
 }
@@ -117,6 +118,7 @@ enum TabPersistence {
         SavedTab(
             id: tab.id, url: tab.url, title: tab.title, recency: tab.recency,
             searchText: tab.searchText,
+            searchProviderID: tab.searchProviderID,
             peek: tab.peek.map { SavedPeek(url: $0.url, currentURL: $0.tab.url, title: $0.tab.title) },
             lastOpenedAt: tab.lastOpenedAt
         )

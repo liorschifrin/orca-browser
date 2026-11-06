@@ -39,6 +39,8 @@
 #   --build-only        build but don't install
 #   --configuration X   Debug (default) or Release
 #   --device X          device name or UDID (default: the connected iPhone)
+#   --ipad              build to the iPad instead of the iPhone (only when the thread
+#                       is about the iPad, or the user asks)
 
 set -euo pipefail
 
@@ -52,6 +54,7 @@ T3_ENVIRONMENT_ID="${ORCA_T3_ENVIRONMENT_ID:-a42a529c-33c0-4e18-bacb-574b2bbe4c4
 mode=ship
 configuration=Debug
 device="${ORCA_DEVICE:-}"
+device_type=iPhone
 label=""
 takeover=""
 changed=()
@@ -70,12 +73,13 @@ while [[ $# -gt 0 ]]; do
         --build-only) build_only=1 ;;
         --configuration) configuration="$2"; shift ;;
         --device) device="$2"; shift ;;
+        --ipad) device_type=iPad ;;
         --label) label="$2"; shift ;;
         --takeover) takeover="$2"; shift ;;
         --changed) changed+=("$2"); shift ;;
         --test) tests+=("$2"); shift ;;
         --thread) thread="$2"; shift ;;
-        -h|--help) sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,43p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) echo "Unknown option: $1" >&2; exit 2 ;;
     esac
     shift
@@ -336,26 +340,28 @@ if [[ $build_only -eq 0 ]]; then
         # An idle paired phone lists as disconnected until a command wakes it.
         for attempt in 1 2; do
             xcrun devicectl list devices --json-output "$listing" >/dev/null 2>&1 || true
-            device="$(jq -r '[.result.devices[]?
+            device="$(jq -r --arg dt "$device_type" '[.result.devices[]?
                 | select(.hardwareProperties.reality == "physical"
+                         and .hardwareProperties.deviceType == $dt
                          and .connectionProperties.tunnelState == "connected")][0]
                 | .hardwareProperties.udid // empty' "$listing")"
             [[ -n "$device" || $attempt -eq 2 ]] && break
-            paired="$(jq -r '.result.devices[]?
+            paired="$(jq -r --arg dt "$device_type" '.result.devices[]?
                 | select(.hardwareProperties.reality == "physical"
+                         and .hardwareProperties.deviceType == $dt
                          and .connectionProperties.pairingState == "paired"
                          and .connectionProperties.tunnelState != "unavailable")
                 | .hardwareProperties.udid' "$listing")"
             if [[ "$(grep -c . <<<"$paired")" -gt 1 ]]; then
                 rm -f "$listing"
-                echo "More than one paired iPhone and none connected. Pass --device." >&2
+                echo "More than one paired $device_type and none connected. Pass --device." >&2
                 exit 1
             fi
             [[ -n "$paired" ]] && xcrun devicectl device info details --device "$paired" >/dev/null 2>&1 || true
         done
         rm -f "$listing"
         if [[ -z "$device" ]]; then
-            echo "No iPhone is connected. Plug it in (or pass --device), unlock it, and run again." >&2
+            echo "No $device_type is connected. Plug it in (or pass --device), unlock it, and run again." >&2
             exit 1
         fi
     fi
