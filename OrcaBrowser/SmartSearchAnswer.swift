@@ -24,7 +24,7 @@ enum SmartSearchAnswer {
         let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, query.count <= 200 else { return nil }
         return time(query.lowercased(), now: now, localZone: localZone)
-            ?? conversion(query.lowercased(), usesMetric: usesMetric)
+            ?? conversion(query.lowercased(), original: query, usesMetric: usesMetric)
             ?? calculation(query)
     }
 
@@ -283,6 +283,13 @@ enum SmartSearchAnswer {
         add(["mib"], "data", 1_048_576, "MiB")
         add(["gib"], "data", 1_073_741_824, "GiB")
         add(["tib"], "data", 1_099_511_627_776, "TiB")
+        // Bits: "Mb" is megabits, written with a capital M and a lowercase b,
+        // so these are reached by case (see `bitSymbols`), not by name.
+        add(["bit", "bits"], "data", 0.125, "bit")
+        add(["kbit"], "data", 125, "Kb")
+        add(["mbit"], "data", 125_000, "Mb")
+        add(["gbit"], "data", 125_000_000, "Gb")
+        add(["tbit"], "data", 125_000_000_000, "Tb")
 
         add(["c", "celsius", "degc"], "temperature", 1, "°C")
         add(["f", "fahrenheit", "degf"], "temperature", 5.0 / 9, "°F", offset: -32)
@@ -355,6 +362,11 @@ enum SmartSearchAnswer {
         case "MiB": "GiB"
         case "GiB": "MiB"
         case "TiB": "GiB"
+        case "bit": "B"
+        case "Kb": "KB"
+        case "Mb": "MB"
+        case "Gb": "GB"
+        case "Tb": "TB"
         case "°C": "°F"
         case "°F": "°C"
         case "K": "°C"
@@ -381,12 +393,23 @@ enum SmartSearchAnswer {
         pattern: #"^(-?(?:\d+(?:,\d{3})*|\d*)(?:\.\d+)?(?:e[+-]?\d+)?)\s*°?\s*((?:us\s+)?(?:fl\s+)?[a-z][a-z0-9/²]*)(?:\s+(to|in|into|as)(?:\s+°?\s*((?:us\s+)?(?:fl\s+)?[a-z][a-z0-9/²]*))?)?$"#
     )
 
-    private static func conversion(_ query: String, usesMetric: Bool) -> Answer? {
+    /// Symbols whose capitals matter: "Mb" is megabits, "MB" megabytes. The
+    /// rest of the query is matched without regard to case.
+    private static let bitSymbols = ["Kb": "kbit", "Mb": "mbit", "Gb": "gbit", "Tb": "tbit"]
+
+    private static func conversion(_ query: String, original: String, usesMetric: Bool) -> Answer? {
         let ns = query as NSString
+        let originalNS = original as NSString
         guard let match = conversionRegex.firstMatch(in: query, range: NSRange(location: 0, length: ns.length)) else { return nil }
         func group(_ i: Int) -> String? {
             let r = match.range(at: i)
-            return r.location == NSNotFound ? nil : ns.substring(with: r)
+            guard r.location != NSNotFound else { return nil }
+            // Lowercasing can change the length of unusual text; then trust the lowercase form.
+            if (i == 2 || i == 4), originalNS.length == ns.length,
+               let bits = bitSymbols[originalNS.substring(with: r)] {
+                return bits
+            }
+            return ns.substring(with: r)
                 .replacingOccurrences(of: "²", with: "2")
                 .replacingOccurrences(of: " ", with: "")
         }

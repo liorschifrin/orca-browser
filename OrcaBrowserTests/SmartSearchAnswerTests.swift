@@ -120,6 +120,16 @@ struct SmartSearchAnswerTests {
         #expect(plain(result.result).replacingOccurrences(of: ",", with: "") == expected)
     }
 
+    @Test func bitsAndBytesAreToldApartByCase() throws {
+        #expect(try #require(answer("1 MB to Mb")).result == "8 Mb")
+        #expect(try #require(answer("8 Mb to MB")).result == "1 MB")
+        #expect(try #require(answer("100 Mb to gb")).result == "0.0125 GB")
+        #expect(try #require(answer("1 gb to mb")).result.replacingOccurrences(of: ",", with: "") == "1000 MB")
+        #expect(try #require(answer("16 bits to bytes")).result == "2 B")
+        #expect(try #require(answer("100 Mb")).result == "12.5 MB")
+        #expect(try #require(answer("100 mb")).result == "0.1 GB")
+    }
+
     @Test func aPartlyTypedTargetPicksTheLikelyUnit() throws {
         #expect(try #require(answer("2 mi to k")).result == "3.218688 km")
         #expect(try #require(answer("2 kg to l")).result.hasSuffix("lb"))
