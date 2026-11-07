@@ -36,6 +36,7 @@ struct TabCard: View, Equatable {
     /// Chosen by the deck, which makes the corners square while a card fills
     /// the screen.
     @Environment(\.cardCornerRadius) private var cornerRadius
+    @Environment(\.cardExpansion) private var expansion
 
     /// Gap between the card's top edge and the center of the favicon.
     private let headerGap: CGFloat = 18
@@ -79,11 +80,6 @@ struct TabCard: View, Equatable {
     // MARK: - Pieces
 
     private var thumbnail: some View {
-        // With a picture, the card is the screen in miniature: the picture is
-        // exactly as wide as the card and sits at its top, which is where the
-        // live page sits on screen (the area under the bar stays empty). So a
-        // card blown up to full screen lines up with the page behind it, and
-        // swapping one for the other is invisible.
         Color(.systemBackground)
             .frame(width: size.width, height: size.height)
             .overlay(alignment: .top) {
@@ -94,9 +90,10 @@ struct TabCard: View, Equatable {
                     } else if let image {
                         Image(uiImage: image)
                             .resizable()
-                            .scaledToFit()
-                            .frame(width: size.width)
-                            .padding(.top, contentTop)
+                            .scaledToFill()
+                            .frame(width: size.width, height: previewLayout.height, alignment: .topLeading)
+                            .clipped()
+                            .padding(.top, previewLayout.topInset)
                     } else if !tab.hasSnapshot {
                         placeholder
                             .background(Color(.secondarySystemBackground))
@@ -148,20 +145,29 @@ struct TabCard: View, Equatable {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// The running page at full-screen size, scaled down into the card. It
-    /// takes the same place and size the browser gives it, so nothing in the
-    /// page reflows when it moves in or out.
-    private func livePage(_ webView: WKWebView) -> some View {
-        let scale = size.width / max(1, screenSize.width)
-        let topInset = contentTop / scale
+    private var previewLayout: CardPreviewLayout {
+        let widthScale = size.width / max(1, screenSize.width)
+        let topInset = contentTop / widthScale
         let height = max(1, screenSize.height - topInset - safeBottomInset - barHeight)
 
+        return CardPreviewLayout(
+            cardSize: size,
+            pageSize: CGSize(width: screenSize.width, height: height),
+            contentTop: contentTop,
+            expansion: expansion
+        )
+    }
+
+    private func livePage(_ webView: WKWebView) -> some View {
+        let layout = previewLayout
+
         return LiveCardPage(webView: webView)
-            .frame(width: screenSize.width, height: height)
-            .scaleEffect(scale, anchor: .topLeading)
-            .frame(width: size.width, height: height * scale, alignment: .topLeading)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.top, contentTop)
+            .frame(width: layout.pageSize.width, height: layout.pageSize.height)
+            .scaleEffect(layout.scale, anchor: .topLeading)
+            .frame(width: size.width, height: layout.height, alignment: .topLeading)
+            .clipped()
+            .padding(.top, layout.topInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .allowsHitTesting(false)
     }
 
