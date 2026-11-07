@@ -40,6 +40,8 @@ struct SearchOverlay: View {
     @State private var pendingCursorOffset: Int?
     @State private var hasEditedText = false
     @State private var isShowingClipboard = false
+    /// A calculation, conversion or time answer for the typed text, if any.
+    @State private var answer: SmartSearchAnswer.Answer?
     @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
     private let settings = AppSettings.shared
@@ -94,9 +96,14 @@ struct SearchOverlay: View {
                 if clipboardCache.access == .needsPermission {
                     pastePermissionChip
                 }
+                if let answer {
+                    SmartAnswerCard(answer: answer, onReplace: replaceText)
+                        .transition(.opacity.combined(with: .offset(y: 12)))
+                }
                 field
             }
                 .animation(.snappy(duration: 0.2), value: isShowingClipboard)
+                .animation(.snappy(duration: 0.2), value: answer)
                 .animation(.snappy(duration: 0.2), value: isShowingOtherSuggestions)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
@@ -139,6 +146,7 @@ struct SearchOverlay: View {
         }
         .onChange(of: text) { _, newText in
             if newText != initialText { hasEditedText = true }
+            updateAnswer()
             // Typing on means the other matches are no longer what was held.
             if otherSuggestions.isEmpty { isShowingOtherSuggestions = false }
             if let offset = pendingCursorOffset {
@@ -169,6 +177,18 @@ struct SearchOverlay: View {
                 selection = nil
             }
         }
+        .task(id: isPresented && scenePhase == .active) {
+            guard isPresented, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                updateAnswer()
+                let delay = 60 - Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 60)
+                do {
+                    try await Task.sleep(for: .seconds(delay))
+                } catch {
+                    return
+                }
+            }
+        }
         .onChange(of: selection) { _, new in
             guard activeProvider != nil, let new, case .selection(let range) = new.indices else {
                 isChipSelected = false
@@ -184,6 +204,7 @@ struct SearchOverlay: View {
                 && range.upperBound.utf16Offset(in: shown) == shown.utf16.count
         }
         .onChange(of: activeProvider?.id) { _, id in
+            updateAnswer()
             if id == nil { isChipSelected = false }
         }
     }
@@ -540,6 +561,20 @@ struct SearchOverlay: View {
         selection = TextSelection(insertionPoint: Self.index(shownText.utf16.count, in: shownText))
     }
 
+    /// Searching inside a site (a chip is showing) is never a calculation.
+    private func updateAnswer() {
+        answer = activeProvider == nil
+            ? SmartSearchAnswer.evaluate(text)
+            : nil
+    }
+
+    /// Swaps what's typed for an answer, with the cursor after it.
+    private func replaceText(with newText: String) {
+        text = newText
+        isFocused = true
+        selection = TextSelection(insertionPoint: text.endIndex)
+    }
+
     /// Types the item where the cursor is, without submitting, and puts it
     /// back on the clipboard at the top of the history.
     private func insertFromHistory(_ item: ClipboardItem) {
@@ -550,5 +585,64 @@ struct SearchOverlay: View {
     private func dismiss() {
         isFocused = false
         onDismiss()
+    }
+}
+
+/// The answer to a typed calculation, conversion or time question, shown just
+/// above the field with a button to copy it.
+private struct SmartAnswerCard: View {
+    let answer: SmartSearchAnswer.Answer
+    let onReplace: (String) -> Void
+    @State private var didCopy = false
+    /// Counts taps, so each one restarts the confirmation's timer.
+    @State private var copyTaps = 0
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "equal")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(answer.result)
+                    .font(.headline)
+                    .textSelection(.enabled)
+                Text(answer.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+            Button {
+                onReplace(answer.fieldText)
+            } label: {
+                Image(systemName: "arrow.up.backward")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Use result in search field")
+            Button {
+                ClipboardCache.shared.copy(text: answer.copyText)
+                didCopy = true
+                copyTaps += 1
+            } label: {
+                Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                    .frame(minWidth: 44, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(didCopy ? "Copied" : "Copy result")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background(.regularMaterial, in: .rect(cornerRadius: 16))
+        .accessibilityElement(children: .contain)
+        // A new answer is a new thing to copy.
+        .onChange(of: answer) { didCopy = false }
+        // The checkmark only confirms the tap, so it fades back after a moment.
+        .task(id: copyTaps) {
+            guard copyTaps > 0 else { return }
+            try? await Task.sleep(for: .seconds(1.2))
+            // A newer tap cancels this task, and its own timer takes over.
+            if !Task.isCancelled { didCopy = false }
+        }
     }
 }
