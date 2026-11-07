@@ -41,7 +41,9 @@ enum SmartSearchAnswer {
         let style = FloatingPointFormatStyle<Double>(locale: grouped ? .current : Locale(identifier: "en_US_POSIX"))
             .grouping(grouped ? .automatic : .never)
         if magnitude >= 1e15 || magnitude < 1e-9 {
-            return style.notation(.scientific).precision(.significantDigits(1...7)).format(cleaned)
+            // The screen gets a short form; copying and inserting keep every digit a
+            // double holds, so the value can go on into another calculation.
+            return style.notation(.scientific).precision(.significantDigits(1...(grouped ? 7 : 15))).format(cleaned)
         }
         if magnitude < 1 {
             return style.precision(.significantDigits(1...10)).format(cleaned)

@@ -230,6 +230,18 @@ struct SmartSearchAnswerTests {
         #expect(abs(amount - 1) < 0.000001)
     }
 
+    @Test func largeResultsKeepTheirDigitsWhenCopiedOrInserted() throws {
+        let result = try #require(answer("123456789012345 * 10"))
+        #expect(result.copyText == "1.23456789012345E15")
+        #expect(result.fieldText == result.copyText)
+        // The short form is only for reading.
+        #expect(result.result.filter { $0.isNumber }.count <= 9)
+        let continued = try #require(answer(result.fieldText + " + 1000"))
+        #expect(continued.copyText == "1.23456789012445E15")
+        // Below 1e15 an integer stays exact.
+        #expect(try #require(answer("999999999999999 + 0")).copyText == "999999999999999")
+    }
+
     @Test func scientificResultsCanContinueCalculations() throws {
         for query in ["1000000000000000 * 2", "0.00000000001 / 2"] {
             let original = try #require(answer(query))
