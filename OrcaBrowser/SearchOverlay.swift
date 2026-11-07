@@ -594,6 +594,8 @@ private struct SmartAnswerCard: View {
     let answer: SmartSearchAnswer.Answer
     let onReplace: (String) -> Void
     @State private var didCopy = false
+    /// Counts taps, so each one restarts the confirmation's timer.
+    @State private var copyTaps = 0
 
     var body: some View {
         HStack(spacing: 10) {
@@ -620,6 +622,7 @@ private struct SmartAnswerCard: View {
             Button {
                 ClipboardCache.shared.copy(text: answer.copyText)
                 didCopy = true
+                copyTaps += 1
             } label: {
                 Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
                     .frame(minWidth: 44, minHeight: 44)
@@ -635,10 +638,11 @@ private struct SmartAnswerCard: View {
         // A new answer is a new thing to copy.
         .onChange(of: answer) { didCopy = false }
         // The checkmark only confirms the tap, so it fades back after a moment.
-        .task(id: didCopy) {
-            guard didCopy else { return }
+        .task(id: copyTaps) {
+            guard copyTaps > 0 else { return }
             try? await Task.sleep(for: .seconds(1.2))
-            didCopy = false
+            // A newer tap cancels this task, and its own timer takes over.
+            if !Task.isCancelled { didCopy = false }
         }
     }
 }
