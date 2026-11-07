@@ -47,6 +47,10 @@ enum SmartSearchAnswer {
             // double holds, so the value can go on into another calculation.
             return style.notation(.scientific).precision(.significantDigits(1...(grouped ? 7 : 17))).format(cleaned)
         }
+        if !grouped {
+            // Copied and inserted: all 15 digits that survive the rounding above.
+            return style.precision(.significantDigits(1...15)).format(cleaned)
+        }
         if magnitude < 1 {
             return style.precision(.significantDigits(1...10)).format(cleaned)
         }

@@ -24,7 +24,7 @@ struct SmartSearchAnswerTests {
         ("2+3*4", "14"),
         ("(2+3)*4", "20"),
         ("10/4", "2.5"),
-        ("1/3", "0.3333333333"),
+        ("1/3", "0.333333333333333"),
         ("0.1+0.2", "0.3"),
         ("-2^2", "-4"),
         ("2^3^2", "512"),
@@ -244,6 +244,21 @@ struct SmartSearchAnswerTests {
         #expect(try #require(answer(sixteen.fieldText + " + 1")).copyText == "1.000000000000002E15")
         // Below 1e15 an integer stays exact.
         #expect(try #require(answer("999999999999999 + 0")).copyText == "999999999999999")
+    }
+
+    @Test func fractionsKeepTheirDigitsWhenCopiedOrInserted() throws {
+        let third = try #require(answer("1/3"))
+        #expect(third.result.filter(\.isNumber).count <= 11)
+        #expect(third.copyText == "0.333333333333333")
+        #expect(third.fieldText == third.copyText)
+        #expect(try #require(answer("10/3")).copyText == "3.33333333333333")
+        // Binary noise is still hidden.
+        #expect(try #require(answer("0.1 + 0.2")).copyText == "0.3")
+        // Inserting a result and carrying on stays within a digit of the one-sum answer.
+        let carried = try #require(answer(third.fieldText + " * 3"))
+        #expect(abs(try #require(Double(carried.copyText)) - 1) < 1e-14)
+        let converted = try #require(answer("1 mm to mi"))
+        #expect(converted.copyText == "0.000000621371192237334")
     }
 
     @Test func scientificResultsCanContinueCalculations() throws {
