@@ -34,13 +34,6 @@ final class AppSettings {
     private static let autoArchiveTabsKey = "autoArchiveTabs"
     private static let autoArchiveDaysKey = "autoArchiveDays"
     private static let savesClipboardHistoryKey = "savesClipboardHistory"
-    private static let homeCityKey = "homeCity"
-
-    /// Named in time answers ("your time (Prague)") when the phone's time
-    /// zone doesn't name a city itself.
-    var homeCity: String {
-        didSet { defaults.set(homeCity, forKey: Self.homeCityKey) }
-    }
 
     /// Remembers everything copied in the app and whatever is on the
     /// clipboard when it opens. On by default.
@@ -151,7 +144,6 @@ final class AppSettings {
     /// Loads persisted preferences, migrating the separate typing and voice lists when needed.
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        homeCity = defaults.string(forKey: Self.homeCityKey) ?? ""
         if let data = defaults.data(forKey: Self.searchSitesKey),
            let saved = try? JSONDecoder().decode(SearchSitePreferences.self, from: data) {
             searchSites = saved

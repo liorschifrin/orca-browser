@@ -149,16 +149,10 @@ struct SmartSearchAnswerTests {
         #expect(try #require(answer("9am to tokyo")).detail.hasPrefix("9:00 AM your time (New York) in Tokyo"))
     }
 
-    @Test func aZoneWithoutACityUsesTheCityFromSettings() throws {
+    @Test func aZoneWithoutACityUsesItsOwnName() throws {
         let offsetOnly = try #require(TimeZone(identifier: "Etc/GMT-3"))
-        let chosen = SmartSearchAnswer.evaluate("9pm paris", now: now, localZone: offsetOnly, homeCity: " Riyadh ")
-        #expect(try #require(chosen).detail.hasSuffix("in your time (Riyadh)"))
-        // Nothing chosen: the zone's own name.
-        let unnamed = SmartSearchAnswer.evaluate("9pm paris", now: now, localZone: offsetOnly, homeCity: "")
-        #expect(try #require(unnamed).detail.hasSuffix("in your time (GMT+3)"))
-        // A zone that names a city wins over the setting.
-        let named = SmartSearchAnswer.evaluate("9pm paris", now: now, localZone: newYork, homeCity: "Riyadh")
-        #expect(try #require(named).detail.hasSuffix("in your time (New York)"))
+        let result = SmartSearchAnswer.evaluate("9pm paris", now: now, localZone: offsetOnly)
+        #expect(try #require(result).detail.hasSuffix("in your time (GMT+3)"))
     }
 
     @Test func usZonesFollowDaylightSavingWhicheverFormIsTyped() throws {

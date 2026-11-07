@@ -19,12 +19,11 @@ enum SmartSearchAnswer {
         _ raw: String,
         now: Date = Date(),
         localZone: TimeZone = .current,
-        usesMetric: Bool = Locale.current.measurementSystem == .metric,
-        homeCity: String? = nil
+        usesMetric: Bool = Locale.current.measurementSystem == .metric
     ) -> Answer? {
         let query = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty, query.count <= 200 else { return nil }
-        return time(query.lowercased(), now: now, localZone: localZone, homeCity: homeCity)
+        return time(query.lowercased(), now: now, localZone: localZone)
             ?? conversion(query.lowercased(), usesMetric: usesMetric)
             ?? calculation(query)
     }
@@ -449,10 +448,9 @@ enum SmartSearchAnswer {
     }
 
     /// "your time (New York)": the city of the phone's time zone, otherwise
-    /// the one chosen in Settings, otherwise the zone's own abbreviation.
-    private static func localLabel(_ zone: TimeZone, homeCity: String?, at date: Date) -> String {
-        let chosen = homeCity?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let place = city(of: zone) ?? (chosen?.isEmpty == false ? chosen : nil) ?? zone.abbreviation(for: date)
+    /// the zone's own abbreviation.
+    private static func localLabel(_ zone: TimeZone, at date: Date) -> String {
+        let place = city(of: zone) ?? zone.abbreviation(for: date)
         return place.map { "your time (\($0))" } ?? "your time"
     }
 
@@ -622,7 +620,7 @@ enum SmartSearchAnswer {
     /// "3:30pm pt to et", "9am in tokyo". A clock time needs a colon or am/pm
     /// ("9 paris" is just words), and a bare "8:30" with no am/pm is read as
     /// a 24-hour clock (the detail line shows how it was read).
-    private static func time(_ rawQuery: String, now: Date, localZone: TimeZone, homeCity: String?) -> Answer? {
+    private static func time(_ rawQuery: String, now: Date, localZone: TimeZone) -> Answer? {
         let query = rawQuery.replacingOccurrences(of: "’", with: "'")
         let ns = query as NSString
         let whole = NSRange(location: 0, length: ns.length)
@@ -648,7 +646,7 @@ enum SmartSearchAnswer {
                 guard let to = zone(named: target) else { return nil }
                 destination = to
             } else {
-                destination = (localZone, localLabel(localZone, homeCity: homeCity, at: now))
+                destination = (localZone, localLabel(localZone, at: now))
             }
         } else if let m = clockToPlaceRegex.firstMatch(in: query, range: whole),
                   let to = group(m, 4).flatMap(zone(named:)) {
@@ -695,7 +693,7 @@ enum SmartSearchAnswer {
         }.joined(separator: " or ")
         let shownHour = meridiem == nil ? hour : (hour % 12 == 0 ? 12 : hour % 12)
         let shownClock = String(format: "%d:%02d", shownHour, minute) + (meridiem.map { $0 == "p" ? " PM" : " AM" } ?? "")
-        let sourceLabel = source?.label ?? localLabel(localZone, homeCity: homeCity, at: now)
+        let sourceLabel = source?.label ?? localLabel(localZone, at: now)
         var detail = "\(shownClock) \(sourceLabel) in \(destination.label)"
         if dates.count > 1 { detail += " · occurs twice during clock change" }
         let dayFormatter = ISO8601DateFormatter()

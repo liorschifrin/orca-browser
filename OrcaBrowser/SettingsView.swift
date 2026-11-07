@@ -90,14 +90,6 @@ struct SettingsView: View {
                     Text("Keeps text and images you copy, and what is on the clipboard each time you open Orca, with no expiry. Tap the clipboard button above the keyboard to use them. Nothing new is saved while an Incognito tab or search is showing, and items from password managers are skipped.")
                 }
                 Section {
-                    TextField("Home city", text: $settings.homeCity)
-                        .autocorrectionDisabled()
-                } header: {
-                    Text("Time answers")
-                } footer: {
-                    Text("Time answers say “your time (New York)” using your phone’s time zone. If that zone doesn’t name a city, this one is used.")
-                }
-                Section {
                     Button("Clear History…", role: .destructive) { isConfirmingClearHistory = true }
                 } header: {
                     Text("History")

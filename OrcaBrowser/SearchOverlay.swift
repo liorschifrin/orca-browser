@@ -564,7 +564,7 @@ struct SearchOverlay: View {
     /// Searching inside a site (a chip is showing) is never a calculation.
     private func updateAnswer() {
         answer = activeProvider == nil
-            ? SmartSearchAnswer.evaluate(text, homeCity: settings.homeCity)
+            ? SmartSearchAnswer.evaluate(text)
             : nil
     }
 
