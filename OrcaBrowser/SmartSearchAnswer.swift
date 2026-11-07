@@ -35,7 +35,9 @@ enum SmartSearchAnswer {
     /// than showing a wall of digits or rounding to zero.
     static func format(_ number: Double, grouped: Bool) -> String {
         guard number.isFinite else { return "" }
-        let cleaned = Double(String(format: "%.15g", number)) ?? number
+        // Whole numbers are exact already; rounding them to 15 digits would
+        // change a 16-digit integer.
+        let cleaned = number == number.rounded() ? number : Double(String(format: "%.15g", number)) ?? number
         if cleaned == 0 { return "0" }
         let magnitude = abs(cleaned)
         let style = FloatingPointFormatStyle<Double>(locale: grouped ? .current : Locale(identifier: "en_US_POSIX"))
@@ -43,7 +45,7 @@ enum SmartSearchAnswer {
         if magnitude >= 1e15 || magnitude < 1e-9 {
             // The screen gets a short form; copying and inserting keep every digit a
             // double holds, so the value can go on into another calculation.
-            return style.notation(.scientific).precision(.significantDigits(1...(grouped ? 7 : 15))).format(cleaned)
+            return style.notation(.scientific).precision(.significantDigits(1...(grouped ? 7 : 17))).format(cleaned)
         }
         if magnitude < 1 {
             return style.precision(.significantDigits(1...10)).format(cleaned)

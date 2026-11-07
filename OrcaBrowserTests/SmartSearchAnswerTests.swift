@@ -238,6 +238,10 @@ struct SmartSearchAnswerTests {
         #expect(result.result.filter { $0.isNumber }.count <= 9)
         let continued = try #require(answer(result.fieldText + " + 1000"))
         #expect(continued.copyText == "1.23456789012445E15")
+        // A nonzero sixteenth digit survives, in the copy and in a follow-up sum.
+        let sixteen = try #require(answer("1000000000000001 * 1"))
+        #expect(sixteen.copyText == "1.000000000000001E15")
+        #expect(try #require(answer(sixteen.fieldText + " + 1")).copyText == "1.000000000000002E15")
         // Below 1e15 an integer stays exact.
         #expect(try #require(answer("999999999999999 + 0")).copyText == "999999999999999")
     }
