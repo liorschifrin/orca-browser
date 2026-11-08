@@ -13,10 +13,12 @@ import uuid
 
 
 def run(args, cwd=None, capture=False, env=None):
+    """Run a command without shell interpolation, optionally capturing its output."""
     return subprocess.run(args, cwd=cwd, text=True, capture_output=capture, env=env)
 
 
 def revision(root):
+    """Return a clean worktree’s commit, rejecting pending or untracked changes."""
     head = run(['git', 'rev-parse', 'HEAD'], root, True)
     status = run(['git', 'status', '--porcelain'], root, True)
     if head.returncode or status.returncode or status.stdout.strip():
@@ -26,12 +28,14 @@ def revision(root):
 
 class Queue:
     def __init__(self, directory):
+        """Locate shared queue state and locks outside branch checkouts."""
         self.directory = Path(directory).expanduser()
         self.directory.mkdir(parents=True, exist_ok=True)
         self.path = self.directory / 'queue.json'
 
     @contextlib.contextmanager
     def locked(self, name='queue.lock', blocking=True):
+        """Hold an advisory lock for queue updates or the lifetime of a build."""
         with (self.directory / name).open('a') as lock:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
@@ -40,13 +44,16 @@ class Queue:
             yield
 
     def read(self):
+        """Read shared state, using an empty queue before the first registration."""
         return json.loads(self.path.read_text()) if self.path.exists() else {'items': [], 'paused': None}
 
     def ship(self, root, args):
+        """Run the owning branch’s shipper with the same shared slot directory."""
         return run([str(Path(root) / 'scripts/ship-to-phone.sh'), *args], root,
                    env={**os.environ, 'ORCA_SLOTS_DIR': str(self.directory.resolve())})
 
     def save(self, data):
+        """Atomically replace queue state while the caller holds the queue lock."""
         with tempfile.NamedTemporaryFile(mode='w', dir=self.directory, delete=False) as out:
             json.dump(data, out, indent=2)
             out.write('\n')
@@ -54,6 +61,7 @@ class Queue:
         os.replace(temp, self.path)
 
     def update(self, change):
+        """Apply a state mutation under the shared lock and persist the result."""
         with self.locked():
             data = self.read()
             result = change(data)
@@ -61,6 +69,7 @@ class Queue:
             return result
 
     def next(self, automatic=False):
+        """Build the first usable ready item, respecting pauses for message-driven attempts."""
         with self.locked('queue-build.lock', blocking=False):
             with self.locked():
                 data = self.read()
@@ -75,26 +84,40 @@ class Queue:
                 if not candidates:
                     print('No builds ready.')
                     return
-                item = candidates[0]
-                root = item['worktree']
-                try:
-                    if revision(root) != item['revision']:
-                        raise ValueError('Revision changed; register the new version when ready.')
-                except (ValueError, OSError) as error:
-                    item['state'] = 'stale'
-                    item['detail'] = str(error)
-                    self.save(data)
-                    print(f"{item['label']}: {error}")
-                    return
-                available = self.ship(root, ['--queue-check'])
-                if available.returncode == 3:
-                    print('Waiting for a test slot.')
-                    return
-                if available.returncode:
-                    item['state'] = 'stale'
-                    item['detail'] = 'Slot check failed. Bring the queue-aware ship script into this branch before registering again.'
-                    self.save(data)
-                    print(item['detail'])
+                for item in candidates:
+                    root = item['worktree']
+                    try:
+                        if revision(root) != item['revision']:
+                            raise ValueError('Revision changed; register the new version when ready.')
+                    except (ValueError, OSError) as error:
+                        item['state'] = 'stale'
+                        item['detail'] = str(error)
+                        self.save(data)
+                        print(f"{item['label']}: {error}")
+                        continue
+                    try:
+                        available = self.ship(root, ['--queue-check'])
+                        code = available.returncode
+                    except OSError as error:
+                        code = 1
+                        print(error)
+                    if code == 3:
+                        print('Waiting for a test slot.')
+                        return
+                    if code == 2:
+                        item['state'] = 'stale'
+                        item['detail'] = 'Slot check failed. Bring the queue-aware ship script into this branch before registering again.'
+                        self.save(data)
+                        print(item['detail'])
+                        continue
+                    if code:
+                        item['detail'] = f'Slot check exited {code}; inspect the slot lock and git status before retrying.'
+                        data['paused'] = 'Slot check failed. Say “build next” when ready to retry.'
+                        self.save(data)
+                        print(item['detail'])
+                        return
+                    break
+                else:
                     return
                 item['state'] = 'building'
                 item.pop('detail', None)
@@ -120,6 +143,7 @@ class Queue:
                 except (ValueError, OSError):
                     unchanged = False
             def finish(data):
+                """Record installation results without releasing a possibly occupied slot."""
                 current = next(i for i in data['items'] if i['worktree'] == root)
                 current['state'] = 'installed' if code == 0 else 'ready'
                 current['detail'] = 'Awaiting your feedback in the owning thread.' if code == 0 else f'Build/install exited {code}; inspect the build log before retrying.'
@@ -132,6 +156,7 @@ class Queue:
 
 
 def main():
+    """Dispatch queue commands and print T3 notification payloads after mutations."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--directory', default=os.environ.get('ORCA_SLOTS_DIR', '~/.orca-slots'))
     commands = parser.add_subparsers(dest='command', required=True)
@@ -171,6 +196,7 @@ def main():
     head = revision(root) if args.command == 'ready' else None
 
     def change(data):
+        """Apply an owning-thread command without disturbing an active build."""
         item = next((i for i in data['items'] if i['worktree'] == root), None)
         if item and item['state'] == 'building':
             # Allow recovery only when no build process holds the build lock.

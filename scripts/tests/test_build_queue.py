@@ -110,6 +110,38 @@ exit "${SHIP_CODE:-0}"
             self.queue.next(automatic=True)
         self.assertEqual(self.queue.read()['items'][0]['state'], 'stale')
 
+    def test_stale_head_does_not_block_next_ready_build(self):
+        root = self.checkout('stale')
+        self.checkout('usable')
+        (root / 'new.txt').write_text('unfinished changes')
+        self.queue.next(automatic=True)
+        self.assertEqual([i['state'] for i in self.queue.read()['items']], ['stale', 'installed'])
+
+    def test_old_shipper_does_not_block_next_ready_build(self):
+        root = self.checkout('old')
+        self.checkout('usable')
+        original_ship = self.queue.ship
+        def probe(checkout, args):
+            if checkout == str(root) and args == ['--queue-check']:
+                return subprocess.CompletedProcess(args, 2)
+            return original_ship(checkout, args)
+        with patch.object(self.queue, 'ship', side_effect=probe):
+            self.queue.next(automatic=True)
+        self.assertEqual([i['state'] for i in self.queue.read()['items']], ['stale', 'installed'])
+
+    def test_transient_slot_check_failure_pauses_and_can_retry(self):
+        self.checkout('first')
+        with patch.dict('os.environ', {'CHECK_CODE': '1'}):
+            self.queue.next(automatic=True)
+        data = self.queue.read()
+        self.assertEqual(data['items'][0]['state'], 'ready')
+        self.assertTrue(data['paused'])
+        self.assertIn('exited 1', data['items'][0]['detail'])
+        self.queue.next(automatic=True)
+        self.assertFalse((self.queue.directory / 'last-args').exists())
+        self.queue.next()
+        self.assertEqual(self.queue.read()['items'][0]['state'], 'installed')
+
     def test_defer_skips_item_and_reregister_replaces_it(self):
         root = self.checkout('first')
         common = ['queue', '--directory', str(self.queue.directory)]
