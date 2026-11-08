@@ -47,7 +47,12 @@ final class ClipboardCache {
     /// The latest clipboard change that happened while Incognito was showing.
     /// A read may come later (background reads wait for permission), after
     /// Incognito is gone, so the change itself is marked rather than the read.
-    @ObservationIgnored private var privateChangeCount = -1
+    /// Kept across launches, since the clipboard is too: a private copy read
+    /// after a restart must stay out of the history.
+    @ObservationIgnored private var privateChangeCount =
+        UserDefaults.standard.object(forKey: ClipboardCache.privateCountKey) as? Int ?? -1 {
+        didSet { UserDefaults.standard.set(privateChangeCount, forKey: Self.privateCountKey) }
+    }
     /// The clipboard as `ClipboardHistory` last wrote it. Already in the
     /// history, so reading it back must not record it again.
     @ObservationIgnored private var historyWriteCount = -1
@@ -72,6 +77,7 @@ final class ClipboardCache {
     private static let accessKey = "clipboardAccess3"
     private static let ownCountKey = "clipboardOwnChangeCount"
     private static let ownTextKey = "clipboardOwnCopiedText"
+    private static let privateCountKey = "clipboardPrivateChangeCount"
     private static let lastReadCountKey = "clipboardLastReadChangeCount"
     /// A read slower than this was probably waiting on the Allow Paste prompt.
     private static let promptThreshold = 0.3
@@ -96,6 +102,26 @@ final class ClipboardCache {
         noteOwnWrite(text: url.absoluteString)
         if AppSettings.shared.savesClipboardHistory {
             ClipboardHistory.shared.record(text: url.absoluteString, addsNew: !isPrivate)
+        }
+    }
+
+    /// Copies text the same way: ours, and in the history unless Incognito is
+    /// showing. A private copy is kept out of everything we remember: its text
+    /// isn't saved for ownership checks, and later reads skip adding it.
+    func copy(text: String) {
+        UIPasteboard.general.string = text
+        if isPrivate {
+            noteOwnWrite(text: nil)
+            privateChangeCount = UIPasteboard.general.changeCount
+            // The count may only go up at the end of this run loop pass.
+            DispatchQueue.main.async { [self] in
+                MainActor.assumeIsolated { privateChangeCount = UIPasteboard.general.changeCount }
+            }
+            return
+        }
+        noteOwnWrite(text: text)
+        if AppSettings.shared.savesClipboardHistory {
+            ClipboardHistory.shared.record(text: text, addsNew: !isPrivate)
         }
     }
 
