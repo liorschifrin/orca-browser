@@ -98,6 +98,10 @@ final class Tab: Identifiable {
     /// read (see `Translation`). Cleared when the next page starts arriving.
     private(set) var isForeignLanguage = false
 
+    /// True when the loaded page looks like an article (see `ArchivePage`).
+    /// Cleared when the next page starts arriving.
+    private(set) var isArticle = false
+
     /// A dialog the page is waiting on, shown by the browser as an alert.
     private(set) var dialog: PageDialog?
 
@@ -547,6 +551,12 @@ final class Tab: Identifiable {
         if view === webView { isForeignLanguage = foreign }
     }
 
+    /// Decides whether the page is an article, for the archive button.
+    private func detectArticle() async {
+        guard let view = webView, let article = await PageMetadata.isArticle(view) else { return }
+        if view === webView { isArticle = article }
+    }
+
     /// Called when the tab is closed, so the page stops loading and playing.
     func teardown() {
         isClosed = true
@@ -680,6 +690,10 @@ final class Tab: Identifiable {
                 try Task.checkCancellation()
                 try await InteractionBudget.shared.waitForIdle()
                 await detectLanguage()
+                if AppSettings.shared.showsArchiveButton {
+                    try Task.checkCancellation()
+                    await detectArticle()
+                }
             } catch { }
         }
         snapshotIsStale = true
@@ -700,6 +714,7 @@ final class Tab: Identifiable {
         bannersBlocked = 0
         countedBlockedURLs.removeAll()
         isForeignLanguage = false
+        isArticle = false
     }
 
     /// Shows a dialog the page asked for, unless one is already up, in which

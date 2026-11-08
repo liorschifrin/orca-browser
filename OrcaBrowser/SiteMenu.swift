@@ -20,6 +20,7 @@ struct SiteMenu: View {
     @State private var blocksBanners: Bool
     @State private var allowsDialogs: Bool
     @State private var isConfirmingChrome = false
+    @Environment(\.dismiss) private var dismiss
 
     init(target: SiteMenuTarget, confirmsOpeningChrome: Bool = false) {
         self.target = target
@@ -62,7 +63,7 @@ struct SiteMenu: View {
                 PageDialogPermissions.shared.setAllowed(allowsDialogs, on: target.site)
             }
         }
-        .presentationDetents(isYouTube ? [.large] : [.height(600)])
+        .presentationDetents(isYouTube ? [.large] : [.height(660)])
         .presentationDragIndicator(.visible)
     }
 
@@ -151,6 +152,19 @@ struct SiteMenu: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            if let url = target.tab.url, let archived = ArchivePage.url(for: url) {
+                Button {
+                    target.tab.load(archived)
+                    dismiss()
+                } label: {
+                    Label("Open in archive.ph", systemImage: "building.columns")
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(.thinMaterial, in: .rect(cornerRadius: 14))
+                        .contentShape(.rect(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
             }
 
             if let url = target.tab.url, Translation.canOpenInChrome(url) {
