@@ -21,6 +21,7 @@ A fast, gesture-driven web browser for iPhone, built with SwiftUI and WebKit. In
   - Picture in picture: "return to app" switches back to the tab that was playing and keeps it playing, a video in picture in picture returns to the page when you open its tab, and switching to another tab pauses the video.
   - Options to hide Shorts and to open them in the normal player. All YouTube options are in Settings and in the site menu on YouTube.
 - **Reddit** – blocks the "open in app" pop-up that prevents mobile site usage
+- **X** – keeps Google results and X's app-promotion links on the website, and dismisses the app pop-up. Public posts and the replies X makes available can be read without signing in; X may limit the remaining replies.
 
 
 ## Building
