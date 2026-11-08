@@ -33,6 +33,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
         configuration.userContentController.addUserScript(PlaybackControl.userScript)
+        configuration.userContentController.addUserScript(VideoFullscreen.userScript)
         configuration.userContentController.addUserScript(YouTubeHeader.userScript(
             hidesOpenApp: AppSettings.shared.hidesOpenApp, showsTools: AppSettings.shared.showsHeaderTools
         ))
@@ -76,6 +77,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// Stops the page and cuts it loose from the tab, which is letting go of it.
     func detach() {
         observations = []
+        VideoFullscreen.forget(webView)
         for name in Self.messageNames {
             webView.configuration.userContentController.removeScriptMessageHandler(
                 forName: name, contentWorld: .page
@@ -93,6 +95,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         BackgroundPlayback.pictureInPictureMessageName,
         PlaybackControl.messageName,
         YouTubeHeader.chaptersMessageName,
+        VideoFullscreen.messageName,
     ]
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -105,6 +108,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             tab?.playback = state
         case YouTubeHeader.chaptersMessageName:
             tab?.isShowingChapters = true
+        case VideoFullscreen.messageName:
+            guard let body = message.body as? [String: Any], let active = body["active"] as? Bool else { return }
+            VideoFullscreen.changed(webView, active: active)
         default:
             break
         }
