@@ -22,6 +22,9 @@ struct SearchOverlay: View {
 
     /// What's typed after the chip (or all of it when there is no chip).
     @State private var text = ""
+    @State private var suggestionService = SearchSuggestionService()
+    @State private var remoteSuggestions: [String] = []
+    @State private var completedSuggestionRequest: SearchSuggestionRequest?
     @State private var activeProvider: SearchProvider?
     /// The word that became the chip, put back when the chip turns into text.
     @State private var typedShortcut: String?
@@ -71,6 +74,9 @@ struct SearchOverlay: View {
             }
 
             VStack(spacing: 10) {
+                if !visibleRemoteSuggestions.isEmpty, !isShowingClipboard {
+                    remoteSuggestionsList
+                }
                 if settings.savesClipboardHistory {
                     if isShowingClipboard {
                         ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
@@ -115,6 +121,25 @@ struct SearchOverlay: View {
                     if value.translation.height > 40 { dismiss() }
                 }
         )
+        .task(id: remoteSuggestionRequest) {
+            let request = remoteSuggestionRequest
+            remoteSuggestions = []
+            completedSuggestionRequest = nil
+            guard let request else {
+                await suggestionService.clearCache()
+                return
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+                let values = try await suggestionService.suggestions(for: request)
+                try Task.checkCancellation()
+                guard remoteSuggestionRequest == request else { return }
+                completedSuggestionRequest = request
+                remoteSuggestions = values
+            } catch {
+                // Offline, cancelled, or changed endpoint: typing still works normally.
+            }
+        }
         .onAppear {
             // Presented at launch: grab the keyboard right away.
             if isPresented {
@@ -186,6 +211,66 @@ struct SearchOverlay: View {
         .onChange(of: activeProvider?.id) { _, id in
             if id == nil { isChipSelected = false }
         }
+    }
+
+    private var remoteSuggestionRequest: SearchSuggestionRequest? {
+        SearchSuggestionRequest.make(
+            text: text, provider: activeProvider, enabled: settings.searchSuggestions,
+            isPresented: isPresented && scenePhase == .active,
+            isEditing: isFocused && hasEditedText,
+            isIncognito: isIncognito || isInIncognitoWindow,
+            inEnglish: settings.googleInEnglish
+        )
+    }
+
+    private var visibleRemoteSuggestions: [String] {
+        guard let request = remoteSuggestionRequest,
+              request == completedSuggestionRequest else { return [] }
+        return remoteSuggestions
+    }
+
+    private var remoteSuggestionsList: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                ForEach(visibleRemoteSuggestions, id: \.self) { suggestion in
+                    HStack(spacing: 0) {
+                        Button {
+                            // Explicitly search: a completion must never become a URL.
+                            let url = activeProvider?.url(for: suggestion) ?? Destination.searchURL(for: suggestion)
+                            onSubmit(SearchSubmission(text: suggestion, url: url, providerID: activeProvider?.id))
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                                Text(suggestion).lineLimit(2).multilineTextAlignment(.leading)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.leading, 16)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Search for \(suggestion)")
+                        Button {
+                            suppressActivation = true
+                            shouldMatchShortcut = false
+                            hasEditedText = true
+                            text = suggestion
+                            isFocused = true
+                            selection = TextSelection(insertionPoint: shownText.endIndex)
+                        } label: {
+                            Image(systemName: "arrow.up.left")
+                                .frame(width: 44, height: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel("Edit suggestion: \(suggestion)")
+                    }
+                }
+            }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxHeight: min(CGFloat(visibleRemoteSuggestions.count) * 52, 260))
+        .background(.regularMaterial, in: .rect(cornerRadius: 20))
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("search-query-suggestions")
     }
 
     /// Stands in for the chip inside the text field. It is invisible and has no

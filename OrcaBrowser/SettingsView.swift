@@ -30,6 +30,11 @@ struct SettingsView: View {
                     Text("Sites you can search directly by typing a shortcut, or by voice.")
                 }
                 Section {
+                    Toggle("Search suggestions", isOn: $settings.searchSuggestions)
+                } footer: {
+                    Text("Sends what you type to Google for suggestions when searching Google. Suggestions are off in Incognito.")
+                }
+                Section {
                     Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)
                     Stepper(value: $settings.autoArchiveDays, in: 1...365) {
                         Text("After \(settings.autoArchiveDays) days")
