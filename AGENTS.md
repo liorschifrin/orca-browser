@@ -9,6 +9,26 @@ files `main` deleted.
 
 ## Testing a change on the phone
 
+### Shared build queue
+
+For work managed by the build queue, read `docs/build-queue.md`. Once committed,
+checked, and ready for phone testing, register with
+`python3 scripts/build-queue.py ready --label "two to four words" --changed "..." --thread <thread id>`.
+Do not edit a queued/building worktree; defer first and re-register after changes.
+The managing T3 thread builds ready items into available slots. Feedback stays in
+the owning thread through the existing Open Thread button. A successful build is
+not a successful user test. When the user is done testing and agrees the slot can
+be freed, run `python3 scripts/build-queue.py release`; this does not close the
+branch. After ready/release/defer/prioritize succeeds, send the command's printed
+notification to the configured manager with `t3_thread_send` (`mode: "auto"`).
+Saving queue state alone does not wake it. The manager advances on those messages;
+there is no scheduled check or polling. See `docs/build-queue.md` for setup and
+handling incoming notifications. A phone/build failure
+pauses automatic attempts until the user says "build next". Never bypass that
+pause, take over a slot, or overwrite the regular app through the queue.
+
+### Direct builds
+
 Each branch tests in its own app, so agents don't overwrite each other:
 
 - **Orca Browser** is the regular app, built from `main` by `--main`. Only `--main` and `--as-main` install it.

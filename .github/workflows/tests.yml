@@ -31,6 +31,11 @@ jobs:
           xcodebuild -version
           xcrun simctl list devices available
 
+      - name: Check phone build queue
+        run: |
+          python3 -B -m unittest discover -s scripts/tests -v
+          bash -n scripts/ship-to-phone.sh
+
       - name: Run tests
         run: |
           set -o pipefail
