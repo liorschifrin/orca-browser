@@ -40,7 +40,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             RedditPrompt.userScript(enabled: AppSettings.shared.blockRedditPrompt)
         )
 
-        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView = PageWebView(frame: .zero, configuration: configuration)
         super.init()
         // The page reports picture in picture changes in its own script world.
         // A weak bridge, so the web view doesn't keep this controller alive.
