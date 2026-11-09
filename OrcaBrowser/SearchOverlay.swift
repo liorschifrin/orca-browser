@@ -42,6 +42,8 @@ struct SearchOverlay: View {
     /// Where to put the cursor once the field has taken a programmatic edit.
     @State private var pendingCursorOffset: Int?
     @State private var hasEditedText = false
+    /// What the field held when the chip was deleted, while a repeat of that edit may still arrive.
+    @State private var staleEdit: String?
     @State private var isShowingClipboard = false
     /// A calculation, conversion or time answer for the typed text, if any.
     @State private var answer: SmartSearchAnswer.Answer?
@@ -301,22 +303,23 @@ struct SearchOverlay: View {
         let buttonWidth: CGFloat = settings.savesClipboardHistory ? 40 : 0
         return HStack(spacing: 0) {
             if let provider = suggestedProvider {
-                suggestionChip(provider, height: 38)
+                suggestionChip(provider, height: 30)
             } else {
                 Color.clear.frame(width: buttonWidth, height: 1)
             }
-            Group {
-                if !clipboardText.isEmpty {
-                    ClipboardChip(
-                        text: clipboardText,
-                        accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
-                        action: useClipboard
-                    )
-                    .clipboardHitRegion()
-                }
+            if clipboardText.isEmpty {
+                // Nothing copied: the site chip stays left, the button right.
+                Spacer(minLength: 12)
+            } else {
+                ClipboardChip(
+                    text: clipboardText,
+                    accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
+                    action: useClipboard
+                )
+                .clipboardHitRegion()
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity)
             if settings.savesClipboardHistory {
                 ClipboardButton(isOpen: $isShowingClipboard)
                     .clipboardHitRegion()
@@ -663,15 +666,23 @@ struct SearchOverlay: View {
                             shouldMatchShortcut = true
                             return
                         }
-                        // The delete key reached the chip. The field reports the same
-                        // edit more than once, and a repeat arriving after the word is
-                        // back would wipe it, so put the word back once it's done.
-                        let query = newValue.replacingOccurrences(of: Self.chipMarker, with: "")
-                        Task { @MainActor in dissolveProvider(keeping: query) }
+                        // The delete key reached the chip.
+                        dissolveProvider(keeping: newValue.replacingOccurrences(of: Self.chipMarker, with: ""))
+                        // The field can report that deletion again before it shows the
+                        // restored word; that repeat must not wipe the word.
+                        staleEdit = newValue
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(300))
+                            staleEdit = nil
+                        }
                         return
                     }
                     text = newValue.replacingOccurrences(of: Self.chipMarker, with: "")
                 } else {
+                    if let stale = staleEdit {
+                        staleEdit = nil
+                        if newValue == stale { return }
+                    }
                     text = newValue
                 }
                 if text.isEmpty { suppressActivation = false }

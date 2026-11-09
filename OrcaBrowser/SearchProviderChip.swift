@@ -21,7 +21,7 @@ struct SearchProviderChip: View {
                 .background(.white, in: .circle)
                 .accessibilityHidden(true)
             Text(displayName)
-                .font(.system(size: min(11 * scale, 15), weight: .bold))
+                .font(.system(size: min(11 * scale, 13), weight: .bold))
                 .lineLimit(1)
                 .truncationMode(.tail)
             if showsClose {
