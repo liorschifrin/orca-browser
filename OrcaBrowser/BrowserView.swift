@@ -236,6 +236,8 @@ struct BrowserView: View {
                 // Opening the app with this tab's video in picture in picture
                 // brings the video back into the page.
                 store.selectedTab?.exitPictureInPicture()
+                // Its page may have been closed to free memory while away.
+                store.selectedTab?.reloadAfterCrashIfVisible()
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
@@ -453,7 +455,10 @@ struct BrowserView: View {
                         guard tab.id == store.selectedTabID else { return }
                         tab.openPeek(url)
                     },
-                    onVisible: tab.finishRestoringIfVisible
+                    onVisible: {
+                        tab.finishRestoringIfVisible()
+                        tab.reloadAfterCrashIfVisible()
+                    }
                 )
                 // Sit between the status bar and the floating bar (and the
                 // playback bar above it), so nothing on the page (header

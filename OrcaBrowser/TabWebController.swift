@@ -143,13 +143,12 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             tab?.load(watchURL)
             return
         }
-        // App Store links open in the App Store app. Only the page itself:
-        // an ad in a frame mustn't be able to switch apps.
-        if isMainFrame,
-           let url = action.request.url,
-           let storeURL = AppStoreLink.storeURL(for: url) {
+        if action.navigationType == .linkActivated { lastLinkTap = .now }
+        // Phone, email, App Store and other app links go to their app. Only
+        // the page itself: an ad in a frame mustn't be able to switch apps.
+        if isMainFrame, let url = action.request.url, let appURL = AppLink.appURL(for: url) {
             decisionHandler(.cancel)
-            UIApplication.shared.open(storeURL)
+            openInApp(appURL)
             return
         }
         // Google Search and its home page open in English. Only plain page loads:
@@ -202,14 +201,43 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         tab?.pageDidFail(error, beforeCommit: false)
     }
 
+    /// The web content process quit, usually because iOS reclaimed its memory.
+    /// The page is gone and the view would stay blank.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        tab?.pageProcessDidTerminate()
+    }
+
+    // MARK: - App links
+
+    /// When a link was last tapped. A tap leads to an app link through a
+    /// redirect or the page's own script, so it counts for a few seconds.
+    private var lastLinkTap: Date?
+    private static let tapLifetime: TimeInterval = 5
+
+    /// Opens `url` in its app at once after a tap; otherwise the page is
+    /// trying to switch apps on its own, so ask first, like Safari.
+    private func openInApp(_ url: URL) {
+        if let lastLinkTap, Date.now.timeIntervalSince(lastLinkTap) < Self.tapLifetime {
+            self.lastLinkTap = nil
+            UIApplication.shared.open(url)
+            return
+        }
+        // Name the page that's showing, not the address being loaded.
+        let page = webView.backForwardList.currentItem?.url
+        present(.confirm, "Open this link in another app?", from: page) { response in
+            if case .ok = response { UIApplication.shared.open(url) }
+        }
+    }
+
     // MARK: - WKUIDelegate
 
     /// Hands a page's dialog to the tab to show, or answers "Cancel" at once
     /// if it can't be shown: dialogs are switched off (everywhere or for this
     /// site), or the page isn't on screen. WebKit pauses the page until
-    /// `respond` is called, and requires it be called exactly once.
-    private func present(_ kind: PageDialog.Kind, _ message: String, respond: @escaping (PageDialog.Response) -> Void) {
-        let site = ContentBlocker.site(for: webView.url)
+    /// `respond` is called, and requires it be called exactly once. `page`
+    /// names the site that asks; by default the one being shown or loaded.
+    private func present(_ kind: PageDialog.Kind, _ message: String, from page: URL? = nil, respond: @escaping (PageDialog.Response) -> Void) {
+        let site = ContentBlocker.site(for: page ?? webView.url)
         guard let tab, !webView.isHidden, webView.window != nil,
               PageDialogPermissions.shared.mayShow(on: site, privateRules: tab.privateRules) else {
             respond(.cancel)
@@ -238,6 +266,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// Without this, WebKit silently ignores them; open them in this tab.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if action.targetFrame == nil {
+            // Pages can't open windows on their own (WebKit's default), so
+            // this always comes from a tap, even when the page's script asks.
+            lastLinkTap = .now
             webView.load(action.request)
         }
         return nil

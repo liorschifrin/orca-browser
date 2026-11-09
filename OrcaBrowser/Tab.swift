@@ -113,6 +113,10 @@ final class Tab: Identifiable {
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
 
+    /// The page's process quit and the page hasn't been brought back yet.
+    @ObservationIgnored private var pageCrashed = false
+    @ObservationIgnored private var lastCrashReload: Date?
+
     /// True from the moment a web view is re-created for an unloaded tab until
     /// its page shows up. The browser covers the gap with the card's picture.
     private(set) var isRestoring = false
@@ -613,6 +617,7 @@ final class Tab: Identifiable {
     }
 
     private func detachWebView() {
+        pageCrashed = false
         answerDialog(.cancel)
         restoreLoadTask?.cancel()
         metadataTask?.cancel()
@@ -780,6 +785,40 @@ final class Tab: Identifiable {
     func setOpensShortsAsVideos(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))
     }
+
+    /// The page's process quit, usually because iOS needed the memory. Like
+    /// Safari, bring the page back, but only once it's on screen.
+    func pageProcessDidTerminate() {
+        pageCrashed = true
+        reloadAfterCrashIfVisible()
+    }
+
+    /// Reloads a page whose process quit, if it's on screen with the app in
+    /// front. Safe to call often; does nothing otherwise.
+    func reloadAfterCrashIfVisible() {
+        guard pageCrashed else { return }
+        // Called while views update; change what they show afterwards.
+        Task { [weak self] in
+            guard let self, pageCrashed, InteractionBudget.shared.isForeground,
+                  let view = webView, !view.isHidden, view.window != nil else { return }
+            pageCrashed = false
+            // A page that quits again right after coming back would keep
+            // reloading; stop and say what happened instead.
+            if let lastCrashReload, Date.now.timeIntervalSince(lastCrashReload) < Self.crashLoopWindow {
+                self.lastCrashReload = nil
+                endRestoring()
+                loadError = LoadError(
+                    message: "This page stopped working, possibly because it used too much memory.",
+                    failedURL: view.url ?? url
+                )
+                return
+            }
+            lastCrashReload = .now
+            if view.url == nil, let url { view.load(URLRequest(url: url)) } else { view.reload() }
+        }
+    }
+
+    private static let crashLoopWindow: TimeInterval = 15
 
     /// `beforeCommit` is true when the failure came before the new page
     /// started arriving, so the old one wasn't replaced.
