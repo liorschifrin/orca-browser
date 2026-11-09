@@ -37,7 +37,7 @@ struct SettingsView: View {
                         }
                     }
                 } footer: {
-                    Text("Sends what you type to Google for suggestions when searching Google. Suggestions are off in Incognito.")
+                    Text("Sends what you type to Google for suggestions, or to the site whose chip is showing if it has a suggestions URL. Suggestions are off in Incognito.")
                 }
                 Section {
                     Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)

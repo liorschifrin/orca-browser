@@ -10,6 +10,8 @@ struct SearchProvider: Codable, Identifiable, Equatable {
     // How the chip is drawn; set from the site this came from.
     var icon = SiteIconChoice.site
     var color = SiteColor.site
+    /// Where suggestions come from while its chip is showing; empty for none.
+    var suggestionTemplate = ""
 
     private enum CodingKeys: String, CodingKey { case id, name, shortcuts, template, isEnabled }
 
@@ -105,7 +107,12 @@ struct SearchProvider: Codable, Identifiable, Equatable {
 
     /// Encodes the query as UTF-8 URL data and replaces the sole placeholder once.
     func url(for query: String) -> URL? {
-        guard Self.templateError(template) == nil else { return nil }
+        Self.url(filling: template, with: query)
+    }
+
+    /// Puts the query in place of the template's `%s`, or nil for a bad template.
+    static func url(filling template: String, with query: String) -> URL? {
+        guard templateError(template) == nil else { return nil }
         // Encode UTF-8 bytes, including %, +, &, # and /. Substitute once so a
         // literal %s in the query is data, never a second template instruction.
         let encoded = query.utf8.map { byte -> String in

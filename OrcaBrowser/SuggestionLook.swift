@@ -4,12 +4,8 @@ import SwiftUI
 /// side by side on the phone. Switched from the pill above the search field
 /// or in Settings.
 enum SuggestionLook: String, CaseIterable, Identifiable {
-    /// Suggestions in their own card, the clipboard chip centered below it.
-    case current
     /// Suggestions, clipboard and field in one panel.
     case panel
-    /// The clipboard is the bottom row of the suggestions card.
-    case clipboardRow
     /// No card: suggestions sit on the blur, lined up with the field's text.
     case floating
 
@@ -17,9 +13,7 @@ enum SuggestionLook: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .current: "Current"
         case .panel: "One panel"
-        case .clipboardRow: "Clipboard in list"
         case .floating: "Floating"
         }
     }

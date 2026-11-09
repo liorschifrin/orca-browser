@@ -22,21 +22,52 @@ final class SearchSuggestionTests: XCTestCase {
         }
     }
 
-    func testOnlySupportedUnmodifiedProvidersUseGoogle() throws {
-        for id in ["google", "ai-mode", "google-images"] {
-            let provider = try XCTUnwrap(SearchProvider.builtIns.first { $0.id == id })
-            XCTAssertEqual(request(provider: provider)?.providerID, id)
-        }
+    func testChipUsesItsOwnSuggestionsURL() throws {
+        XCTAssertEqual(request()?.template, SearchSite.googleSuggestions)
         let youtube = try XCTUnwrap(SearchProvider.builtIns.first { $0.id == "youtube" })
-        XCTAssertNil(request(provider: youtube))
-        var google = try XCTUnwrap(SearchProvider.builtIns.first { $0.id == "google" })
-        google.template = "https://example.com/?q=%s"
-        XCTAssertNil(request(provider: google))
+        let url = try XCTUnwrap(request("lofi", provider: youtube)?.url)
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertTrue(items.contains(URLQueryItem(name: "ds", value: "yt")))
+        XCTAssertTrue(items.contains(URLQueryItem(name: "q", value: "lofi")))
+
+        // No suggestions URL, or a bad one: nothing is sent anywhere.
+        let chatGPT = try XCTUnwrap(SearchProvider.builtIns.first { $0.id == "chatgpt" })
+        XCTAssertNil(request(provider: chatGPT))
+        var custom = chatGPT
+        custom.suggestionTemplate = "http://example.com/?q=%s"
+        XCTAssertNil(request(provider: custom))
+        custom.suggestionTemplate = "https://example.com/complete?q=%s"
+        XCTAssertEqual(request("tea time", provider: custom)?.url?.absoluteString,
+                       "https://example.com/complete?q=tea%20time")
+    }
+
+    func testOnlyGoogleGetsTheLanguage() throws {
+        XCTAssertTrue(try XCTUnwrap(request()?.url?.query()).contains("hl=en"))
+        let bing = try XCTUnwrap(SearchProvider.builtIns.first { $0.id == "bing" })
+        XCTAssertFalse(try XCTUnwrap(request(provider: bing)?.url?.query()).contains("hl=en"))
+    }
+
+    func testSavedBuiltInsFromBeforeSuggestionsGetThem() throws {
+        let old = Data(#"{"id":"youtube","name":"YouTube","template":"https://www.youtube.com/results?search_query=%s","shortcuts":["yt"]}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(SearchSite.self, from: old).suggestionTemplate,
+                       SearchSite.builtInSuggestions["youtube"])
+        let cleared = Data(#"{"id":"youtube","name":"YouTube","template":"https://www.youtube.com/results?search_query=%s","suggestionTemplate":""}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(SearchSite.self, from: cleared).suggestionTemplate, "")
+        let custom = Data(#"{"id":"mine","name":"Mine","template":"https://example.com/?q=%s"}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(SearchSite.self, from: custom).suggestionTemplate, "")
+    }
+
+    func testBadSuggestionsURLIsNotSaved() {
+        var site = SearchSite(name: "Mine", template: "https://example.com/?q=%s", shortcuts: ["mine"])
+        site.suggestionTemplate = "https://example.com/complete"
+        XCTAssertNotNil(site.validationError(among: []))
+        site.suggestionTemplate = "https://example.com/complete?q=%s"
+        XCTAssertNil(site.validationError(among: []))
     }
 
     func testRequestEncodesUnicodeAndQueryCharacters() throws {
         let query = "café & tea + #"
-        let url = try XCTUnwrap(request(query)?.url)
+        let url = try XCTUnwrap(request(query)?.url as URL?)
         let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
         XCTAssertEqual(components.host, "suggestqueries.google.com")
         XCTAssertEqual(components.queryItems?.first { $0.name == "q" }?.value, query)
@@ -50,6 +81,14 @@ final class SearchSuggestionTests: XCTestCase {
         XCTAssertEqual(try SearchSuggestionService.parse(data, query: "tea"), [])
         XCTAssertEqual(try SearchSuggestionService.parse(Data(#"["coffee",{}]"#.utf8), query: "coffee"), [])
         XCTAssertThrowsError(try SearchSuggestionService.parse(Data("invalid".utf8), query: "coffee"))
+    }
+
+    func testParsesAmazonAndIMDb() throws {
+        let amazon = Data(#"{"alias":"aps","prefix":"usb c","suggestions":[{"value":"usb c cable"},{"value":"usb c hub"}]}"#.utf8)
+        XCTAssertEqual(try SearchSuggestionService.parse(amazon, query: "usb c"), ["usb c cable", "usb c hub"])
+        XCTAssertEqual(try SearchSuggestionService.parse(amazon, query: "usb"), [])
+        let imdb = Data(#"{"d":[{"l":"Dune","id":"tt1"},{"l":"Dune: Part Two","id":"tt2"}],"q":"dune"}"#.utf8)
+        XCTAssertEqual(try SearchSuggestionService.parse(imdb, query: "dune"), ["Dune", "Dune: Part Two"])
     }
 
     func testSettingPersistsAndDefaultsOn() throws {

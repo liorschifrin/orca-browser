@@ -85,9 +85,7 @@ struct SearchOverlay: View {
 
             Group {
                 switch settings.suggestionLook {
-                case .current: currentLayout
                 case .panel: panelLayout
-                case .clipboardRow: clipboardRowLayout
                 case .floating: floatingLayout
                 }
             }
@@ -146,6 +144,7 @@ struct SearchOverlay: View {
                     hasEditedText = true
                 }
             }
+            Task { await DebugKeys.replay() }
             #endif
         }
         .onChange(of: isPresented) { _, nowPresented in
@@ -251,42 +250,6 @@ struct SearchOverlay: View {
         }
     }
 
-    private var currentLayout: some View {
-        VStack(spacing: 10) {
-            if showsRemoteSuggestions {
-                remoteSuggestionsList
-            }
-            if settings.savesClipboardHistory {
-                if isShowingClipboard {
-                    ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
-                        .transition(.opacity.combined(with: .offset(y: 12)))
-                }
-            }
-            if isShowingOtherSuggestions, !otherSuggestions.isEmpty {
-                otherSuggestionsRow
-                    .transition(.opacity.combined(with: .offset(y: 8)))
-            }
-            HStack(spacing: 0) {
-                if let provider = suggestedProvider { suggestionChip(provider) }
-                ClipboardControls(
-                    isOpen: $isShowingClipboard,
-                    showsHistory: settings.savesClipboardHistory,
-                    text: clipboardText,
-                    accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
-                    action: useClipboard
-                )
-            }
-            if needsPastePermission {
-                pastePermissionChip
-            }
-            if let answer {
-                SmartAnswerCard(answer: answer, onReplace: replaceText)
-                    .transition(.opacity.combined(with: .offset(y: 12)))
-            }
-            field(hasBackground: true)
-        }
-    }
-
     /// Suggestions, the clipboard and the field share one panel.
     private var panelLayout: some View {
         VStack(spacing: 10) {
@@ -298,7 +261,7 @@ struct SearchOverlay: View {
                 }
                 if suggestedProvider != nil || !clipboardText.isEmpty || settings.savesClipboardHistory {
                     HStack(spacing: 4) {
-                        if let provider = suggestedProvider { suggestionChip(provider) }
+                        if let provider = suggestedProvider { suggestionChip(provider, height: 26) }
                         if clipboardText.isEmpty {
                             Spacer(minLength: 0)
                         } else {
@@ -319,45 +282,6 @@ struct SearchOverlay: View {
         }
     }
 
-    /// The clipboard is the last row of the suggestions card, just above the field.
-    private var clipboardRowLayout: some View {
-        VStack(spacing: 8) {
-            extras
-            if showsRemoteSuggestions || !clipboardText.isEmpty || settings.savesClipboardHistory {
-                VStack(spacing: 0) {
-                    if showsRemoteSuggestions {
-                        suggestionRows
-                        Divider().padding(.leading, 62)
-                    }
-                    HStack(spacing: 4) {
-                        if clipboardText.isEmpty {
-                            Text("Nothing on the clipboard")
-                                .font(.subheadline)
-                                .foregroundStyle(.tertiary)
-                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                                .padding(.leading, 40)
-                        } else {
-                            ClipboardSuggestionRow(text: clipboardText, navigates: shouldNavigateClipboard, action: useClipboard)
-                        }
-                        if settings.savesClipboardHistory {
-                            InlineClipboardButton(isOpen: $isShowingClipboard)
-                        }
-                    }
-                    .padding(.leading, 22)
-                    .padding(.trailing, 6)
-                }
-                .background(.regularMaterial, in: .rect(cornerRadius: 22))
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
-            }
-            if let provider = suggestedProvider {
-                suggestionChip(provider)
-                    .padding(.leading, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            field(hasBackground: true)
-        }
-    }
-
     /// No card behind the suggestions; everything lines up with the field's text.
     private var floatingLayout: some View {
         VStack(spacing: 6) {
@@ -365,8 +289,23 @@ struct SearchOverlay: View {
             if showsRemoteSuggestions {
                 suggestionRows
             }
-            HStack(spacing: 8) {
-                if let provider = suggestedProvider { suggestionChip(provider) }
+            floatingClipboardBar
+            field(hasBackground: true)
+                .padding(.top, 4)
+        }
+    }
+
+    /// The clipboard chip sits centered, the same gap from the clipboard button
+    /// as from the site chip (or, without one, from the edge).
+    private var floatingClipboardBar: some View {
+        let buttonWidth: CGFloat = settings.savesClipboardHistory ? 40 : 0
+        return HStack(spacing: 0) {
+            if let provider = suggestedProvider {
+                suggestionChip(provider, height: 38)
+            } else {
+                Color.clear.frame(width: buttonWidth, height: 1)
+            }
+            Group {
                 if !clipboardText.isEmpty {
                     ClipboardChip(
                         text: clipboardText,
@@ -375,16 +314,15 @@ struct SearchOverlay: View {
                     )
                     .clipboardHitRegion()
                 }
-                Spacer(minLength: 0)
-                if settings.savesClipboardHistory {
-                    ClipboardButton(isOpen: $isShowingClipboard)
-                        .clipboardHitRegion()
-                }
             }
-            .padding(.horizontal, 6)
-            field(hasBackground: true)
-                .padding(.top, 4)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity)
+            if settings.savesClipboardHistory {
+                ClipboardButton(isOpen: $isShowingClipboard)
+                    .clipboardHitRegion()
+            }
         }
+        .frame(minHeight: 40)
     }
 
     /// One line each, best match nearest the field (the thumb). Never more
@@ -451,43 +389,6 @@ struct SearchOverlay: View {
         guard let request = remoteSuggestionRequest,
               request == completedSuggestionRequest else { return [] }
         return remoteSuggestions
-    }
-
-    private var remoteSuggestionsList: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                ForEach(visibleRemoteSuggestions, id: \.self) { suggestion in
-                    HStack(spacing: 0) {
-                        Button {
-                            searchSuggestion(suggestion)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                                Text(suggestion).lineLimit(2).multilineTextAlignment(.leading)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.leading, 16)
-                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("Search for \(suggestion)")
-                        Button {
-                            editSuggestion(suggestion)
-                        } label: {
-                            Image(systemName: "arrow.up.left")
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("Edit suggestion: \(suggestion)")
-                    }
-                }
-            }
-        }
-        .scrollBounceBehavior(.basedOnSize)
-        .frame(maxHeight: min(CGFloat(visibleRemoteSuggestions.count) * 52, 260))
-        .background(.regularMaterial, in: .rect(cornerRadius: 20))
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("search-query-suggestions")
     }
 
     /// Stands in for the chip inside the text field. It is invisible and has no
@@ -580,8 +481,8 @@ struct SearchOverlay: View {
 
     /// Offers the site the first word could mean, at the left of the clipboard
     /// row. Tap to use it; hold to see the other sites that match.
-    private func suggestionChip(_ provider: SearchProvider) -> some View {
-        SearchProviderChip(provider: provider)
+    private func suggestionChip(_ provider: SearchProvider, height: CGFloat = 22) -> some View {
+        SearchProviderChip(provider: provider, height: height)
             // Raw touches, like the back button: SwiftUI's long press waits too long.
             .overlay {
                 TouchSurface(
@@ -762,8 +663,11 @@ struct SearchOverlay: View {
                             shouldMatchShortcut = true
                             return
                         }
-                        // The delete key reached the chip.
-                        dissolveProvider(keeping: newValue.replacingOccurrences(of: Self.chipMarker, with: ""))
+                        // The delete key reached the chip. The field reports the same
+                        // edit more than once, and a repeat arriving after the word is
+                        // back would wipe it, so put the word back once it's done.
+                        let query = newValue.replacingOccurrences(of: Self.chipMarker, with: "")
+                        Task { @MainActor in dissolveProvider(keeping: query) }
                         return
                     }
                     text = newValue.replacingOccurrences(of: Self.chipMarker, with: "")

@@ -42,10 +42,34 @@ struct SearchSite: Codable, Identifiable, Equatable {
     var voiceColor = SiteColor.site
     /// Voice hands the query to the ChatGPT app instead of opening the template.
     var opensChatGPTApp = false
+    /// Where suggestions come from while its chip is showing, with one `%s`;
+    /// empty for none. OpenSearch JSON, Amazon's and IMDb's formats are read.
+    var suggestionTemplate = ""
+
+    static let googleSuggestions = "https://suggestqueries.google.com/complete/search?client=firefox&q=%s"
+
+    /// Completion URLs for the built-ins, also used for saved built-ins from
+    /// before suggestions existed.
+    static let builtInSuggestions: [String: String] = [
+        "google": googleSuggestions,
+        "ai-mode": googleSuggestions,
+        "google-images": googleSuggestions,
+        "youtube": "https://suggestqueries.google.com/complete/search?client=firefox&ds=yt&q=%s",
+        "amazon": "https://completion.amazon.com/api/2017/suggestions?mid=ATVPDKIKX0DER&alias=aps&prefix=%s",
+        "wikipedia": "https://en.wikipedia.org/w/api.php?action=opensearch&format=json&namespace=0&limit=5&search=%s",
+        "bing": "https://api.bing.com/osjson.aspx?query=%s",
+        "imdb": "https://v3.sg.media-imdb.com/suggestion/x/%s.json",
+    ]
 
     // Add built-ins here with a stable ID; saved edits take precedence. The
     // first nine with `usesVoice` are the voice layout, in this order.
-    static let builtIns: [SearchSite] = [
+    static let builtIns: [SearchSite] = builtInSites.map {
+        var site = $0
+        site.suggestionTemplate = builtInSuggestions[site.id] ?? ""
+        return site
+    }
+
+    private static let builtInSites: [SearchSite] = [
         .init(id: "google", name: "Google", template: "https://www.google.com/search?q=%s", shortcuts: ["g"], usesVoice: true, voiceIcon: .symbol("magnifyingglass")),
         .init(id: "ai-mode", name: "AI Mode", template: "https://www.google.com/search?udm=50&q=%s", shortcuts: ["aimode"], usesVoice: true, voiceIcon: .symbol("sparkles")),
         .init(id: "youtube", name: "YouTube", template: "https://www.youtube.com/results?search_query=%s", shortcuts: ["yt"], usesVoice: true, voiceIcon: .symbol("play.rectangle")),
@@ -90,7 +114,7 @@ struct SearchSite: Codable, Identifiable, Equatable {
     /// Projects typing shortcuts, enabled state, template, and chip appearance.
     var provider: SearchProvider {
         SearchProvider(id: id, name: name, shortcuts: shortcuts, template: template, isEnabled: usesTyping,
-                       icon: typingIcon, color: typingColor)
+                       icon: typingIcon, color: typingColor, suggestionTemplate: suggestionTemplate)
     }
 
     /// Trims editable text and normalizes shortcuts before saving.
@@ -99,12 +123,16 @@ struct SearchSite: Codable, Identifiable, Equatable {
         copy.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         copy.shortcuts = shortcuts.map(SearchProvider.normalize).filter { !$0.isEmpty }
         copy.template = template.trimmingCharacters(in: .whitespacesAndNewlines)
+        copy.suggestionTemplate = suggestionTemplate.trimmingCharacters(in: .whitespacesAndNewlines)
         return copy
     }
 
     /// Checks typing requirements, cross-site shortcut conflicts, and the shared URL template.
     func validationError(among sites: [Self]) -> String? {
         let candidate = normalized()
+        if !candidate.suggestionTemplate.isEmpty, let error = SearchProvider.templateError(candidate.suggestionTemplate) {
+            return "Suggestions URL: \(error)"
+        }
         if candidate.shortcuts.isEmpty {
             guard !candidate.name.isEmpty, candidate.name.count <= 80 else {
                 return "Enter a name of 1–80 characters."
@@ -119,14 +147,14 @@ struct SearchSite: Codable, Identifiable, Equatable {
     // Saved lists keep loading when a field is added later.
     private enum CodingKeys: String, CodingKey {
         case id, name, template, shortcuts, usesTyping, usesVoice
-        case typingIcon, voiceIcon, typingColor, voiceColor, opensChatGPTApp
+        case typingIcon, voiceIcon, typingColor, voiceColor, opensChatGPTApp, suggestionTemplate
     }
 
     init(id: String = UUID().uuidString, name: String, template: String, shortcuts: [String] = [],
          usesTyping: Bool = true, usesVoice: Bool = false,
          typingIcon: SiteIconChoice = .site, voiceIcon: SiteIconChoice = .site,
          typingColor: SiteColor = .site, voiceColor: SiteColor = .site,
-         opensChatGPTApp: Bool = false) {
+         opensChatGPTApp: Bool = false, suggestionTemplate: String = "") {
         self.id = id
         self.name = name
         self.template = template
@@ -138,13 +166,15 @@ struct SearchSite: Codable, Identifiable, Equatable {
         self.typingColor = typingColor
         self.voiceColor = voiceColor
         self.opensChatGPTApp = opensChatGPTApp
+        self.suggestionTemplate = suggestionTemplate
     }
 
     /// Restores saved fields with defaults for properties introduced in later versions.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try c.decode(String.self, forKey: .id)
         self.init(
-            id: try c.decode(String.self, forKey: .id),
+            id: id,
             name: try c.decode(String.self, forKey: .name),
             template: try c.decode(String.self, forKey: .template),
             shortcuts: try c.decodeIfPresent([String].self, forKey: .shortcuts) ?? [],
@@ -154,7 +184,10 @@ struct SearchSite: Codable, Identifiable, Equatable {
             voiceIcon: try c.decodeIfPresent(SiteIconChoice.self, forKey: .voiceIcon) ?? .site,
             typingColor: try c.decodeIfPresent(SiteColor.self, forKey: .typingColor) ?? .site,
             voiceColor: try c.decodeIfPresent(SiteColor.self, forKey: .voiceColor) ?? .site,
-            opensChatGPTApp: try c.decodeIfPresent(Bool.self, forKey: .opensChatGPTApp) ?? false
+            opensChatGPTApp: try c.decodeIfPresent(Bool.self, forKey: .opensChatGPTApp) ?? false,
+            // Saved before suggestions existed: a built-in gets its own; cleared stays cleared.
+            suggestionTemplate: try c.decodeIfPresent(String.self, forKey: .suggestionTemplate)
+                ?? Self.builtInSuggestions[id] ?? ""
         )
     }
 }
