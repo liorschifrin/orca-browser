@@ -143,6 +143,15 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             tab?.load(watchURL)
             return
         }
+        // App Store links open in the App Store app. Only the page itself:
+        // an ad in a frame mustn't be able to switch apps.
+        if isMainFrame,
+           let url = action.request.url,
+           let storeURL = AppStoreLink.storeURL(for: url) {
+            decisionHandler(.cancel)
+            UIApplication.shared.open(storeURL)
+            return
+        }
         // Google Search and its home page open in English. Only plain page loads:
         // a form that sends data keeps its request as it is.
         if AppSettings.shared.googleInEnglish,
