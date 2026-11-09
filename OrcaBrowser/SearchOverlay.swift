@@ -566,8 +566,6 @@ struct SearchOverlay: View {
         }
         .animation(.snappy(duration: 0.18), value: activeProvider?.id)
         .padding(.horizontal, 10)
-        // Room above and below when long text wraps.
-        .padding(.vertical, 14)
         .frame(minHeight: 52)
         // Inside the panel there is no layer of its own: even a clear one
         // would stop grey text drawing on the panel's blur.
@@ -629,6 +627,7 @@ struct SearchOverlay: View {
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .padding(.leading, chipImage?.size.width ?? 0)
+                    .padding(.top, ChipTextField.verticalInset)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }

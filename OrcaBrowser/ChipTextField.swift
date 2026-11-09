@@ -41,6 +41,7 @@ struct ChipTextField: UIViewRepresentable {
     let onSubmit: () -> Void
 
     static let chipCharacter = "\u{FFFC}"
+    static let verticalInset: CGFloat = 14
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -60,7 +61,9 @@ struct ChipTextField: UIViewRepresentable {
         field.smartDashesType = .no
         field.returnKeyType = .go
         field.accessibilityIdentifier = "search-query"
-        field.textContainerInset = .zero
+        // The space above and below is part of the field, so a tap there
+        // still places the cursor (or ends a selection).
+        field.textContainerInset = UIEdgeInsets(top: Self.verticalInset, left: 0, bottom: Self.verticalInset, right: 0)
         field.textContainer.lineFragmentPadding = 0
         // Addresses have no spaces; break them anywhere rather than overflow.
         field.textContainer.lineBreakMode = .byCharWrapping
@@ -78,7 +81,8 @@ struct ChipTextField: UIViewRepresentable {
         let width = proposal.width ?? 200
         let line = ceil((field.font ?? .preferredFont(forTextStyle: .body)).lineHeight)
         let fitted = field.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        return CGSize(width: width, height: min(max(line, ceil(fitted)), line * 4))
+        let insets = Self.verticalInset * 2
+        return CGSize(width: width, height: min(max(line + insets, ceil(fitted)), line * 4 + insets))
     }
 
     func updateUIView(_ field: Field, context: Context) {
