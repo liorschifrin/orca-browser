@@ -493,7 +493,7 @@ struct BrowserView: View {
                     StartView()
                         .padding(.bottom, barHeight)
                 } else if let error = tab.loadError {
-                    ErrorView(error: error, retry: tab.reload)
+                    ErrorView(error: error, retry: tab.retryFailedLoad)
                         .padding(.bottom, barHeight)
                 }
 

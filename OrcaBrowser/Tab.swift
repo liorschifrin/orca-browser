@@ -52,8 +52,13 @@ final class Tab: Identifiable {
     private(set) var title: String?
     private(set) var progress: Double = 0
     private(set) var isLoading = false
-    private(set) var canGoBack = false
+    /// WebKit's own answer; see `canGoBack`.
+    private var historyCanGoBack = false
     private(set) var canGoForward = false
+
+    /// True if Back does something: there's an earlier page, or an error is
+    /// covering a page that is still loaded underneath.
+    var canGoBack: Bool { historyCanGoBack || loadError?.coversPage == true }
 
     @ObservationIgnored private var lastRecordedURL: URL?
 
@@ -131,6 +136,9 @@ final class Tab: Identifiable {
     struct LoadError {
         let message: String
         let failedURL: URL?
+        /// The load failed before replacing the page, which is still there
+        /// behind the error. Back and Reload return to it.
+        var coversPage = false
     }
 
     /// Back/forward list and scroll position, kept while the web view is gone.
@@ -381,7 +389,7 @@ final class Tab: Identifiable {
         // The check after "finished" gives up while the page is still loading;
         // try again once it stops.
         if isRestoring, !view.isLoading { finishRestoringIfVisible() }
-        if view.canGoBack != canGoBack { canGoBack = view.canGoBack }
+        if view.canGoBack != historyCanGoBack { historyCanGoBack = view.canGoBack }
         if view.canGoForward != canGoForward { canGoForward = view.canGoForward }
     }
 
@@ -488,13 +496,28 @@ final class Tab: Identifiable {
     }
 
     func goBack() {
+        // The page before the error is the one behind it.
+        if loadError?.coversPage == true {
+            loadError = nil
+            return
+        }
         webView?.goBack()
     }
 
+    /// Tries the failed address again, for the error's Try Again button.
+    func retryFailedLoad() {
+        if let failedURL = loadError?.failedURL { load(failedURL) } else { reload() }
+    }
+
     func reload() {
+        // Reload the page the address bar shows: the one behind the error,
+        // not the address that failed and would likely fail again.
+        if loadError?.coversPage == true, let view = webView {
+            loadError = nil
+            view.reload()
         // After a failed first load there's no page to reload, so retry the
         // URL that failed instead.
-        if let failedURL = loadError?.failedURL {
+        } else if let failedURL = loadError?.failedURL {
             load(failedURL)
         } else if let view = webView {
             // Reloading is the user's way out of a restore that went wrong.
@@ -758,7 +781,9 @@ final class Tab: Identifiable {
         webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))
     }
 
-    func pageDidFail(_ error: Error) {
+    /// `beforeCommit` is true when the failure came before the new page
+    /// started arriving, so the old one wasn't replaced.
+    func pageDidFail(_ error: Error, beforeCommit: Bool) {
         let nsError = error as NSError
 
         // Not real failures: the user (or a link tap) cancelled a load, or the
@@ -772,7 +797,8 @@ final class Tab: Identifiable {
         endRestoring()
         loadError = LoadError(
             message: nsError.localizedDescription,
-            failedURL: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL
+            failedURL: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+            coversPage: beforeCommit && webView?.backForwardList.currentItem != nil
         )
     }
 }

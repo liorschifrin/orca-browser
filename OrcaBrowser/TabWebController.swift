@@ -194,12 +194,12 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     /// Failure before anything arrived (offline, bad host, ...).
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        tab?.pageDidFail(error)
+        tab?.pageDidFail(error, beforeCommit: true)
     }
 
     /// Failure after the page had started arriving.
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        tab?.pageDidFail(error)
+        tab?.pageDidFail(error, beforeCommit: false)
     }
 
     // MARK: - WKUIDelegate
