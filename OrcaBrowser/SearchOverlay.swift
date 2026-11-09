@@ -548,12 +548,7 @@ struct SearchOverlay: View {
 
     private func field(hasBackground: Bool) -> some View {
         HStack(spacing: 8) {
-            // The chip is inside the text, where the magnifier would be.
-            if activeProvider == nil {
-                appendButton
-            } else {
-                Color.clear.frame(width: 4, height: 1)
-            }
+            appendButton
 
             queryField
                 .frame(minWidth: 64)
