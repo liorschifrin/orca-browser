@@ -5,8 +5,8 @@ import SwiftUI
 struct SearchProviderChip: View {
     let provider: SearchProvider
     var showsClose = false
-    /// Highlighted like selected text: typing will replace it.
-    var isSelected = false
+    /// Off where it's drawn into the search field's text, which handles taps itself.
+    var hasTapPadding = true
     /// Taller where it sits beside other controls of that height; everything scales with it.
     var height: CGFloat = 22
 
@@ -36,13 +36,10 @@ struct SearchProviderChip: View {
         .padding(.trailing, 7 * scale)
         .frame(height: height)
         .background(fill, in: .capsule)
-        .overlay {
-            if isSelected { Capsule().fill(Color.accentColor.opacity(0.55)) }
-        }
         // Exactly as wide as its name, wherever it is placed.
         .fixedSize(horizontal: true, vertical: false)
         // The chip is small; the tap area around it is not.
-        .padding(.vertical, max(0, 36 - height) / 2)
+        .padding(.vertical, hasTapPadding ? max(0, 36 - height) / 2 : 0)
         .contentShape(.rect)
     }
 

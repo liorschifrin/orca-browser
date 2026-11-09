@@ -1,7 +1,7 @@
 #if DEBUG
 import UIKit
 
-/// Simulator testing: types `-debugKeys` ("<" is delete) into the focused
+/// Simulator testing: types `-debugKeys` ("<" is delete, "*" select all) into the focused
 /// field through UIKit, as the keyboard would, and logs the field after each key.
 enum DebugKeys {
     private static weak var found: UIResponder?
@@ -13,9 +13,15 @@ enum DebugKeys {
             found = nil
             UIApplication.shared.sendAction(#selector(UIResponder.debugCaptureFirstResponder), to: nil, from: nil, for: nil)
             guard let input = found as? UIKeyInput else { print("DEBUGKEYS no responder"); return }
-            if key == "<" { input.deleteBackward() } else { input.insertText(String(key)) }
+            if key == "<" {
+                input.deleteBackward()
+            } else if key == "*" {
+                (found as? UITextView)?.selectAll(nil)
+            } else {
+                input.insertText(String(key))
+            }
             try? await Task.sleep(for: .milliseconds(400))
-            print("DEBUGKEYS after \(key): \((found as? UITextField)?.text?.debugDescription ?? "?")")
+            print("DEBUGKEYS after \(key): \((found as? UITextView)?.text?.debugDescription ?? "?")")
         }
     }
 
