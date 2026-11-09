@@ -154,19 +154,6 @@ struct SiteMenu: View {
                 }
             }
 
-            if let url = target.tab.url, let archived = ArchivePage.url(for: url) {
-                Button {
-                    target.tab.load(archived)
-                    dismiss()
-                } label: {
-                    Label("Open in archive.ph", systemImage: "building.columns")
-                        .frame(maxWidth: .infinity, minHeight: 48)
-                        .background(.thinMaterial, in: .rect(cornerRadius: 14))
-                        .contentShape(.rect(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-            }
-
             if let url = target.tab.url, Translation.canOpenInChrome(url) {
                 Button {
                     if confirmsOpeningChrome { isConfirmingChrome = true } else { Translation.openInChrome(url) }
@@ -184,6 +171,19 @@ struct SiteMenu: View {
                 ) {
                     Button("Open in Chrome") { Translation.openInChrome(url) }
                 }
+            }
+
+            if let url = target.tab.url, let archived = ArchivePage.url(for: url) {
+                Button {
+                    target.tab.load(archived)
+                    dismiss()
+                } label: {
+                    Label("Open in archive.ph", systemImage: "building.columns")
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                        .background(.thinMaterial, in: .rect(cornerRadius: 14))
+                        .contentShape(.rect(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.horizontal, 20)
