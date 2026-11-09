@@ -130,7 +130,7 @@ struct SearchOverlay: View {
         .onAppear {
             // Presented at launch: grab the keyboard right away.
             if isPresented {
-                resetInput()
+                restoreInput()
                 isFocused = true
                 clipboardCache.refresh(userInitiated: true)
             }
@@ -147,7 +147,7 @@ struct SearchOverlay: View {
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
-                resetInput()
+                restoreInput()
                 isFocused = true
                 clipboardCache.refresh(userInitiated: true)
             } else {
@@ -368,6 +368,15 @@ struct SearchOverlay: View {
         selectionRequest = .caret(shownLength)
     }
 
+    /// Puts the remembered query back without animation. Search opens inside an
+    /// animation, and the field's text (UIKit) can't follow the bar (SwiftUI)
+    /// as it grows to fit, so long text would drop in from above.
+    private func restoreInput() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction, resetInput)
+    }
+
     /// Restores the remembered query and enabled provider without interpreting an ordinary query as a shortcut.
     private func resetInput() {
         suppressActivation = false
@@ -559,7 +568,6 @@ struct SearchOverlay: View {
 
             clearButton
         }
-        .animation(.snappy(duration: 0.18), value: activeProvider?.id)
         .padding(.horizontal, 10)
         .frame(minHeight: 52)
         // Inside the panel there is no layer of its own: even a clear one
