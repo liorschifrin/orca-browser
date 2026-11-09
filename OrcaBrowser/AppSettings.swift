@@ -39,6 +39,13 @@ final class AppSettings {
         didSet { defaults.set(searchSuggestions, forKey: Self.searchSuggestionsKey) }
     }
 
+    private static let suggestionLookKey = "suggestionLook"
+
+    /// Which layout the search screen uses, while the options are being tried.
+    var suggestionLook: SuggestionLook {
+        didSet { defaults.set(suggestionLook.rawValue, forKey: Self.suggestionLookKey) }
+    }
+
     private static let savesClipboardHistoryKey = "savesClipboardHistory"
 
     /// Remembers everything copied in the app and whatever is on the
@@ -160,6 +167,7 @@ final class AppSettings {
             )
         }
         searchSuggestions = defaults.object(forKey: Self.searchSuggestionsKey) as? Bool ?? true
+        suggestionLook = SuggestionLook(rawValue: defaults.string(forKey: Self.suggestionLookKey) ?? "") ?? .panel
         savesClipboardHistory = defaults.object(forKey: Self.savesClipboardHistoryKey) as? Bool ?? true
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)

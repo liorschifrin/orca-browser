@@ -31,6 +31,11 @@ struct SettingsView: View {
                 }
                 Section {
                     Toggle("Search suggestions", isOn: $settings.searchSuggestions)
+                    Picker("Look", selection: $settings.suggestionLook) {
+                        ForEach(SuggestionLook.allCases) { look in
+                            Text(look.title).tag(look)
+                        }
+                    }
                 } footer: {
                     Text("Sends what you type to Google for suggestions when searching Google. Suggestions are off in Incognito.")
                 }

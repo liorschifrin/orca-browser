@@ -62,6 +62,12 @@ struct BrowserView: View {
         let store = BrowserStore()
         _store = State(initialValue: store)
         _isSearching = State(initialValue: false)
+        #if DEBUG
+        // Simulator screenshots: `-debugSearchText "…"` opens search already typed into.
+        if UserDefaults.standard.string(forKey: "debugSearchText") != nil {
+            _isSearching = State(initialValue: true)
+        }
+        #endif
         _searchIsIncognito = State(initialValue: store.selectedTab?.isIncognito ?? false)
     }
 

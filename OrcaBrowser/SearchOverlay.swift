@@ -75,42 +75,26 @@ struct SearchOverlay: View {
                     .accessibilityHidden(true)
             }
 
-            VStack(spacing: 10) {
-                if !visibleRemoteSuggestions.isEmpty, !isShowingClipboard {
-                    remoteSuggestionsList
+            if isPresented {
+                VStack {
+                    SuggestionLookPicker(settings: settings)
+                    Spacer(minLength: 0)
                 }
-                if settings.savesClipboardHistory {
-                    if isShowingClipboard {
-                        ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
-                            .transition(.opacity.combined(with: .offset(y: 12)))
-                    }
+                .padding(.top, 8)
+            }
+
+            Group {
+                switch settings.suggestionLook {
+                case .current: currentLayout
+                case .panel: panelLayout
+                case .clipboardRow: clipboardRowLayout
+                case .floating: floatingLayout
                 }
-                if isShowingOtherSuggestions, !otherSuggestions.isEmpty {
-                    otherSuggestionsRow
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                }
-                HStack(spacing: 0) {
-                    if let provider = suggestedProvider { suggestionChip(provider) }
-                    ClipboardControls(
-                        isOpen: $isShowingClipboard,
-                        showsHistory: settings.savesClipboardHistory,
-                        text: clipboardText,
-                        accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
-                        action: useClipboard
-                    )
-                }
-                if clipboardCache.access == .needsPermission {
-                    pastePermissionChip
-                }
-                if let answer {
-                    SmartAnswerCard(answer: answer, onReplace: replaceText)
-                        .transition(.opacity.combined(with: .offset(y: 12)))
-                }
-                field
             }
                 .animation(.snappy(duration: 0.2), value: isShowingClipboard)
                 .animation(.snappy(duration: 0.2), value: answer)
                 .animation(.snappy(duration: 0.2), value: isShowingOtherSuggestions)
+                .animation(.snappy(duration: 0.2), value: settings.suggestionLook)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .offset(y: isPresented ? 0 : 24)
@@ -154,6 +138,15 @@ struct SearchOverlay: View {
                 isFocused = true
                 clipboardCache.refresh(userInitiated: true)
             }
+            #if DEBUG
+            if let typed = UserDefaults.standard.string(forKey: "debugSearchText") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(600))
+                    text = typed
+                    hasEditedText = true
+                }
+            }
+            #endif
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
@@ -234,6 +227,216 @@ struct SearchOverlay: View {
         }
     }
 
+    private var showsRemoteSuggestions: Bool {
+        !visibleRemoteSuggestions.isEmpty && !isShowingClipboard
+    }
+
+    /// What sits above every layout: clipboard history, other sites, the
+    /// paste permission prompt and a calculation's answer.
+    @ViewBuilder private var extras: some View {
+        if settings.savesClipboardHistory, isShowingClipboard {
+            ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
+                .transition(.opacity.combined(with: .offset(y: 12)))
+        }
+        if isShowingOtherSuggestions, !otherSuggestions.isEmpty {
+            otherSuggestionsRow
+                .transition(.opacity.combined(with: .offset(y: 8)))
+        }
+        if needsPastePermission {
+            pastePermissionChip
+        }
+        if let answer {
+            SmartAnswerCard(answer: answer, onReplace: replaceText)
+                .transition(.opacity.combined(with: .offset(y: 12)))
+        }
+    }
+
+    private var currentLayout: some View {
+        VStack(spacing: 10) {
+            if showsRemoteSuggestions {
+                remoteSuggestionsList
+            }
+            if settings.savesClipboardHistory {
+                if isShowingClipboard {
+                    ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
+                        .transition(.opacity.combined(with: .offset(y: 12)))
+                }
+            }
+            if isShowingOtherSuggestions, !otherSuggestions.isEmpty {
+                otherSuggestionsRow
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+            }
+            HStack(spacing: 0) {
+                if let provider = suggestedProvider { suggestionChip(provider) }
+                ClipboardControls(
+                    isOpen: $isShowingClipboard,
+                    showsHistory: settings.savesClipboardHistory,
+                    text: clipboardText,
+                    accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
+                    action: useClipboard
+                )
+            }
+            if needsPastePermission {
+                pastePermissionChip
+            }
+            if let answer {
+                SmartAnswerCard(answer: answer, onReplace: replaceText)
+                    .transition(.opacity.combined(with: .offset(y: 12)))
+            }
+            field(hasBackground: true)
+        }
+    }
+
+    /// Suggestions, the clipboard and the field share one panel.
+    private var panelLayout: some View {
+        VStack(spacing: 10) {
+            extras
+            VStack(spacing: 0) {
+                if showsRemoteSuggestions {
+                    suggestionRows
+                    Divider().padding(.horizontal, 16)
+                }
+                if suggestedProvider != nil || !clipboardText.isEmpty || settings.savesClipboardHistory {
+                    HStack(spacing: 4) {
+                        if let provider = suggestedProvider { suggestionChip(provider) }
+                        if clipboardText.isEmpty {
+                            Spacer(minLength: 0)
+                        } else {
+                            ClipboardSuggestionRow(text: clipboardText, navigates: shouldNavigateClipboard, action: useClipboard)
+                        }
+                        if settings.savesClipboardHistory {
+                            InlineClipboardButton(isOpen: $isShowingClipboard)
+                        }
+                    }
+                    .padding(.leading, suggestedProvider == nil ? 22 : 12)
+                    .padding(.trailing, 6)
+                    Divider().padding(.horizontal, 16)
+                }
+                field(hasBackground: false)
+            }
+            .background(.regularMaterial, in: .rect(cornerRadius: 26))
+            .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        }
+    }
+
+    /// The clipboard is the last row of the suggestions card, just above the field.
+    private var clipboardRowLayout: some View {
+        VStack(spacing: 8) {
+            extras
+            if showsRemoteSuggestions || !clipboardText.isEmpty || settings.savesClipboardHistory {
+                VStack(spacing: 0) {
+                    if showsRemoteSuggestions {
+                        suggestionRows
+                        Divider().padding(.leading, 62)
+                    }
+                    HStack(spacing: 4) {
+                        if clipboardText.isEmpty {
+                            Text("Nothing on the clipboard")
+                                .font(.subheadline)
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .padding(.leading, 40)
+                        } else {
+                            ClipboardSuggestionRow(text: clipboardText, navigates: shouldNavigateClipboard, action: useClipboard)
+                        }
+                        if settings.savesClipboardHistory {
+                            InlineClipboardButton(isOpen: $isShowingClipboard)
+                        }
+                    }
+                    .padding(.leading, 22)
+                    .padding(.trailing, 6)
+                }
+                .background(.regularMaterial, in: .rect(cornerRadius: 22))
+                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+            }
+            if let provider = suggestedProvider {
+                suggestionChip(provider)
+                    .padding(.leading, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            field(hasBackground: true)
+        }
+    }
+
+    /// No card behind the suggestions; everything lines up with the field's text.
+    private var floatingLayout: some View {
+        VStack(spacing: 6) {
+            extras
+            if showsRemoteSuggestions {
+                suggestionRows
+            }
+            HStack(spacing: 8) {
+                if let provider = suggestedProvider { suggestionChip(provider) }
+                if !clipboardText.isEmpty {
+                    ClipboardChip(
+                        text: clipboardText,
+                        accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
+                        action: useClipboard
+                    )
+                    .clipboardHitRegion()
+                }
+                Spacer(minLength: 0)
+                if settings.savesClipboardHistory {
+                    ClipboardButton(isOpen: $isShowingClipboard)
+                        .clipboardHitRegion()
+                }
+            }
+            .padding(.horizontal, 6)
+            field(hasBackground: true)
+                .padding(.top, 4)
+        }
+    }
+
+    /// One line each, best match nearest the field (the thumb). Never more
+    /// than five, so no scrolling (which would also hide grey text on the blur).
+    private var suggestionRows: some View {
+        let suggestions = Array(visibleRemoteSuggestions.prefix(5).reversed())
+        return VStack(spacing: 0) {
+                ForEach(suggestions, id: \.self) { suggestion in
+                    HStack(spacing: 0) {
+                        Button {
+                            searchSuggestion(suggestion)
+                        } label: {
+                            SuggestionRowLabel(suggestion: suggestion, typed: text)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(.rect)
+                        }
+                        .accessibilityLabel("Search for \(suggestion)")
+                        Button {
+                            editSuggestion(suggestion)
+                        } label: {
+                            Image(systemName: "arrow.up.left")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(.rect)
+                        }
+                        .accessibilityLabel("Edit suggestion: \(suggestion)")
+                    }
+                    .padding(.leading, 22)
+                    .padding(.trailing, 4)
+                }
+        }
+        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("search-query-suggestions")
+    }
+
+    private func searchSuggestion(_ suggestion: String) {
+        // Explicitly search: a completion must never become a URL.
+        let url = activeProvider?.url(for: suggestion) ?? Destination.searchURL(for: suggestion)
+        onSubmit(SearchSubmission(text: suggestion, url: url, providerID: activeProvider?.id))
+    }
+
+    private func editSuggestion(_ suggestion: String) {
+        suppressActivation = true
+        shouldMatchShortcut = false
+        hasEditedText = true
+        text = suggestion
+        isFocused = true
+        selection = TextSelection(insertionPoint: shownText.endIndex)
+    }
+
     private var remoteSuggestionRequest: SearchSuggestionRequest? {
         SearchSuggestionRequest.make(
             text: text, provider: activeProvider, enabled: settings.searchSuggestions,
@@ -256,9 +459,7 @@ struct SearchOverlay: View {
                 ForEach(visibleRemoteSuggestions, id: \.self) { suggestion in
                     HStack(spacing: 0) {
                         Button {
-                            // Explicitly search: a completion must never become a URL.
-                            let url = activeProvider?.url(for: suggestion) ?? Destination.searchURL(for: suggestion)
-                            onSubmit(SearchSubmission(text: suggestion, url: url, providerID: activeProvider?.id))
+                            searchSuggestion(suggestion)
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -271,12 +472,7 @@ struct SearchOverlay: View {
                         }
                         .accessibilityLabel("Search for \(suggestion)")
                         Button {
-                            suppressActivation = true
-                            shouldMatchShortcut = false
-                            hasEditedText = true
-                            text = suggestion
-                            isFocused = true
-                            selection = TextSelection(insertionPoint: shownText.endIndex)
+                            editSuggestion(suggestion)
                         } label: {
                             Image(systemName: "arrow.up.left")
                                 .frame(width: 44, height: 44)
@@ -359,8 +555,19 @@ struct SearchOverlay: View {
         return SearchProvider.bestSuggestion(for: text, in: settings.searchProviders)
     }
 
+    private var needsPastePermission: Bool {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "debugClipboardText") != nil { return false }
+        #endif
+        return clipboardCache.access == .needsPermission
+    }
+
     private var clipboardText: String {
-        clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        #if DEBUG
+        // The simulator refuses pastes; screenshots can supply one.
+        if let fake = UserDefaults.standard.string(forKey: "debugClipboardText") { return fake }
+        #endif
+        return clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Every site the first word could mean, best first.
@@ -487,7 +694,7 @@ struct SearchOverlay: View {
         .accessibilityHint("Opens Settings so the clipboard can be read without asking each time")
     }
 
-    private var field: some View {
+    private func field(hasBackground: Bool) -> some View {
         HStack(spacing: 8) {
             if let provider = activeProvider {
                 // Part of the text: delete or its × turns it back into what was typed.
@@ -516,8 +723,15 @@ struct SearchOverlay: View {
         .animation(.snappy(duration: 0.18), value: activeProvider?.id)
         .padding(.horizontal, 10)
         .frame(minHeight: 52)
-        .background(.regularMaterial, in: .capsule)
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        // Inside the panel there is no layer of its own: even a clear one
+        // would stop grey text drawing on the panel's blur.
+        .background {
+            if hasBackground {
+                Capsule()
+                    .fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+            }
+        }
     }
 
     private var appendButton: some View {
