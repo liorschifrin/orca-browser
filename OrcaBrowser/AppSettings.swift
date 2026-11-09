@@ -34,6 +34,13 @@ final class AppSettings {
     private static let autoArchiveTabsKey = "autoArchiveTabs"
     private static let autoArchiveDaysKey = "autoArchiveDays"
     private static let savesClipboardHistoryKey = "savesClipboardHistory"
+    private static let showsArchiveButtonKey = "showsArchiveButton"
+
+    /// Shows the archive.ph button on pages that look like articles. On by
+    /// default; the site menu offers archive.ph on every page either way.
+    var showsArchiveButton: Bool {
+        didSet { defaults.set(showsArchiveButton, forKey: Self.showsArchiveButtonKey) }
+    }
 
     /// Remembers everything copied in the app and whatever is on the
     /// clipboard when it opens. On by default.
@@ -175,5 +182,6 @@ final class AppSettings {
             rawValue: defaults.string(forKey: Self.voiceSearchProviderKey) ?? ""
         ) ?? .apple
         showDebugStats = defaults.object(forKey: Self.showDebugStatsKey) as? Bool ?? true
+        showsArchiveButton = defaults.object(forKey: Self.showsArchiveButtonKey) as? Bool ?? true
     }
 }

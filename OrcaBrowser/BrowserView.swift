@@ -514,6 +514,22 @@ struct BrowserView: View {
                     .padding(.leading, 12)
                     .padding(.bottom, barHeight + 12)
                 }
+
+                if settings.showsArchiveButton, tab.isArticle, !isSwitching, let url = tab.url,
+                   let archived = ArchivePage.url(for: url) {
+                    Button { tab.load(archived) } label: {
+                        Image(systemName: "building.columns")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open in archive.ph")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, 12)
+                    .padding(.bottom, barHeight + 12)
+                }
             }
         }
         // The page shrinks a little to leave room for the strip.
