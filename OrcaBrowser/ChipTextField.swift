@@ -93,7 +93,6 @@ struct ChipTextField: UIViewRepresentable {
         if field.markedTextRange == nil,
            coordinator.shownChipID != chipID || coordinator.query(in: field) != text {
             coordinator.shownChipID = chipID
-            coordinator.chipWidth = chip?.size.width ?? 0
             field.attributedText = coordinator.attributed(text, chip: chip, font: field.font ?? .preferredFont(forTextStyle: .body))
             field.typingAttributes = coordinator.textAttributes(field)
             coordinator.keepCaretVisible(field)
@@ -128,7 +127,10 @@ struct ChipTextField: UIViewRepresentable {
 
         override func cut(_ sender: Any?) {
             copy(sender)
+            // Cutting the chip removes it, unlike deleting into it.
+            coordinator?.isCutting = true
             coordinator?.replace(selectedRange, with: "", in: self)
+            coordinator?.isCutting = false
         }
 
         // Pasted text takes the field's own style, on one line.
@@ -141,8 +143,8 @@ struct ChipTextField: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         var parent: ChipTextField
         var shownChipID: String?
-        var chipWidth: CGFloat = 0
         var appliedRequestID: UUID?
+        var isCutting = false
 
         init(_ parent: ChipTextField) { self.parent = parent }
 
@@ -211,7 +213,7 @@ struct ChipTextField: UIViewRepresentable {
             }
             guard shownChipID != nil, range.location == 0, range.length > 0 else { return true }
             let shown = (textView.text ?? "") as NSString
-            if range.length == 1, string.isEmpty {
+            if range.length == 1, string.isEmpty, !isCutting {
                 parent.onDeleteChip(shown.substring(from: 1))
             } else {
                 // Typed over, cut or pasted over a selection that includes the chip.
@@ -263,8 +265,11 @@ struct ChipTextField: UIViewRepresentable {
         // place the cursor as usual.
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
             guard shownChipID != nil, let field = recognizer.view as? UITextView else { return false }
-            let x = recognizer.location(in: field).x
-            return x >= -8 && x <= chipWidth
+            // Where the chip really is: wrapped text below it is ordinary text.
+            var chip = field.layoutManager.boundingRect(forGlyphRange: NSRange(location: 0, length: 1), in: field.textContainer)
+            chip.origin.x += field.textContainerInset.left
+            chip.origin.y += field.textContainerInset.top
+            return chip.insetBy(dx: -8, dy: -8).contains(recognizer.location(in: field))
         }
 
         @objc func tapped(_ recognizer: UITapGestureRecognizer) {
