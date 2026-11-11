@@ -10,6 +10,8 @@ struct SearchProvider: Codable, Identifiable, Equatable {
     // How the chip is drawn; set from the site this came from.
     var icon = SiteIconChoice.site
     var color = SiteColor.site
+    /// Where suggestions come from while its chip is showing; empty for none.
+    var suggestionTemplate = ""
 
     private enum CodingKeys: String, CodingKey { case id, name, shortcuts, template, isEnabled }
 
@@ -55,6 +57,17 @@ struct SearchProvider: Codable, Identifiable, Equatable {
             }
         }
         return Self.templateError(candidate.template)
+    }
+
+    /// A search template's rules, plus `%s` before any `#`: the part after it
+    /// is never sent, so the server would get the same request for every query.
+    static func suggestionTemplateError(_ template: String) -> String? {
+        if let error = templateError(template) { return error }
+        if let hash = template.firstIndex(of: "#"), let placeholder = template.range(of: "%s"),
+           placeholder.lowerBound > hash {
+            return "Place %s before any #, which isn't sent to the server."
+        }
+        return nil
     }
 
     /// Validates one HTTPS query placeholder outside the authority, with bounded size and valid escapes.
@@ -105,7 +118,12 @@ struct SearchProvider: Codable, Identifiable, Equatable {
 
     /// Encodes the query as UTF-8 URL data and replaces the sole placeholder once.
     func url(for query: String) -> URL? {
-        guard Self.templateError(template) == nil else { return nil }
+        Self.url(filling: template, with: query)
+    }
+
+    /// Puts the query in place of the template's `%s`, or nil for a bad template.
+    static func url(filling template: String, with query: String) -> URL? {
+        guard templateError(template) == nil else { return nil }
         // Encode UTF-8 bytes, including %, +, &, # and /. Substitute once so a
         // literal %s in the query is data, never a second template instruction.
         let encoded = query.utf8.map { byte -> String in

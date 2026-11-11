@@ -191,6 +191,17 @@ private struct SearchSiteEditor: View {
                 }
 
                 Section {
+                    TextField("HTTPS suggestions URL (optional)", text: $site.suggestionTemplate, axis: .vertical)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                } header: {
+                    Text("Suggestions")
+                } footer: {
+                    Text("While this site's chip is showing, what you type is sent here for suggestions instead of to Google. Use one %s for the query. Most sites' OpenSearch suggestion URLs work. Leave empty for none.")
+                }
+
+                Section {
                     Toggle("Search by typing", isOn: $site.usesTyping)
                     TextField("Shortcuts, separated by commas", text: $shortcuts)
                         .textInputAutocapitalization(.never)

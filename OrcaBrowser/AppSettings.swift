@@ -33,6 +33,19 @@ final class AppSettings {
     private static let showDebugStatsKey = "showDebugStats"
     private static let autoArchiveTabsKey = "autoArchiveTabs"
     private static let autoArchiveDaysKey = "autoArchiveDays"
+    private static let searchSuggestionsKey = "searchSuggestions"
+
+    var searchSuggestions: Bool {
+        didSet { defaults.set(searchSuggestions, forKey: Self.searchSuggestionsKey) }
+    }
+
+    private static let suggestionLookKey = "suggestionLook"
+
+    /// Which layout the search screen uses: One panel or Floating.
+    var suggestionLook: SuggestionLook {
+        didSet { defaults.set(suggestionLook.rawValue, forKey: Self.suggestionLookKey) }
+    }
+
     private static let savesClipboardHistoryKey = "savesClipboardHistory"
     private static let showsArchiveButtonKey = "showsArchiveButton"
 
@@ -160,6 +173,8 @@ final class AppSettings {
                 voice: defaults.data(forKey: Self.voiceQueryOptionsKey)
             )
         }
+        searchSuggestions = defaults.object(forKey: Self.searchSuggestionsKey) as? Bool ?? true
+        suggestionLook = SuggestionLook(rawValue: defaults.string(forKey: Self.suggestionLookKey) ?? "") ?? .panel
         savesClipboardHistory = defaults.object(forKey: Self.savesClipboardHistoryKey) as? Bool ?? true
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)
