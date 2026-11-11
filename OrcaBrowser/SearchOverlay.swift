@@ -73,14 +73,6 @@ struct SearchOverlay: View {
                     .accessibilityHidden(true)
             }
 
-            if isPresented {
-                VStack {
-                    SuggestionLookPicker(settings: settings)
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 8)
-            }
-
             Group {
                 switch settings.suggestionLook {
                 case .panel: panelLayout

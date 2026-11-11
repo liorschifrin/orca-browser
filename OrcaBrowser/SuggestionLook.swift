@@ -1,8 +1,7 @@
 import SwiftUI
 
-/// Ways to lay out search suggestions, the clipboard and the field, to try
-/// side by side on the phone. Switched from the pill above the search field
-/// or in Settings.
+/// Ways to lay out search suggestions, the clipboard and the field. Chosen
+/// in Settings.
 enum SuggestionLook: String, CaseIterable, Identifiable {
     /// Suggestions, clipboard and field in one panel.
     case panel
@@ -131,33 +130,5 @@ struct InlineClipboardButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Clipboard history")
         .accessibilityAddTraits(isOpen ? .isSelected : [])
-    }
-}
-
-/// Temporary: a pill at the top of the search screen to flip between looks.
-struct SuggestionLookPicker: View {
-    @Bindable var settings: AppSettings
-
-    var body: some View {
-        Menu {
-            Picker("Suggestion look", selection: $settings.suggestionLook) {
-                ForEach(SuggestionLook.allCases) { look in
-                    Text(look.title).tag(look)
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "paintpalette")
-                Text("Look: \(settings.suggestionLook.title)")
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.caption2)
-            }
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .background(.regularMaterial, in: .capsule)
-        }
-        .accessibilityIdentifier("suggestion-look-picker")
     }
 }

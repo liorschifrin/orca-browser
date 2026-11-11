@@ -41,7 +41,7 @@ final class AppSettings {
 
     private static let suggestionLookKey = "suggestionLook"
 
-    /// Which layout the search screen uses, while the options are being tried.
+    /// Which layout the search screen uses: One panel or Floating.
     var suggestionLook: SuggestionLook {
         didSet { defaults.set(suggestionLook.rawValue, forKey: Self.suggestionLookKey) }
     }
