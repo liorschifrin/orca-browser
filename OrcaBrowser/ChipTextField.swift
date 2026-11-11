@@ -265,11 +265,16 @@ struct ChipTextField: UIViewRepresentable {
         // place the cursor as usual.
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
             guard shownChipID != nil, let field = recognizer.view as? UITextView else { return false }
-            // Where the chip really is: wrapped text below it is ordinary text.
-            var chip = field.layoutManager.boundingRect(forGlyphRange: NSRange(location: 0, length: 1), in: field.textContainer)
-            chip.origin.x += field.textContainerInset.left
-            chip.origin.y += field.textContainerInset.top
-            return chip.insetBy(dx: -8, dy: -8).contains(recognizer.location(in: field))
+            // Where the chip really is, on its own line: the text after it and
+            // wrapped text below it are ordinary text.
+            let layout = field.layoutManager
+            let chip = layout.boundingRect(forGlyphRange: NSRange(location: 0, length: 1), in: field.textContainer)
+            let line = layout.lineFragmentRect(forGlyphAt: 0, effectiveRange: nil)
+            let inset = field.textContainerInset
+            // A little extra to the left and into the margin above, where there's no text.
+            let hit = CGRect(x: chip.minX + inset.left - 8, y: line.minY,
+                             width: chip.width + 8, height: line.maxY + inset.top)
+            return hit.contains(recognizer.location(in: field))
         }
 
         @objc func tapped(_ recognizer: UITapGestureRecognizer) {
