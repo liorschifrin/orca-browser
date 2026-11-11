@@ -140,6 +140,23 @@ class WebViewContainer: UIView {
     }
 }
 
+/// The web view behind every tab. A switcher card can ask it to report no safe
+/// area: the card lays the page out at a smaller scale, so the page would
+/// otherwise think the status bar overlaps it and push its sticky headers down
+/// (CSS `env(safe-area-inset-top)`), only to snap back once the page returns.
+final class PageWebView: WKWebView {
+    var ignoresSafeArea = false {
+        didSet {
+            guard ignoresSafeArea != oldValue else { return }
+            safeAreaInsetsDidChange()
+        }
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        ignoresSafeArea ? .zero : super.safeAreaInsets
+    }
+}
+
 /// Shows a tab's own, running web view inside its switcher card, so a playing
 /// video keeps playing while the tabs are browsed. It borrows the web view
 /// from the browser's page and hands it back when the card lets go of it.
@@ -186,10 +203,12 @@ struct LiveCardPage: UIViewRepresentable {
             // The card sits at an odd place and size on screen, which would
             // otherwise make the page re-lay itself out around phantom insets.
             view.scrollView.contentInsetAdjustmentBehavior = .never
+            (view as? PageWebView)?.ignoresSafeArea = true
         }
 
         func giveBack() {
             guard let view = webView else { return }
+            (view as? PageWebView)?.ignoresSafeArea = false
             if let savedInsetBehavior {
                 view.scrollView.contentInsetAdjustmentBehavior = savedInsetBehavior
             }

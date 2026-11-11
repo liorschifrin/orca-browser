@@ -7,19 +7,20 @@ A fast, gesture-driven web browser for iPhone, built with SwiftUI and WebKit. In
 - **Arc Search style tab switcher** – tabs laid out as a swipeable deck with live thumbnails, ordered by recency.
 - **Voice search** – swipe up from **+** and hold to dictate, then slide to a destination (Google, YouTube, ChatGPT, Maps, Reddit, Wikipedia and more) and release to search. Fully customizable.
 - **Page-history back button** – tap to go back, hold or drag up to jump backward or forward in the tab's history.
+- **Archive.ph** – on news and blog articles, a button opens the page in archive.ph, which often has a copy without the paywall. Any page can be opened there from the site menu.
 - **Translate** – detects pages in another language and adds a one-tap open in Chrome button for translation.
 - **Ad, tracker and cookie banner blocking** – native WebKit content rules built from AdGuard filters, with per-site controls and blocked counts in the site menu. Pages locked by a hidden banner are unlocked so they still scroll. Where a consent banner offers a plain reject (Fides, OneTrust, Sourcepoint and a few others), it is rejected for you.
+- **Clipboard History** – built right into the app
 - **Quick search** - One tap to search clipboard contents
+- **Incognito tabs / window** - private tabs among your normal ones, or a separate window, each with its own throwaway storage.
 - **Auto tab archive**
-- **Incognito tabs** - private tabs among your normal ones, each with its own throwaway storage
-- **Incognito window** - a separate space of private tabs that share one session, kept only in memory. Open it with the incognito button at the bottom left of the tab switcher; inside, a Tabs / Incognito toggle at the top goes back. Leaving the app or switching back to normal tabs locks it; coming back offers Continue (behind Face ID) or Start Fresh (no Face ID, since it erases the tabs). The bottom-left button of the switcher flips between the two spaces. No translate button there, and Open in Chrome (in the site menu) asks first. Anything copied while inside is cleared from the clipboard when you leave
 
 ### Site specific features
 - **YouTube**
-  - Playback controls above the bottom bar on watch pages: back/forward 10 seconds, play/pause, speed (0.25×–4×), quality, captions, picture in picture and fullscreen. Speed and quality open a list the moment you touch them; slide to a choice and let go, or tap one.
-  - A top bar with the time (`1:23 / 12:34`) and a chapters list, with the "Open App" button removed.
-  - Picture in picture: "return to app" switches back to the tab that was playing and keeps it playing, a video in picture in picture returns to the page when you open its tab, and switching to another tab pauses the video.
-  - Options to hide Shorts and to open them in the normal player. All YouTube options are in Settings and in the site menu on YouTube.
+  - Playback controls above the bottom bar on watch pages: back/forward 10 seconds, play/pause, speed (0.25×–4×), quality, captions, picture in picture and fullscreen.
+  - A top bar with the time (`1:23 / 12:34`) and a chapters list.
+  - Picture in picture and background play work, even without YouTube premium.
+  - Options to hide Shorts and to open them in the normal player.
 - **Reddit** – blocks the "open in app" pop-up that prevents mobile site usage
 
 
