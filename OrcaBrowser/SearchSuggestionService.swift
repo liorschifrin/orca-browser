@@ -17,7 +17,7 @@ struct SearchSuggestionRequest: Equatable, Sendable {
         guard enabled, isPresented, isEditing, !isIncognito,
               query.count >= 2, query.count <= 200,
               !query.contains(where: { $0.isNewline || $0.isASCII && $0.asciiValue! < 32 }),
-              !template.isEmpty, SearchProvider.templateError(template) == nil else { return nil }
+              !template.isEmpty, SearchProvider.suggestionTemplateError(template) == nil else { return nil }
         // Reuse navigation's address detection, including localhost and IP addresses.
         guard Destination.url(for: query) == Destination.searchURL(for: query),
               !query.contains("://"), !query.contains("@") else { return nil }

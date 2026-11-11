@@ -57,6 +57,20 @@ final class SearchSuggestionTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(SearchSite.self, from: custom).suggestionTemplate, "")
     }
 
+    func testPastedLineBreaksOfEveryKindBecomeSpaces() {
+        XCTAssertEqual(ChipTextField.oneLine("a\rb"), "a b")
+        XCTAssertEqual(ChipTextField.oneLine("a \r\n b\u{2028}c\n"), "a b c")
+        XCTAssertEqual(ChipTextField.oneLine(" plain "), " plain ")
+    }
+
+    func testSuggestionsURLMustSendTheQuery() {
+        XCTAssertNotNil(SearchProvider.suggestionTemplateError("https://example.com/suggest#q=%s"))
+        XCTAssertNil(SearchProvider.suggestionTemplateError("https://example.com/suggest?q=%s#top"))
+        var custom = SearchProvider.builtIns[0]
+        custom.suggestionTemplate = "https://example.com/suggest#q=%s"
+        XCTAssertNil(request(provider: custom))
+    }
+
     func testBadSuggestionsURLIsNotSaved() {
         var site = SearchSite(name: "Mine", template: "https://example.com/?q=%s", shortcuts: ["mine"])
         site.suggestionTemplate = "https://example.com/complete"

@@ -101,15 +101,20 @@ struct ClipboardSuggestionRow: View {
         .accessibilityLabel("\(navigates ? "Go to copied text" : "Paste copied text"): \(text)")
     }
 
-    /// A link reads as its site, then the rest dimmed: "youtube.com /watch?v=…".
+    /// A link reads as its site (with any port), then the rest dimmed:
+    /// "youtube.com /watch?v=…".
     private var label: Text {
         guard let url = URL(string: text), let scheme = url.scheme, ["http", "https"].contains(scheme),
-              var host = url.host(), !text.contains(where: \.isWhitespace) else {
+              url.host() != nil, !text.contains(where: \.isWhitespace),
+              let start = text.range(of: "://")?.upperBound else {
             return Text(text).foregroundStyle(.secondary)
         }
-        for prefix in ["www.", "m."] where host.hasPrefix(prefix) { host.removeFirst(prefix.count) }
-        let rest = text.drop(while: { $0 != "/" }).dropFirst(2).drop(while: { $0 != "/" })
-        return Text(host) + Text(rest == "/" ? "" : rest).foregroundStyle(.secondary)
+        let address = text[start...]
+        let end = address.firstIndex(where: { "/?#".contains($0) }) ?? address.endIndex
+        var site = String(address[..<end])
+        for prefix in ["www.", "m."] where site.hasPrefix(prefix) { site.removeFirst(prefix.count) }
+        let rest = address[end...]
+        return Text(site) + Text(rest == "/" ? "" : rest).foregroundStyle(.secondary)
     }
 }
 

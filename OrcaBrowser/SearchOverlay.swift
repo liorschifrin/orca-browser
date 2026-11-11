@@ -588,6 +588,7 @@ struct SearchOverlay: View {
             text: $text,
             chip: chipImage,
             chipID: activeProvider?.id,
+            chipWord: activeProvider.map { typedShortcut ?? $0.shortcuts.first ?? "" } ?? "",
             isFocused: $isFocused,
             selectionRequest: selectionRequest,
             onDeleteChip: { query in dissolveProvider(keeping: query) },

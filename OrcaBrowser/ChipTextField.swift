@@ -29,6 +29,8 @@ struct ChipTextField: UIViewRepresentable {
     /// The chip, drawn, and what identifies it; nil when there is no chip.
     let chip: UIImage?
     let chipID: String?
+    /// The shortcut the chip stands for, written out when the chip is copied.
+    var chipWord = ""
     @Binding var isFocused: Bool
     var selectionRequest: FieldSelectionRequest?
     /// Delete reached the chip and nothing else: it turns back into its word.
@@ -41,6 +43,16 @@ struct ChipTextField: UIViewRepresentable {
     let onSubmit: () -> Void
 
     static let chipCharacter = "\u{FFFC}"
+
+    /// Pasted lines joined with spaces. Splits on every kind of line break the
+    /// field checks for, so the result never needs joining again.
+    static func oneLine(_ string: String) -> String {
+        guard string.contains(where: \.isNewline) else { return string }
+        return string.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
     static let verticalInset: CGFloat = 14
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -121,8 +133,11 @@ struct ChipTextField: UIViewRepresentable {
         // The chip is a stand-in character; what's copied is the text.
         override func copy(_ sender: Any?) {
             guard selectedRange.length > 0 else { return }
+            // The chip copies as its shortcut ("yt lofi"), which pastes back as the chip.
+            let word = coordinator?.parent.chipWord ?? ""
             UIPasteboard.general.string = (text as NSString).substring(with: selectedRange)
-                .replacingOccurrences(of: ChipTextField.chipCharacter, with: "")
+                .replacingOccurrences(of: ChipTextField.chipCharacter, with: word.isEmpty ? "" : word + " ")
+                .trimmingCharacters(in: .whitespaces)
         }
 
         override func cut(_ sender: Any?) {
@@ -195,7 +210,7 @@ struct ChipTextField: UIViewRepresentable {
 
         /// Makes an edit the way typing would, through the same rules.
         func replace(_ range: NSRange, with string: String, in field: UITextView) {
-            let oneLine = string.replacing(/\s*\n\s*/, with: " ")
+            let oneLine = ChipTextField.oneLine(string)
             guard textView(field, shouldChangeTextIn: range, replacementText: oneLine) else { return }
             field.textStorage.replaceCharacters(in: range, with: NSAttributedString(string: oneLine, attributes: textAttributes(field)))
             field.selectedRange = NSRange(location: range.location + (oneLine as NSString).length, length: 0)

@@ -130,7 +130,7 @@ struct SearchSite: Codable, Identifiable, Equatable {
     /// Checks typing requirements, cross-site shortcut conflicts, and the shared URL template.
     func validationError(among sites: [Self]) -> String? {
         let candidate = normalized()
-        if !candidate.suggestionTemplate.isEmpty, let error = SearchProvider.templateError(candidate.suggestionTemplate) {
+        if !candidate.suggestionTemplate.isEmpty, let error = SearchProvider.suggestionTemplateError(candidate.suggestionTemplate) {
             return "Suggestions URL: \(error)"
         }
         if candidate.shortcuts.isEmpty {

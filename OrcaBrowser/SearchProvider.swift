@@ -59,6 +59,17 @@ struct SearchProvider: Codable, Identifiable, Equatable {
         return Self.templateError(candidate.template)
     }
 
+    /// A search template's rules, plus `%s` before any `#`: the part after it
+    /// is never sent, so the server would get the same request for every query.
+    static func suggestionTemplateError(_ template: String) -> String? {
+        if let error = templateError(template) { return error }
+        if let hash = template.firstIndex(of: "#"), let placeholder = template.range(of: "%s"),
+           placeholder.lowerBound > hash {
+            return "Place %s before any #, which isn't sent to the server."
+        }
+        return nil
+    }
+
     /// Validates one HTTPS query placeholder outside the authority, with bounded size and valid escapes.
     static func templateError(_ template: String) -> String? {
         guard template.utf8.count <= 2_048 else { return "The template must be at most 2,048 bytes long." }
