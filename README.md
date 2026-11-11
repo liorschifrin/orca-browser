@@ -22,6 +22,7 @@ A fast, gesture-driven web browser for iPhone, built with SwiftUI and WebKit. In
   - Picture in picture and background play work, even without YouTube premium.
   - Options to hide Shorts and to open them in the normal player.
 - **Reddit** – blocks the "open in app" pop-up that prevents mobile site usage
+- **X** – keeps Google results and X's app-promotion links on the website, and dismisses the app pop-up. Public posts and the replies X makes available can be read without signing in; X may limit the remaining replies.
 
 
 ## Building
