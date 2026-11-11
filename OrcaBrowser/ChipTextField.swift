@@ -44,6 +44,17 @@ struct ChipTextField: UIViewRepresentable {
 
     static let chipCharacter = "\u{FFFC}"
 
+    /// A selection as copied: the chip becomes its shortcut ("yt lofi"), which
+    /// pastes back as the chip, with a space only when text follows it.
+    /// Everything else is kept exactly, spaces included.
+    static func copied(_ selected: String, chipWord: String) -> String {
+        guard let chip = selected.range(of: chipCharacter) else { return selected }
+        var result = selected
+        let separator = chipWord.isEmpty || selected[chip.upperBound...].isEmpty ? "" : " "
+        result.replaceSubrange(chip, with: chipWord + separator)
+        return result
+    }
+
     /// Pasted lines joined with spaces. Splits on every kind of line break the
     /// field checks for, so the result never needs joining again.
     static func oneLine(_ string: String) -> String {
@@ -133,11 +144,8 @@ struct ChipTextField: UIViewRepresentable {
         // The chip is a stand-in character; what's copied is the text.
         override func copy(_ sender: Any?) {
             guard selectedRange.length > 0 else { return }
-            // The chip copies as its shortcut ("yt lofi"), which pastes back as the chip.
-            let word = coordinator?.parent.chipWord ?? ""
-            UIPasteboard.general.string = (text as NSString).substring(with: selectedRange)
-                .replacingOccurrences(of: ChipTextField.chipCharacter, with: word.isEmpty ? "" : word + " ")
-                .trimmingCharacters(in: .whitespaces)
+            UIPasteboard.general.string = ChipTextField.copied(
+                (text as NSString).substring(with: selectedRange), chipWord: coordinator?.parent.chipWord ?? "")
         }
 
         override func cut(_ sender: Any?) {

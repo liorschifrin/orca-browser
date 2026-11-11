@@ -63,6 +63,12 @@ final class SearchSuggestionTests: XCTestCase {
         XCTAssertEqual(ChipTextField.oneLine(" plain "), " plain ")
     }
 
+    func testCopyKeepsSpacesAndWritesTheChipAsItsShortcut() {
+        XCTAssertEqual(ChipTextField.copied("tea ", chipWord: "yt"), "tea ")
+        XCTAssertEqual(ChipTextField.copied("\u{FFFC}lofi ", chipWord: "yt"), "yt lofi ")
+        XCTAssertEqual(ChipTextField.copied("\u{FFFC}", chipWord: "yt"), "yt")
+    }
+
     func testSuggestionsURLMustSendTheQuery() {
         XCTAssertNotNil(SearchProvider.suggestionTemplateError("https://example.com/suggest#q=%s"))
         XCTAssertNil(SearchProvider.suggestionTemplateError("https://example.com/suggest?q=%s#top"))
