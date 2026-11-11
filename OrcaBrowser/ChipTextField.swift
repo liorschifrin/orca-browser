@@ -114,15 +114,6 @@ struct ChipTextField: UIViewRepresentable {
         weak var coordinator: Coordinator?
         var wantsFocus = false
 
-        // Only text past the line limit scrolls; otherwise it stays at the top,
-        // even if the field was briefly too short while growing.
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            if contentSize.height <= bounds.height + 1, contentOffset.y != 0 {
-                contentOffset = .zero
-            }
-        }
-
         override func didMoveToWindow() {
             super.didMoveToWindow()
             if window != nil, wantsFocus, !isFirstResponder { becomeFirstResponder() }
