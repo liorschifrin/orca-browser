@@ -336,6 +336,8 @@ final class BrowserStore {
         if inBackground {
             // Keep the visible page last in the switcher's recency order.
             if let current = selectedTab { markUsed(current) }
+            // It was showing as a preview; now it's behind the current tab.
+            tab.setOnScreen(false)
         } else {
             selectedTab?.lastViewed = .now
             selectedTab?.lastOpenedAt = .now

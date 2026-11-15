@@ -182,6 +182,20 @@ enum YouTubeSpeedBumps {
       document.addEventListener("play", holdVideo, true);
       document.addEventListener("playing", holdVideo, true);
 
+      // Listening keeps the picture out of fullscreen and picture in picture
+      // too. Background audio doesn't need either. Checked when the mode
+      // changes, and on every sweep in case the page stopped that event.
+      const keepInline = (video) => {
+        const id = videoID();
+        if (!id || !isLocked("watch:" + id) || isLocked("listen:" + id)) return;
+        if (video.webkitPresentationMode && video.webkitPresentationMode !== "inline") {
+          video.webkitSetPresentationMode("inline");
+        }
+      };
+      window.addEventListener("webkitpresentationmodechanged", (event) => {
+        if (event.target instanceof HTMLVideoElement) keepInline(event.target);
+      }, true);
+
       let lastPath = null;
       const sweep = () => {
         const id = videoID();
@@ -190,6 +204,9 @@ enum YouTubeSpeedBumps {
         const listenKey = id && "listen:" + id;
         const relatedKey = id && "related:" + id;
         const root = document.documentElement;
+        // Switched off: countdowns in progress stop, so none can start a
+        // video later.
+        if (!settings()) counting.clear();
 
         const path = location.pathname + "?" + (id || "");
         if (path !== lastPath) {
@@ -233,12 +250,7 @@ enum YouTubeSpeedBumps {
           if (element.parentElement !== player) player.appendChild(element);
           for (const video of document.querySelectorAll("video")) {
             if (!listening && !video.paused) video.pause();
-            // Listening keeps the picture out of fullscreen and picture in
-            // picture too. Background audio doesn't need either.
-            if (listening &&
-                video.webkitPresentationMode && video.webkitPresentationMode !== "inline") {
-              video.webkitSetPresentationMode("inline");
-            }
+            keepInline(video);
           }
         } else {
           remove("orca-bump-player");
