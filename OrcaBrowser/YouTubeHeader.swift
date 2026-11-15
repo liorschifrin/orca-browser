@@ -113,7 +113,7 @@ enum YouTubeHeader {
         // The slash for a video with no chapters, with a gap cut around it.
         const line = (stroke, width) => {
           const element = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-          for (const [name, value] of [['x1', 3], ['y1', 3], ['x2', 21], ['y2', 21]]) element.setAttribute(name, value);
+          for (const [name, value] of [['x1', 21], ['y1', 3], ['x2', 3], ['y2', 21]]) element.setAttribute(name, value);
           element.setAttribute('stroke', stroke);
           element.setAttribute('stroke-width', width);
           element.setAttribute('stroke-linecap', 'round');

@@ -228,7 +228,9 @@ struct BrowserView: View {
             ClipboardOverlay.shared.isSuppressed = isSearching
         }
         .onChange(of: isSwitching) { InteractionBudget.shared.isSwitching = isSwitching }
+        .onChange(of: store.selectedTabID) { store.updatePagesOnScreen(appIsActive: scenePhase == .active) }
         .onChange(of: scenePhase) {
+            store.updatePagesOnScreen(appIsActive: scenePhase == .active)
             // The switch can be decided while the app is still coming forward
             // from the picture in picture window; slide once it's on screen.
             startSlideIfVisible()
@@ -268,8 +270,8 @@ struct BrowserView: View {
         .onChange(of: settings.opensShortsAsVideos) {
             store.applyOpensShortsAsVideosSetting(settings.opensShortsAsVideos)
         }
-        .onChange(of: settings.slowsDownYouTube) {
-            store.applySlowsDownYouTubeSetting(settings.slowsDownYouTube)
+        .onChange(of: settings.speedBumpsInPage) {
+            store.applySpeedBumpSettings(settings.speedBumpsInPage)
         }
         .onChange(of: settings.blockRedditPrompt) {
             store.applyRedditPromptSetting(settings.blockRedditPrompt)

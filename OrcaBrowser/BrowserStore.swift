@@ -356,10 +356,18 @@ final class BrowserStore {
         }
     }
 
-    /// Applies the "slow down YouTube" setting the same way.
-    func applySlowsDownYouTubeSetting(_ enabled: Bool) {
+    /// Tells every live page whether it's on screen: the app is open and
+    /// it's the current tab.
+    func updatePagesOnScreen(appIsActive: Bool) {
         for tab in allTabs where tab.isLoaded {
-            tab.setSlowsDownYouTube(enabled)
+            tab.setOnScreen(appIsActive && tab.id == selectedTabID)
+        }
+    }
+
+    /// Applies the YouTube countdown settings the same way.
+    func applySpeedBumpSettings(_ settings: YouTubeSpeedBumps.Settings?) {
+        for tab in allTabs where tab.isLoaded {
+            tab.setSpeedBumps(settings)
         }
     }
 
