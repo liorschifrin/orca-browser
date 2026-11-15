@@ -31,6 +31,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         configuration.userContentController.addUserScript(
             ShortsFilter.redirectUserScript(enabled: AppSettings.shared.opensShortsAsVideos)
         )
+        configuration.userContentController.addUserScript(
+            YouTubeSpeedBumps.userScript(enabled: AppSettings.shared.slowsDownYouTube)
+        )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
         configuration.userContentController.addUserScript(PlaybackControl.userScript)
         configuration.userContentController.addUserScript(VideoFullscreen.userScript)

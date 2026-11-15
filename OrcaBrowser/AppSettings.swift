@@ -22,6 +22,7 @@ final class AppSettings {
     private static let showsPlaybackBarKey = "showsPlaybackBar"
     private static let hidesOpenAppKey = "hidesOpenApp"
     private static let showsHeaderToolsKey = "showsHeaderTools"
+    private static let slowsDownYouTubeKey = "slowsDownYouTube"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
     private static let blockCookieBannersKey = "blockCookieBanners"
@@ -123,6 +124,12 @@ final class AppSettings {
         didSet { defaults.set(showsHeaderTools, forKey: Self.showsHeaderToolsKey) }
     }
 
+    /// Locks YouTube's home recommendations, each video and the videos under
+    /// it behind a countdown (`YouTubeSpeedBumps`). On by default.
+    var slowsDownYouTube: Bool {
+        didSet { defaults.set(slowsDownYouTube, forKey: Self.slowsDownYouTubeKey) }
+    }
+
     /// Blocks ads in every tab. On by default.
     var blockAds: Bool {
         didSet { defaults.set(blockAds, forKey: Self.blockAdsKey) }
@@ -186,6 +193,7 @@ final class AppSettings {
         showsPlaybackBar = defaults.object(forKey: Self.showsPlaybackBarKey) as? Bool ?? true
         hidesOpenApp = defaults.object(forKey: Self.hidesOpenAppKey) as? Bool ?? true
         showsHeaderTools = defaults.object(forKey: Self.showsHeaderToolsKey) as? Bool ?? true
+        slowsDownYouTube = defaults.object(forKey: Self.slowsDownYouTubeKey) as? Bool ?? true
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
         blockCookieBanners = defaults.object(forKey: Self.blockCookieBannersKey) as? Bool ?? true

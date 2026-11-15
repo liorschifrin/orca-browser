@@ -9,6 +9,7 @@ struct YouTubeToggles: View {
     var separated = false
 
     var body: some View {
+        toggle("Slow down YouTube", $settings.slowsDownYouTube)
         toggle("Hide Shorts", $settings.hideShorts)
         toggle("Open Shorts as regular videos", $settings.opensShortsAsVideos)
         toggle("Playback controls", $settings.showsPlaybackBar)
@@ -28,5 +29,5 @@ struct YouTubeToggles: View {
         }
     }
 
-    static let footnote = "Hide Shorts removes Shorts shelves and cards. Open Shorts as regular videos plays a Short in the normal player. Playback controls is the bar above the bottom bar on watch pages, with speed, quality, captions, skip and picture in picture. The top bar shows the time and a list of chapters, and Open App is YouTube's button for its app."
+    static let footnote = "Slow down YouTube hides the home page's recommendations, each video and the videos under it until you tap a button and wait \(YouTubeSpeedBumps.seconds) seconds. Search, descriptions and comments stay open. Hide Shorts removes Shorts shelves and cards. Open Shorts as regular videos plays a Short in the normal player. Playback controls is the bar above the bottom bar on watch pages, with speed, quality, captions, skip and picture in picture. The top bar shows the time and a list of chapters, and Open App is YouTube's button for its app."
 }

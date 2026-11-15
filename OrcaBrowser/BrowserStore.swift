@@ -356,6 +356,13 @@ final class BrowserStore {
         }
     }
 
+    /// Applies the "slow down YouTube" setting the same way.
+    func applySlowsDownYouTubeSetting(_ enabled: Bool) {
+        for tab in allTabs where tab.isLoaded {
+            tab.setSlowsDownYouTube(enabled)
+        }
+    }
+
     /// Applies the Reddit pop-up setting to every tab that has a live web view.
     func applyRedditPromptSetting(_ enabled: Bool) {
         for tab in allTabs where tab.isLoaded {

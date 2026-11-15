@@ -753,6 +753,11 @@ final class Tab: Identifiable {
         webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
     }
 
+    /// Applies the "slow down YouTube" setting to a page that is already open.
+    func setSlowsDownYouTube(_ enabled: Bool) {
+        webView?.evaluateJavaScript(YouTubeSpeedBumps.setScript(enabled: enabled))
+    }
+
     /// Applies the "open Shorts as videos" setting to a page that is already open.
     func setOpensShortsAsVideos(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))

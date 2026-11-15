@@ -268,6 +268,9 @@ struct BrowserView: View {
         .onChange(of: settings.opensShortsAsVideos) {
             store.applyOpensShortsAsVideosSetting(settings.opensShortsAsVideos)
         }
+        .onChange(of: settings.slowsDownYouTube) {
+            store.applySlowsDownYouTubeSetting(settings.slowsDownYouTube)
+        }
         .onChange(of: settings.blockRedditPrompt) {
             store.applyRedditPromptSetting(settings.blockRedditPrompt)
         }
