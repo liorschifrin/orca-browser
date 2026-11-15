@@ -7,11 +7,41 @@ struct YouTubeToggles: View {
     /// Draw a divider between the switches (the site menu's card; a Form
     /// draws its own).
     var separated = false
+    @State private var isShowingCountdowns = false
 
     var body: some View {
         toggle("Slow down YouTube", $settings.slowsDownYouTube)
-        // Settings only: the site menu has nowhere to open it.
-        if !separated {
+        if separated {
+            // The site menu isn't a navigation stack, so the countdowns open
+            // in a sheet of their own.
+            Button {
+                isShowingCountdowns = true
+            } label: {
+                HStack {
+                    Text("Countdowns")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(!settings.slowsDownYouTube)
+            .padding(.horizontal, 16)
+            .frame(minHeight: 48)
+            .sheet(isPresented: $isShowingCountdowns) {
+                NavigationStack {
+                    SpeedBumpSettingsView(settings: settings)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { isShowingCountdowns = false }
+                            }
+                        }
+                }
+            }
+            Divider().padding(.leading, 16)
+        } else {
             NavigationLink("Countdowns") {
                 SpeedBumpSettingsView(settings: settings)
             }
