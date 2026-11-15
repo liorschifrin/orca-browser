@@ -32,6 +32,10 @@ final class BrowserStore {
     }
     /// Every tab in both spaces, for settings that reach all live pages.
     private var allTabs: [Tab] { normalTabs + (incognitoWindow?.tabs ?? []) }
+    /// Every tab with a live page, previews of held links included.
+    private var liveTabs: [Tab] {
+        allTabs.flatMap { [$0] + ($0.peek.map { [$0.tab] } ?? []) }.filter(\.isLoaded)
+    }
 
     /// A switch that slides the new tab in from the right, like moving to
     /// the next app. The old tab stays on screen until the slide ends.
@@ -344,43 +348,44 @@ final class BrowserStore {
     /// Applies the Shorts hiding setting to every tab that has a live web view.
     /// Tabs that load later pick it up when their web view is created.
     func applyShortsSetting(_ enabled: Bool) {
-        for tab in allTabs where tab.isLoaded {
+        for tab in liveTabs {
             tab.setHidesShorts(enabled)
         }
     }
 
     /// Applies the "open Shorts as videos" setting the same way.
     func applyOpensShortsAsVideosSetting(_ enabled: Bool) {
-        for tab in allTabs where tab.isLoaded {
+        for tab in liveTabs {
             tab.setOpensShortsAsVideos(enabled)
         }
     }
 
     /// Tells every live page whether it's on screen: the app is open and
-    /// it's the current tab.
+    /// it's the current tab, or the current tab's held-link preview.
     func updatePagesOnScreen(appIsActive: Bool) {
-        for tab in allTabs where tab.isLoaded {
-            tab.setOnScreen(appIsActive && tab.id == selectedTabID)
+        let showing = Set([selectedTabID, selectedTab?.peek?.tab.id].compactMap { $0 })
+        for tab in liveTabs {
+            tab.setOnScreen(appIsActive && showing.contains(tab.id))
         }
     }
 
     /// Applies the YouTube countdown settings the same way.
     func applySpeedBumpSettings(_ settings: YouTubeSpeedBumps.Settings?) {
-        for tab in allTabs where tab.isLoaded {
+        for tab in liveTabs {
             tab.setSpeedBumps(settings)
         }
     }
 
     /// Applies the Reddit pop-up setting to every tab that has a live web view.
     func applyRedditPromptSetting(_ enabled: Bool) {
-        for tab in allTabs where tab.isLoaded {
+        for tab in liveTabs {
             tab.setBlocksRedditPrompt(enabled)
         }
     }
 
     /// Applies the YouTube top bar settings to every tab with a live page.
     func applyYouTubeSettings(_ settings: AppSettings) {
-        for tab in allTabs where tab.isLoaded {
+        for tab in liveTabs {
             tab.applyYouTubeSettings(settings)
         }
     }

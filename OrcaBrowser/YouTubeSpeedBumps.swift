@@ -234,8 +234,8 @@ enum YouTubeSpeedBumps {
           for (const video of document.querySelectorAll("video")) {
             if (!listening && !video.paused) video.pause();
             // Listening keeps the picture out of fullscreen and picture in
-            // picture too, while you're looking at the page.
-            if (listening && isOnScreen() &&
+            // picture too. Background audio doesn't need either.
+            if (listening &&
                 video.webkitPresentationMode && video.webkitPresentationMode !== "inline") {
               video.webkitSetPresentationMode("inline");
             }
@@ -255,11 +255,11 @@ enum YouTubeSpeedBumps {
         }
       };
 
-      // The countdowns. They wait while the page is off screen. Every
-      // second, so the lengths on the buttons follow the night hours too.
+      // The countdowns, which wait while the page is off screen. The sweep
+      // runs every second regardless, so the lengths on the buttons follow
+      // the night hours, and a listening video is put back in the page.
       setInterval(() => {
-        if (!isOnScreen()) return;
-        for (const [key, left] of counting) {
+        for (const [key, left] of isOnScreen() ? counting : []) {
           if (left > 1) {
             counting.set(key, left - 1);
           } else {
