@@ -46,7 +46,9 @@ enum YouTubeSpeedBumps {
 
     private static let script = """
     (() => {
-      if (!/(^|\\.)youtube\\.com$/.test(location.hostname)) return;
+      // Mobile YouTube only: the desktop site's player and lists are built
+      // differently, and a video locked there would have no way to open.
+      if (location.hostname !== "m.youtube.com") return;
 
       const style = document.createElement("style");
       style.textContent = `
@@ -108,8 +110,13 @@ enum YouTubeSpeedBumps {
       // The video may play: it was opened for watching or for listening.
       const mayPlay = (id) => !id || !isLocked("watch:" + id) || !isLocked("listen:" + id);
 
-      // A card with a message and buttons, each starting one countdown. While
-      // one counts down, the others hide and its button stops it.
+      // Text is only written when it changes: the page is watched for
+      // changes, and writing the same text again would count as one.
+      const setText = (node, text) => { if (node.textContent !== text) node.textContent = text; };
+
+      // A card with a message and buttons. Most start a countdown (`key`);
+      // while one counts down, the others hide and its button stops it. A
+      // button with `run` does that instead.
       const card = (id, message, actions) => {
         let element = document.getElementById(id);
         if (!element) {
@@ -125,6 +132,11 @@ enum YouTubeSpeedBumps {
           button.type = "button";
           button.addEventListener("click", (event) => {
             event.preventDefault();
+            if (button.orcaRun) {
+              button.orcaRun();
+              sweep();
+              return;
+            }
             const key = button.dataset.key;
             if (counting.has(key)) {
               counting.delete(key);
@@ -141,14 +153,15 @@ enum YouTubeSpeedBumps {
         while (element.children.length - 1 > actions.length) element.lastChild.remove();
 
         const active = actions.find((action) => counting.has(action.key));
-        element.firstChild.textContent = active ? "Still want to? Tap to stop." : message;
+        setText(element.firstChild, active ? "Still want to? Tap to stop." : message);
         actions.forEach((action, index) => {
           const button = element.children[index + 1];
-          button.dataset.key = action.key;
+          button.orcaRun = action.run;
+          if (action.key) button.dataset.key = action.key;
           button.hidden = active != null && active !== action;
-          button.textContent = counting.has(action.key)
+          setText(button, action.run ? action.label : counting.has(action.key)
             ? `Unlocking in ${counting.get(action.key)}…`
-            : `${action.label} (${secondsFor(action.key)}s)`;
+            : `${action.label} (${secondsFor(action.key)}s)`);
         });
         return element;
       };
@@ -204,8 +217,15 @@ enum YouTubeSpeedBumps {
         const player = document.getElementById("player-container-id");
         if (isLocked(watchKey) && player) {
           const listening = !isLocked(listenKey);
+          // The cover hides YouTube's own play button, so listening gets
+          // one. It also starts the audio if the page wouldn't without a tap.
+          const video = document.querySelector("#player-container-id video");
           const element = listening
-            ? card("orca-bump-player", "Listening only.", [{ label: "Watch video", key: watchKey }])
+            ? card("orca-bump-player", "Listening only.", [
+                { label: video && !video.paused ? "Pause" : "Play",
+                  run: () => video && (video.paused ? video.play().catch(() => {}) : video.pause()) },
+                { label: "Watch video", key: watchKey },
+              ])
             : card("orca-bump-player", "Here for this video?", [
                 { label: "Watch video", key: watchKey },
                 { label: "Listen only", key: listenKey },
@@ -265,7 +285,7 @@ enum YouTubeSpeedBumps {
     /// settings, or nil when switched off.
     static func userScript(_ settings: Settings?) -> WKUserScript {
         WKUserScript(
-            source: setScript(settings) + script,
+            source: "if (window.__orcaSpeedBumps === undefined) { \(setScript(settings)) }" + script,
             injectionTime: .atDocumentStart,
             forMainFrameOnly: true,
             in: world
@@ -273,7 +293,8 @@ enum YouTubeSpeedBumps {
     }
 
     /// JavaScript that changes the settings in a page that is already open.
-    /// Run it in `world`.
+    /// Run it in `world`. The web view's user script keeps the settings it
+    /// was made with, so the app also runs this as each new page starts.
     static func setScript(_ settings: Settings?) -> String {
         let json = settings.flatMap { try? JSONEncoder().encode($0) }.flatMap { String(data: $0, encoding: .utf8) }
         return "window.__orcaSpeedBumps = \(json ?? "null"); window.__applyOrcaSpeedBumps && window.__applyOrcaSpeedBumps();"
