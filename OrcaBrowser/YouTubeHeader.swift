@@ -48,8 +48,12 @@ enum YouTubeHeader {
           width: 30px; height: 30px; padding: 0; border: 0; background: none;
           color: var(--yt-spec-text-secondary, #aaa); -webkit-tap-highlight-color: transparent;
         }
-        /* A video with no chapters: the button is dimmed and does nothing. */
-        #orca-chapters[data-empty] { opacity: 0.3; }
+        /* A video with no chapters: the button is dimmed and struck through,
+           and does nothing. */
+        #orca-chapters[data-empty] { opacity: 0.5; }
+        #orca-chapters .orca-strike { display: none; }
+        #orca-chapters[data-empty] .orca-strike { display: inline; }
+        #orca-chapters[data-empty] path { mask: url(#orca-strike-gap); }
       `;
       (document.head || document.documentElement).appendChild(style);
 
@@ -106,6 +110,25 @@ enum YouTubeHeader {
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('d', 'M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z');
         svg.appendChild(path);
+        // The slash for a video with no chapters, with a gap cut around it.
+        const line = (stroke, width) => {
+          const element = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          for (const [name, value] of [['x1', 3], ['y1', 3], ['x2', 21], ['y2', 21]]) element.setAttribute(name, value);
+          element.setAttribute('stroke', stroke);
+          element.setAttribute('stroke-width', width);
+          element.setAttribute('stroke-linecap', 'round');
+          return element;
+        };
+        const mask = document.createElementNS('http://www.w3.org/2000/svg', 'mask');
+        mask.id = 'orca-strike-gap';
+        const whole = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        whole.setAttribute('width', '24');
+        whole.setAttribute('height', '24');
+        whole.setAttribute('fill', 'white');
+        mask.append(whole, line('black', '5'));
+        const strike = line('currentColor', '2');
+        strike.setAttribute('class', 'orca-strike');
+        svg.append(mask, strike);
         chaptersButton.appendChild(svg);
         chaptersButton.addEventListener('click', () => {
           if (!(window.__orcaChapters?.() || []).length) return;
