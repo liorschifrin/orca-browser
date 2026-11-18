@@ -226,9 +226,12 @@ struct BrowserView: View {
         .onChange(of: isSearching, initial: true) {
             InteractionBudget.shared.isSearching = isSearching
             ClipboardOverlay.shared.isSuppressed = isSearching
+            store.updatePagesOnScreen(pagesAreShowing: pagesAreShowing)
         }
         .onChange(of: isSwitching) { InteractionBudget.shared.isSwitching = isSwitching }
+        .onChange(of: store.selectedTabID) { store.updatePagesOnScreen(pagesAreShowing: pagesAreShowing) }
         .onChange(of: scenePhase) {
+            store.updatePagesOnScreen(pagesAreShowing: pagesAreShowing)
             // The switch can be decided while the app is still coming forward
             // from the picture in picture window; slide once it's on screen.
             startSlideIfVisible()
@@ -267,6 +270,9 @@ struct BrowserView: View {
         }
         .onChange(of: settings.opensShortsAsVideos) {
             store.applyOpensShortsAsVideosSetting(settings.opensShortsAsVideos)
+        }
+        .onChange(of: settings.speedBumpsInPage) {
+            store.applySpeedBumpSettings(settings.speedBumpsInPage)
         }
         .onChange(of: settings.blockRedditPrompt) {
             store.applyRedditPromptSetting(settings.blockRedditPrompt)
@@ -402,6 +408,9 @@ struct BrowserView: View {
     }
 
     /// An Incognito tab or an Incognito search is what's on screen.
+    /// The app is open and search isn't covering the pages.
+    private var pagesAreShowing: Bool { scenePhase == .active && !isSearching }
+
     private var isShowingPrivately: Bool {
         isSearching ? searchIsIncognito : store.selectedTab?.isIncognito == true
     }

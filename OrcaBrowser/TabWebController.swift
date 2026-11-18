@@ -31,6 +31,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         configuration.userContentController.addUserScript(
             ShortsFilter.redirectUserScript(enabled: AppSettings.shared.opensShortsAsVideos)
         )
+        configuration.userContentController.addUserScript(
+            YouTubeSpeedBumps.userScript(AppSettings.shared.speedBumpsInPage)
+        )
         configuration.userContentController.addUserScript(BackgroundPlayback.userScript)
         configuration.userContentController.addUserScript(PlaybackControl.userScript)
         configuration.userContentController.addUserScript(VideoFullscreen.userScript)
@@ -177,6 +180,11 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// about to be replaced.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.pageDidCommit()
+        // The YouTube countdown settings may have changed since this web view
+        // was made, and its user script still has the old ones.
+        webView.evaluateJavaScript(
+            YouTubeSpeedBumps.setScript(AppSettings.shared.speedBumpsInPage), in: nil, in: YouTubeSpeedBumps.world
+        )
         // Hidden banners often leave the page unable to scroll.
         if ContentBlocker.shared.hidesBanners(on: webView.url, privateRules: tab?.privateRules) {
             webView.evaluateJavaScript(CookieBanners.unlockScrollScript)

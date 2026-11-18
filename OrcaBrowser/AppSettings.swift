@@ -22,6 +22,8 @@ final class AppSettings {
     private static let showsPlaybackBarKey = "showsPlaybackBar"
     private static let hidesOpenAppKey = "hidesOpenApp"
     private static let showsHeaderToolsKey = "showsHeaderTools"
+    private static let slowsDownYouTubeKey = "slowsDownYouTube"
+    private static let speedBumpsKey = "speedBumps.v1"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
     private static let blockCookieBannersKey = "blockCookieBanners"
@@ -123,6 +125,26 @@ final class AppSettings {
         didSet { defaults.set(showsHeaderTools, forKey: Self.showsHeaderToolsKey) }
     }
 
+    /// Locks YouTube's home recommendations, each video and the videos under
+    /// it behind a countdown (`YouTubeSpeedBumps`). On by default.
+    var slowsDownYouTube: Bool {
+        didSet { defaults.set(slowsDownYouTube, forKey: Self.slowsDownYouTubeKey) }
+    }
+
+    /// How long each YouTube countdown is, by day and at night.
+    var speedBumps: YouTubeSpeedBumps.Settings {
+        didSet {
+            if let data = try? JSONEncoder().encode(speedBumps) {
+                defaults.set(data, forKey: Self.speedBumpsKey)
+            }
+        }
+    }
+
+    /// What YouTube pages are given: the countdowns, or nil when switched off.
+    var speedBumpsInPage: YouTubeSpeedBumps.Settings? {
+        slowsDownYouTube ? speedBumps : nil
+    }
+
     /// Blocks ads in every tab. On by default.
     var blockAds: Bool {
         didSet { defaults.set(blockAds, forKey: Self.blockAdsKey) }
@@ -186,6 +208,10 @@ final class AppSettings {
         showsPlaybackBar = defaults.object(forKey: Self.showsPlaybackBarKey) as? Bool ?? true
         hidesOpenApp = defaults.object(forKey: Self.hidesOpenAppKey) as? Bool ?? true
         showsHeaderTools = defaults.object(forKey: Self.showsHeaderToolsKey) as? Bool ?? true
+        slowsDownYouTube = defaults.object(forKey: Self.slowsDownYouTubeKey) as? Bool ?? true
+        speedBumps = defaults.data(forKey: Self.speedBumpsKey)
+            .flatMap { try? JSONDecoder().decode(YouTubeSpeedBumps.Settings.self, from: $0) }
+            ?? YouTubeSpeedBumps.Settings()
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
         blockCookieBanners = defaults.object(forKey: Self.blockCookieBannersKey) as? Bool ?? true

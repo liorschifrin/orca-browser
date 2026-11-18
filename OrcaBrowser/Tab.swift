@@ -753,6 +753,17 @@ final class Tab: Identifiable {
         webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
     }
 
+    /// Tells the page whether it's on screen, so YouTube countdowns wait
+    /// while it isn't.
+    func setOnScreen(_ onScreen: Bool) {
+        webView?.evaluateJavaScript(YouTubeSpeedBumps.onScreenScript(onScreen), in: nil, in: YouTubeSpeedBumps.world)
+    }
+
+    /// Applies the YouTube countdown settings to a page that is already open.
+    func setSpeedBumps(_ settings: YouTubeSpeedBumps.Settings?) {
+        webView?.evaluateJavaScript(YouTubeSpeedBumps.setScript(settings), in: nil, in: YouTubeSpeedBumps.world)
+    }
+
     /// Applies the "open Shorts as videos" setting to a page that is already open.
     func setOpensShortsAsVideos(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))
