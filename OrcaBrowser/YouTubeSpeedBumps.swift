@@ -271,6 +271,8 @@ enum YouTubeSpeedBumps {
       // runs every second regardless, so the lengths on the buttons follow
       // the night hours, and a listening video is put back in the page.
       setInterval(() => {
+        // Drop the last page's countdowns before any of them can unlock.
+        sweep();
         for (const [key, left] of isOnScreen() ? counting : []) {
           if (left > 1) {
             counting.set(key, left - 1);

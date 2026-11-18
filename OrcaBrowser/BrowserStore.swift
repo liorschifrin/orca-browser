@@ -362,12 +362,13 @@ final class BrowserStore {
         }
     }
 
-    /// Tells every live page whether it's on screen: the app is open and
-    /// it's the current tab, or the current tab's held-link preview.
-    func updatePagesOnScreen(appIsActive: Bool) {
+    /// Tells every live page whether it's on screen: the app is open, search
+    /// isn't covering the pages, and it's the current tab, or the current
+    /// tab's held-link preview.
+    func updatePagesOnScreen(pagesAreShowing: Bool) {
         let showing = Set([selectedTabID, selectedTab?.peek?.tab.id].compactMap { $0 })
         for tab in liveTabs {
-            tab.setOnScreen(appIsActive && showing.contains(tab.id))
+            tab.setOnScreen(pagesAreShowing && showing.contains(tab.id))
         }
     }
 
