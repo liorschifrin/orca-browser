@@ -144,10 +144,13 @@ final class Tab: Identifiable {
     struct LoadError {
         let message: String
         let failedURL: URL?
+        var symbol = "exclamationmark.triangle"
         /// The load failed before replacing the page, which is still there
         /// behind the error. Back and Reload return to it.
         var coversPage = false
     }
+
+    @ObservationIgnored private var requestedWebURL: URL?
 
     /// Back/forward list and scroll position, kept while the web view is gone.
     @ObservationIgnored private var savedInteractionState: Data?
@@ -472,6 +475,8 @@ final class Tab: Identifiable {
     /// Starts navigation, retaining submitted search state or reconciling a later Google query.
     func load(_ url: URL, input: String? = nil, providerID: String? = nil) {
         guard !isClosed else { return }
+        let url = XNavigation.webURL(forSafariURL: url) ?? XNavigation.webURL(forPromotedLink: url) ?? url
+        pageWillNavigate(to: url)
         if let input {
             searchProviderID = providerID
             searchText = providerID == nil ? (Destination.searchQuery(from: url) ?? input) : input
@@ -877,8 +882,21 @@ final class Tab: Identifiable {
         endRestoring()
         loadError = LoadError(
             message: nsError.localizedDescription,
-            failedURL: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+            failedURL: XNavigation.retryURL(
+                failed: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+                requested: requestedWebURL ?? url
+            ),
+            symbol: nsError.domain == NSURLErrorDomain && [NSURLErrorNotConnectedToInternet,
+                NSURLErrorNetworkConnectionLost, NSURLErrorCannotConnectToHost,
+                NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed].contains(nsError.code)
+                ? "wifi.exclamationmark" : "exclamationmark.triangle",
             coversPage: beforeCommit && hasCommittedPage
         )
+    }
+
+    /// Keep a web destination for retry instead of an app URL from a redirect.
+    func pageWillNavigate(to url: URL) {
+        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return }
+        requestedWebURL = url
     }
 }

@@ -13,6 +13,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     /// KVO (key-value observing) subscriptions. They stop when released.
     private var observations: [NSKeyValueObservation] = []
+    private var xUserAgent: String?
+    private var recoveredXURL: URL?
+    private var userAgentRequest = 0
 
     init(tab: Tab) {
         self.tab = tab
@@ -43,6 +46,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         configuration.userContentController.addUserScript(
             RedditPrompt.userScript(enabled: AppSettings.shared.blockRedditPrompt)
         )
+        configuration.userContentController.addUserScript(XAppPrompt.userScript)
 
         webView = PageWebView(frame: .zero, configuration: configuration)
         super.init()
@@ -79,6 +83,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     /// Stops the page and cuts it loose from the tab, which is letting go of it.
     func detach() {
+        userAgentRequest += 1
         observations = []
         VideoFullscreen.forget(webView)
         for name in Self.messageNames {
@@ -138,6 +143,13 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// inside YouTube are caught by the page script.
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let isMainFrame = action.targetFrame?.isMainFrame ?? true
+        if isMainFrame, let url = action.request.url,
+           action.request.httpMethod?.uppercased() ?? "GET" == "GET",
+           let webURL = XNavigation.webURL(forSafariURL: url) ?? XNavigation.webURL(forPromotedLink: url) {
+            decisionHandler(.cancel)
+            recoverXNavigation(to: webURL)
+            return
+        }
         if AppSettings.shared.opensShortsAsVideos,
            isMainFrame,
            let url = action.request.url,
@@ -174,11 +186,55 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         // Before the page's requests go out, give it the right blocking lists:
         // a site can have ad or tracker blocking switched off.
         if isMainFrame, let url = action.request.url {
+            tab?.pageWillNavigate(to: url)
             ContentBlocker.shared.willNavigate(webView.configuration.userContentController, to: url)
+            prepareUserAgent(for: url) { ready in decisionHandler(ready ? Self.allowWithoutApps : .cancel) }
+            return
         }
         decisionHandler(Self.allowWithoutApps)
     }
 
+    /// Read WebKit's own identifier in an isolated world so the compatibility
+    /// suffix keeps the actual device/engine details. Restore it when leaving X.
+    private func prepareUserAgent(for url: URL, completion: @escaping (Bool) -> Void) {
+        userAgentRequest += 1
+        let request = userAgentRequest
+        guard XNavigation.isWebURL(url) else {
+            webView.customUserAgent = nil
+            completion(true)
+            return
+        }
+        if let xUserAgent {
+            webView.customUserAgent = xUserAgent
+            completion(true)
+            return
+        }
+        webView.evaluateJavaScript("navigator.userAgent", in: nil, in: .defaultClient) { [weak self] result in
+            guard let self, userAgentRequest == request else {
+                completion(false)
+                return
+            }
+            if case .success(let value) = result, let agent = value as? String {
+                xUserAgent = XNavigation.safariUserAgent(from: agent)
+                webView.customUserAgent = xUserAgent
+            }
+            completion(true)
+        }
+    }
+
+    /// WebKit can reject a server's custom-scheme redirect before asking the
+    /// navigation policy delegate. Recover there too, once per destination.
+    private func recoverXNavigation(to url: URL) {
+        guard recoveredXURL != url else {
+            tab?.pageDidFail(NSError(domain: NSURLErrorDomain, code: NSURLErrorUnsupportedURL,
+                userInfo: [NSURLErrorFailingURLErrorKey: url]), beforeCommit: true)
+            return
+        }
+        recoveredXURL = url
+        prepareUserAgent(for: url) { [weak self] ready in
+            if ready { self?.tab?.load(url) }
+        }
+    }
     /// `.allow` lets WebKit hand addresses that an installed app claims
     /// (universal links like apps.apple.com) to that app, even when a page
     /// reloads or redirects there on its own. This value, which WebKit leaves
@@ -201,6 +257,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// Called once the first bytes of a new page arrive, i.e. the old page is
     /// about to be replaced.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        recoveredXURL = nil
         tab?.pageDidCommit()
         // The tap led here; what this page does next is up to the page.
         lastLinkTap = nil
@@ -217,6 +274,11 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     /// Failure before anything arrived (offline, bad host, ...).
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if let failed = (error as NSError).userInfo[NSURLErrorFailingURLErrorKey] as? URL,
+           let url = XNavigation.webURL(forSafariURL: failed) {
+            recoverXNavigation(to: url)
+            return
+        }
         tab?.pageDidFail(error, beforeCommit: true)
     }
 

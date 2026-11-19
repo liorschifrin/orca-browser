@@ -7,7 +7,7 @@ struct ErrorView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: "wifi.exclamationmark")
+            Image(systemName: error.symbol)
                 .font(.system(size: 44))
                 .foregroundStyle(.secondary)
 
