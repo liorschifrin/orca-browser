@@ -454,6 +454,7 @@ struct LinkPreview: View {
     @State private var isVisible: Bool
     @State private var isClosing = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
 
     init(url: URL, previewTab: Tab, bottomInset: CGFloat, animateEntrance: Bool,
          onPresented: @escaping () -> Void, onOpenNewTab: @escaping () -> Void,
@@ -533,6 +534,10 @@ struct LinkPreview: View {
             }
         }
         .allowsHitTesting(!isClosing)
+        // Its page may have been closed to free memory while away.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { previewTab.reloadAfterCrashIfVisible() }
+        }
     }
 
     private var currentURL: URL { previewTab.url ?? url }

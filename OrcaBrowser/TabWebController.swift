@@ -149,7 +149,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         // Which frame asked. WebKit leaves it out for loads the app starts.
         let isFromPage = (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true
         // A tap in a frame (an ad) takes back an earlier tap in the page.
-        if action.navigationType == .linkActivated { lastLinkTap = isFromPage ? .now : nil }
+        if Self.isUserTap(action) { lastLinkTap = isFromPage ? .now : nil }
         // Reloading or going back isn't a tap, even right after one.
         if action.navigationType == .reload || action.navigationType == .backForward { lastLinkTap = nil }
         // Phone, email, App Store and other app links go to their app. Only
@@ -202,6 +202,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// about to be replaced.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.pageDidCommit()
+        // The tap led here; what this page does next is up to the page.
+        lastLinkTap = nil
         // The YouTube countdown settings may have changed since this web view
         // was made, and its user script still has the old ones.
         webView.evaluateJavaScript(
@@ -232,23 +234,39 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     // MARK: - App links
 
     /// When a link was last tapped. A tap leads to an app link through a
-    /// redirect or the page's own script, so it counts for a few seconds.
+    /// redirect or the page's own script, so it counts for a few seconds,
+    /// until the next page arrives.
     private var lastLinkTap: Date?
     private static let tapLifetime: TimeInterval = 5
+
+    /// Whether a real touch started this navigation, including a page script
+    /// that runs because of the touch. `.linkActivated` alone also covers a
+    /// script clicking a link on its own. WebKit keeps this flag out of its
+    /// public API; without it nothing counts as a tap, and app links ask first.
+    private static func isUserTap(_ action: WKNavigationAction) -> Bool {
+        let key = "_isUserInitiated"
+        guard action.responds(to: NSSelectorFromString(key)) else { return false }
+        return action.value(forKey: key) as? Bool == true
+    }
 
     /// Opens `url` in its app at once after a tap; otherwise the page is
     /// trying to switch apps on its own, so ask first, like Safari.
     private func openInApp(_ url: URL, isFromPage: Bool) {
+        // A tab that's off screen, or the app in the background, can't be
+        // what the user just tapped, so it can't leave nor ask.
+        guard let tab, !webView.isHidden, webView.window != nil, InteractionBudget.shared.isForeground else { return }
         if isFromPage, let lastLinkTap, Date.now.timeIntervalSince(lastLinkTap) < Self.tapLifetime {
             self.lastLinkTap = nil
             UIApplication.shared.open(url)
             return
         }
-        // Name the page that's showing, not the address being loaded.
-        let page = webView.backForwardList.currentItem?.url
-        present(.confirm, "Open this link in another app?", from: page) { response in
+        // The browser asks this, not the page, so it shows even where page
+        // dialogs are switched off. Name the page that's showing, not the
+        // address being loaded.
+        let site = ContentBlocker.site(for: webView.backForwardList.currentItem?.url ?? webView.url)
+        tab.present(PageDialog(kind: .confirm, message: "Open this link in another app?", site: site) { response in
             if case .ok = response { UIApplication.shared.open(url) }
-        }
+        })
     }
 
     // MARK: - WKUIDelegate
@@ -256,10 +274,9 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// Hands a page's dialog to the tab to show, or answers "Cancel" at once
     /// if it can't be shown: dialogs are switched off (everywhere or for this
     /// site), or the page isn't on screen. WebKit pauses the page until
-    /// `respond` is called, and requires it be called exactly once. `page`
-    /// names the site that asks; by default the one being shown or loaded.
-    private func present(_ kind: PageDialog.Kind, _ message: String, from page: URL? = nil, respond: @escaping (PageDialog.Response) -> Void) {
-        let site = ContentBlocker.site(for: page ?? webView.url)
+    /// `respond` is called, and requires it be called exactly once.
+    private func present(_ kind: PageDialog.Kind, _ message: String, respond: @escaping (PageDialog.Response) -> Void) {
+        let site = ContentBlocker.site(for: webView.url)
         guard let tab, !webView.isHidden, webView.window != nil,
               PageDialogPermissions.shared.mayShow(on: site, privateRules: tab.privateRules) else {
             respond(.cancel)

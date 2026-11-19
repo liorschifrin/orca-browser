@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WebKit
 @testable import OrcaBrowser
 
 struct AppLinkTests {
@@ -38,5 +39,14 @@ struct AppLinkTests {
     ])
     func leavesOtherAddressesAlone(address: String) {
         #expect(AppLink.appURL(for: URL(string: address)!) == nil)
+    }
+}
+
+/// The browser can only tell a real tap from a page script clicking a link
+/// through a flag WebKit leaves out of its public API. If WebKit drops it,
+/// this says so before app links quietly start asking every time.
+struct WebKitPrivateAPITests {
+    @Test func navigationActionsSayWhetherTheUserTapped() {
+        #expect(WKNavigationAction.instancesRespond(to: NSSelectorFromString("_isUserInitiated")))
     }
 }

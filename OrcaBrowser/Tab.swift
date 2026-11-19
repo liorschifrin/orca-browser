@@ -518,11 +518,11 @@ final class Tab: Identifiable {
     }
 
     func reload() {
-        // Reload the page the address bar shows: the one behind the error,
-        // not the address that failed and would likely fail again.
-        if loadError?.coversPage == true, let view = webView {
+        // Go back to the page the address bar shows: the one behind the
+        // error, still loaded, not the address that failed and would likely
+        // fail again. Reloading it could fail the same way.
+        if loadError?.coversPage == true {
             loadError = nil
-            view.reload()
         // After a failed first load there's no page to reload, so retry the
         // URL that failed instead.
         } else if let failedURL = loadError?.failedURL {
@@ -812,6 +812,8 @@ final class Tab: Identifiable {
             crashedRepeatedly = true
         }
         pageCrashed = true
+        // The page is gone, so an error now has nothing behind it.
+        hasCommittedPage = false
         reloadAfterCrashIfVisible()
     }
 
@@ -837,7 +839,9 @@ final class Tab: Identifiable {
                 return
             }
             lastCrashReload = .now
-            if view.url == nil, let url { view.load(URLRequest(url: url)) } else { view.reload() }
+            // WebKit forgets the address when the process quits but keeps the
+            // history entry, and reloading that keeps a form's POST a POST.
+            if view.backForwardList.currentItem == nil, let url { view.load(URLRequest(url: url)) } else { view.reload() }
         }
     }
 
