@@ -18,6 +18,9 @@ enum AppLink {
         // `itms-appss:` address. Go straight there.
         guard scheme == "https" || scheme == "http",
               let host = components.host?.lowercased(), storeHosts.contains(host) else { return nil }
+        // itunes.apple.com also answers web requests (lookup, search) that
+        // aren't App Store pages; only its app pages go to the App Store.
+        if host == "itunes.apple.com", !url.pathComponents.contains("app") { return nil }
         components.scheme = "itms-appss"
         return components.url
     }

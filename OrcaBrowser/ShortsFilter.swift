@@ -130,7 +130,9 @@ enum ShortsFilter {
     /// For a youtube.com/shorts/ID address, the matching watch address
     /// (youtube.com/watch?v=ID). Returns nil for any other address.
     static func watchURL(forShorts url: URL) -> URL? {
-        guard let host = url.host()?.lowercased(),
+        // Only web addresses: a youtube:// link belongs to the YouTube app.
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host()?.lowercased(),
               host == "youtube.com" || host.hasSuffix(".youtube.com")
         else { return nil }
 

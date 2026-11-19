@@ -146,12 +146,15 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             tab?.load(watchURL)
             return
         }
-        if action.navigationType == .linkActivated { lastLinkTap = .now }
+        // Which frame asked. WebKit leaves it out for loads the app starts.
+        let isFromPage = (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true
+        if action.navigationType == .linkActivated, isFromPage { lastLinkTap = .now }
         // Phone, email, App Store and other app links go to their app. Only
-        // the page itself: an ad in a frame mustn't be able to switch apps.
+        // the page itself: an ad in a frame mustn't be able to switch apps
+        // without asking, even by loading the link into the whole page.
         if isMainFrame, let url = action.request.url, let appURL = AppLink.appURL(for: url) {
             decisionHandler(.cancel)
-            openInApp(appURL)
+            openInApp(appURL, isFromPage: isFromPage)
             return
         }
         // Google Search and its home page open in English. Only plain page loads:
@@ -224,8 +227,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     /// Opens `url` in its app at once after a tap; otherwise the page is
     /// trying to switch apps on its own, so ask first, like Safari.
-    private func openInApp(_ url: URL) {
-        if let lastLinkTap, Date.now.timeIntervalSince(lastLinkTap) < Self.tapLifetime {
+    private func openInApp(_ url: URL, isFromPage: Bool) {
+        if isFromPage, let lastLinkTap, Date.now.timeIntervalSince(lastLinkTap) < Self.tapLifetime {
             self.lastLinkTap = nil
             UIApplication.shared.open(url)
             return
@@ -276,7 +279,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         if action.targetFrame == nil {
             // Pages can't open windows on their own (WebKit's default), so
             // this always comes from a tap, even when the page's script asks.
-            lastLinkTap = .now
+            // A tap in a frame (an ad) doesn't count.
+            if (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true { lastLinkTap = .now }
             webView.load(action.request)
         }
         return nil

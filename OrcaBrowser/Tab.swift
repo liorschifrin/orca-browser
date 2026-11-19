@@ -116,6 +116,10 @@ final class Tab: Identifiable {
     /// The page's process quit and the page hasn't been brought back yet.
     @ObservationIgnored private var pageCrashed = false
     @ObservationIgnored private var lastCrashReload: Date?
+    /// The page quit again soon after it was brought back: it's stuck.
+    @ObservationIgnored private var crashedRepeatedly = false
+    /// This web view has shown a page, which stays behind a failed load.
+    @ObservationIgnored private var hasCommittedPage = false
 
     /// True from the moment a web view is re-created for an unloaded tab until
     /// its page shows up. The browser covers the gap with the card's picture.
@@ -618,6 +622,8 @@ final class Tab: Identifiable {
 
     private func detachWebView() {
         pageCrashed = false
+        crashedRepeatedly = false
+        hasCommittedPage = false
         answerDialog(.cancel)
         restoreLoadTask?.cancel()
         metadataTask?.cancel()
@@ -732,6 +738,7 @@ final class Tab: Identifiable {
     /// The first bytes of a new page arrived, i.e. the old page is about to
     /// be replaced. A good moment to drop any old error.
     func pageDidCommit() {
+        hasCommittedPage = true
         playback = PlaybackControl.State()
         snapshotsStarted += 1
         scrollSnapshotTask?.cancel()
@@ -800,6 +807,10 @@ final class Tab: Identifiable {
     /// The page's process quit, usually because iOS needed the memory. Like
     /// Safari, bring the page back, but only once it's on screen.
     func pageProcessDidTerminate() {
+        // Timed from the crash itself, not from when the tab is next seen.
+        if let lastCrashReload, Date.now.timeIntervalSince(lastCrashReload) < Self.crashLoopWindow {
+            crashedRepeatedly = true
+        }
         pageCrashed = true
         reloadAfterCrashIfVisible()
     }
@@ -815,8 +826,9 @@ final class Tab: Identifiable {
             pageCrashed = false
             // A page that quits again right after coming back would keep
             // reloading; stop and say what happened instead.
-            if let lastCrashReload, Date.now.timeIntervalSince(lastCrashReload) < Self.crashLoopWindow {
-                self.lastCrashReload = nil
+            if crashedRepeatedly {
+                crashedRepeatedly = false
+                lastCrashReload = nil
                 endRestoring()
                 loadError = LoadError(
                     message: "This page stopped working, possibly because it used too much memory.",
@@ -848,7 +860,7 @@ final class Tab: Identifiable {
         loadError = LoadError(
             message: nsError.localizedDescription,
             failedURL: nsError.userInfo[NSURLErrorFailingURLErrorKey] as? URL,
-            coversPage: beforeCommit && webView?.backForwardList.currentItem != nil
+            coversPage: beforeCommit && hasCommittedPage
         )
     }
 }
