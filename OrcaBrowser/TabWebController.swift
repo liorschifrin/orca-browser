@@ -146,6 +146,20 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
             tab?.load(watchURL)
             return
         }
+        // Which frame asked. WebKit leaves it out for loads the app starts.
+        let isFromPage = (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true
+        // A tap in a frame (an ad) takes back an earlier tap in the page.
+        if Self.isUserTap(action) { lastLinkTap = isFromPage ? .now : nil }
+        // Reloading or going back isn't a tap, even right after one.
+        if action.navigationType == .reload || action.navigationType == .backForward { lastLinkTap = nil }
+        // Phone, email, App Store and other app links go to their app. Only
+        // the page itself: an ad in a frame mustn't be able to switch apps
+        // without asking, even by loading the link into the whole page.
+        if isMainFrame, let url = action.request.url, let appURL = AppLink.appURL(for: url) {
+            decisionHandler(.cancel)
+            openInApp(appURL, isFromPage: isFromPage)
+            return
+        }
         // Google Search and its home page open in English. Only plain page loads:
         // a form that sends data keeps its request as it is.
         if AppSettings.shared.googleInEnglish,
@@ -162,8 +176,16 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         if isMainFrame, let url = action.request.url {
             ContentBlocker.shared.willNavigate(webView.configuration.userContentController, to: url)
         }
-        decisionHandler(.allow)
+        decisionHandler(Self.allowWithoutApps)
     }
+
+    /// `.allow` lets WebKit hand addresses that an installed app claims
+    /// (universal links like apps.apple.com) to that app, even when a page
+    /// reloads or redirects there on its own. This value, which WebKit leaves
+    /// out of its public headers, loads them in the tab instead, so only
+    /// `AppLink` and `openInApp` decide when to leave the browser. Firefox for
+    /// iOS uses the same value.
+    private static let allowWithoutApps = WKNavigationActionPolicy(rawValue: WKNavigationActionPolicy.allow.rawValue + 2)!
 
     /// WebKit tells its delegate whenever a blocking list acts on a request.
     /// This callback isn't part of the public API, which has no way to count
@@ -180,6 +202,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// about to be replaced.
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         tab?.pageDidCommit()
+        // The tap led here; what this page does next is up to the page.
+        lastLinkTap = nil
         // The YouTube countdown settings may have changed since this web view
         // was made, and its user script still has the old ones.
         webView.evaluateJavaScript(
@@ -193,12 +217,56 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
 
     /// Failure before anything arrived (offline, bad host, ...).
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        tab?.pageDidFail(error)
+        tab?.pageDidFail(error, beforeCommit: true)
     }
 
     /// Failure after the page had started arriving.
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        tab?.pageDidFail(error)
+        tab?.pageDidFail(error, beforeCommit: false)
+    }
+
+    /// The web content process quit, usually because iOS reclaimed its memory.
+    /// The page is gone and the view would stay blank.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        tab?.pageProcessDidTerminate()
+    }
+
+    // MARK: - App links
+
+    /// When a link was last tapped. A tap leads to an app link through a
+    /// redirect or the page's own script, so it counts for a few seconds,
+    /// until the next page arrives.
+    private var lastLinkTap: Date?
+    private static let tapLifetime: TimeInterval = 5
+
+    /// Whether a real touch started this navigation, including a page script
+    /// that runs because of the touch. `.linkActivated` alone also covers a
+    /// script clicking a link on its own. WebKit keeps this flag out of its
+    /// public API; without it nothing counts as a tap, and app links ask first.
+    private static func isUserTap(_ action: WKNavigationAction) -> Bool {
+        let key = "_isUserInitiated"
+        guard action.responds(to: NSSelectorFromString(key)) else { return false }
+        return action.value(forKey: key) as? Bool == true
+    }
+
+    /// Opens `url` in its app at once after a tap; otherwise the page is
+    /// trying to switch apps on its own, so ask first, like Safari.
+    private func openInApp(_ url: URL, isFromPage: Bool) {
+        // A tab that's off screen, or the app in the background, can't be
+        // what the user just tapped, so it can't leave nor ask.
+        guard let tab, !webView.isHidden, webView.window != nil, InteractionBudget.shared.isForeground else { return }
+        if isFromPage, let lastLinkTap, Date.now.timeIntervalSince(lastLinkTap) < Self.tapLifetime {
+            self.lastLinkTap = nil
+            UIApplication.shared.open(url)
+            return
+        }
+        // The browser asks this, not the page, so it shows even where page
+        // dialogs are switched off. Name the page that's showing, not the
+        // address being loaded.
+        let site = ContentBlocker.site(for: webView.backForwardList.currentItem?.url ?? webView.url)
+        tab.present(PageDialog(kind: .openApp, message: "Open this link in another app?", site: site) { response in
+            if case .ok = response { UIApplication.shared.open(url) }
+        })
     }
 
     // MARK: - WKUIDelegate
@@ -237,6 +305,17 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
     /// Without this, WebKit silently ignores them; open them in this tab.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if action.targetFrame == nil {
+            // Pages can't open windows on their own (WebKit's default), so
+            // this always comes from a tap, even when the page's script asks.
+            // A tap in a frame (an ad) doesn't count, and takes back an
+            // earlier tap in the page.
+            let isFromPage = (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true
+            lastLinkTap = isFromPage ? .now : nil
+            // Loading the request here would lose which frame asked.
+            if let url = action.request.url, let appURL = AppLink.appURL(for: url) {
+                openInApp(appURL, isFromPage: isFromPage)
+                return nil
+            }
             webView.load(action.request)
         }
         return nil

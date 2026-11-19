@@ -7,6 +7,9 @@ struct PageDialog: Identifiable {
         case alert
         case confirm
         case prompt(defaultText: String)
+        /// The browser asking whether to leave for another app the page
+        /// links to. The page's dialog settings don't apply to it.
+        case openApp
     }
 
     enum Response {
@@ -21,6 +24,11 @@ struct PageDialog: Identifiable {
     let site: String?
     /// Hands the answer back to the page. Call exactly once.
     let respond: (Response) -> Void
+
+    /// Whether the page asked, rather than the browser.
+    var isFromPage: Bool {
+        if case .openApp = kind { false } else { true }
+    }
 }
 
 /// Which sites may show dialogs. All may, unless switched off for every

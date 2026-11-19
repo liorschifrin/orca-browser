@@ -198,7 +198,7 @@ struct SiteMenu: View {
             set: { enabled in
                 state.wrappedValue = enabled
                 remember(enabled, category)
-                target.tab.reload()
+                target.tab.reloadLoadedPage()
             }
         )
     }
@@ -224,7 +224,7 @@ struct SiteMenu: View {
         remember(enabled, .ads)
         remember(enabled, .trackers)
         remember(enabled, .cookieBanners)
-        target.tab.reload()
+        target.tab.reloadLoadedPage()
     }
 
     private var footnote: String {

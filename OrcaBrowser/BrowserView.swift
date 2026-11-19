@@ -245,6 +245,8 @@ struct BrowserView: View {
                 // Opening the app with this tab's video in picture in picture
                 // brings the video back into the page.
                 store.selectedTab?.exitPictureInPicture()
+                // Its page may have been closed to free memory while away.
+                store.selectedTab?.reloadAfterCrashIfVisible()
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
@@ -468,7 +470,10 @@ struct BrowserView: View {
                         guard tab.id == store.selectedTabID else { return }
                         tab.openPeek(url)
                     },
-                    onVisible: tab.finishRestoringIfVisible
+                    onVisible: {
+                        tab.finishRestoringIfVisible()
+                        tab.reloadAfterCrashIfVisible()
+                    }
                 )
                 // Sit between the status bar and the floating bar (and the
                 // playback bar above it), so nothing on the page (header
@@ -508,7 +513,7 @@ struct BrowserView: View {
                     StartView()
                         .padding(.bottom, barHeight)
                 } else if let error = tab.loadError {
-                    ErrorView(error: error, retry: tab.reload)
+                    ErrorView(error: error, retry: tab.retryFailedLoad)
                         .padding(.bottom, barHeight)
                 }
 
@@ -661,8 +666,11 @@ struct BrowserView: View {
             TextField("", text: $dialogText)
             Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
             Button("OK") { dialogTab?.answerDialog(.ok(text: dialogText)) }
+        case .openApp:
+            Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
+            Button("Open") { dialogTab?.answerDialog(.ok(text: nil)) }
         }
-        if let site = dialog.site {
+        if dialog.isFromPage, let site = dialog.site {
             Button("Block Dialogs from This Site", role: .destructive) {
                 if let rules = dialogTab?.privateRules {
                     rules.setAllowsDialogs(false, on: site)
