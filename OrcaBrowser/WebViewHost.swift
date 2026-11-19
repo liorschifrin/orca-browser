@@ -526,6 +526,8 @@ struct LinkPreview: View {
         }
         .onAppear {
             previewTab.activate()
+            // Its page may have closed to free memory while it was hidden.
+            previewTab.reloadAfterCrashIfVisible()
             onPresented()
             if animateEntrance {
                 withAnimation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.3, dampingFraction: 0.82)) {

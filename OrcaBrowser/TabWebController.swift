@@ -264,7 +264,7 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         // dialogs are switched off. Name the page that's showing, not the
         // address being loaded.
         let site = ContentBlocker.site(for: webView.backForwardList.currentItem?.url ?? webView.url)
-        tab.present(PageDialog(kind: .confirm, message: "Open this link in another app?", site: site) { response in
+        tab.present(PageDialog(kind: .openApp, message: "Open this link in another app?", site: site) { response in
             if case .ok = response { UIApplication.shared.open(url) }
         })
     }

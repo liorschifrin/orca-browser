@@ -666,8 +666,11 @@ struct BrowserView: View {
             TextField("", text: $dialogText)
             Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
             Button("OK") { dialogTab?.answerDialog(.ok(text: dialogText)) }
+        case .openApp:
+            Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
+            Button("Open") { dialogTab?.answerDialog(.ok(text: nil)) }
         }
-        if let site = dialog.site {
+        if dialog.isFromPage, let site = dialog.site {
             Button("Block Dialogs from This Site", role: .destructive) {
                 if let rules = dialogTab?.privateRules {
                     rules.setAllowsDialogs(false, on: site)

@@ -66,6 +66,8 @@ enum ShortsFilter {
       const watchURL = (address) => {
         try {
           const url = new URL(address, location.href);
+          // youtube:// and other app links go to their app.
+          if (url.protocol !== "https:" && url.protocol !== "http:") return null;
           const match = url.pathname.match(/^\\/shorts\\/([^\\/]+)/);
           if (!match || !isYouTube(url.hostname)) return null;
           return location.origin + "/watch?v=" + encodeURIComponent(match[1]);

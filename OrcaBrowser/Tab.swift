@@ -534,6 +534,18 @@ final class Tab: Identifiable {
         }
     }
 
+    /// Reloads the page that's loaded, even with an error over it, so a
+    /// changed site setting applies to it. With nothing loaded behind the
+    /// error, retries the failed address like `reload()`.
+    func reloadLoadedPage() {
+        if loadError?.coversPage == true, let view = webView {
+            loadError = nil
+            view.reload()
+        } else {
+            reload()
+        }
+    }
+
     func stopLoading() {
         webView?.stopLoading()
     }
@@ -812,8 +824,10 @@ final class Tab: Identifiable {
             crashedRepeatedly = true
         }
         pageCrashed = true
-        // The page is gone, so an error now has nothing behind it.
+        // The page is gone, so an error now has nothing behind it, and one
+        // already over it can't go back to it.
         hasCommittedPage = false
+        if loadError?.coversPage == true { loadError = nil }
         reloadAfterCrashIfVisible()
     }
 
