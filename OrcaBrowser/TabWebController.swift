@@ -150,6 +150,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         let isFromPage = (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true
         // A tap in a frame (an ad) takes back an earlier tap in the page.
         if action.navigationType == .linkActivated { lastLinkTap = isFromPage ? .now : nil }
+        // Reloading or going back isn't a tap, even right after one.
+        if action.navigationType == .reload || action.navigationType == .backForward { lastLinkTap = nil }
         // Phone, email, App Store and other app links go to their app. Only
         // the page itself: an ad in a frame mustn't be able to switch apps
         // without asking, even by loading the link into the whole page.
@@ -174,8 +176,16 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         if isMainFrame, let url = action.request.url {
             ContentBlocker.shared.willNavigate(webView.configuration.userContentController, to: url)
         }
-        decisionHandler(.allow)
+        decisionHandler(Self.allowWithoutApps)
     }
+
+    /// `.allow` lets WebKit hand addresses that an installed app claims
+    /// (universal links like apps.apple.com) to that app, even when a page
+    /// reloads or redirects there on its own. This value, which WebKit leaves
+    /// out of its public headers, loads them in the tab instead, so only
+    /// `AppLink` and `openInApp` decide when to leave the browser. Firefox for
+    /// iOS uses the same value.
+    private static let allowWithoutApps = WKNavigationActionPolicy(rawValue: WKNavigationActionPolicy.allow.rawValue + 2)!
 
     /// WebKit tells its delegate whenever a blocking list acts on a request.
     /// This callback isn't part of the public API, which has no way to count
