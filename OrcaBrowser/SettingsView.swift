@@ -30,6 +30,16 @@ struct SettingsView: View {
                     Text("Sites you can search directly by typing a shortcut, or by voice.")
                 }
                 Section {
+                    Toggle("Search suggestions", isOn: $settings.searchSuggestions)
+                    Picker("Look", selection: $settings.suggestionLook) {
+                        ForEach(SuggestionLook.allCases) { look in
+                            Text(look.title).tag(look)
+                        }
+                    }
+                } footer: {
+                    Text("Sends what you type to Google for suggestions, or to the site whose chip is showing if it has a suggestions URL. Suggestions are off in Incognito.")
+                }
+                Section {
                     Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)
                     Stepper(value: $settings.autoArchiveDays, in: 1...365) {
                         Text("After \(settings.autoArchiveDays) days")
