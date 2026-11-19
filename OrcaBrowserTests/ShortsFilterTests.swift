@@ -19,6 +19,7 @@ struct ShortsFilterTests {
         "https://www.youtube.com/shorts/",
         "https://example.com/shorts/abc123",
         "https://notyoutube.com/shorts/abc123",
+        "youtube://youtube.com/shorts/abc123",
     ])
     func otherAddressesAreLeftAlone(address: String) {
         #expect(ShortsFilter.watchURL(forShorts: URL(string: address)!) == nil)

@@ -22,6 +22,9 @@ struct SearchOverlay: View {
 
     /// What's typed after the chip (or all of it when there is no chip).
     @State private var text = ""
+    @State private var suggestionService = SearchSuggestionService()
+    @State private var remoteSuggestions: [String] = []
+    @State private var completedSuggestionRequest: SearchSuggestionRequest?
     @State private var activeProvider: SearchProvider?
     /// The word that became the chip, put back when the chip turns into text.
     @State private var typedShortcut: String?
@@ -34,22 +37,20 @@ struct SearchOverlay: View {
     @State private var suggestionDidHold = false
     @State private var suggestionDidMove = false
     @State private var suggestionTouchStart = CGPoint.zero
-    /// Everything is selected, the chip included: typing starts over without it.
-    @State private var isChipSelected = false
-    /// Where to put the cursor once the field has taken a programmatic edit.
-    @State private var pendingCursorOffset: Int?
+    /// Where the field's cursor goes next (once).
+    @State private var selectionRequest: FieldSelectionRequest?
     @State private var hasEditedText = false
     @State private var isShowingClipboard = false
     /// A calculation, conversion or time answer for the typed text, if any.
     @State private var answer: SmartSearchAnswer.Answer?
-    @State private var selection: TextSelection?
     private let clipboardCache = ClipboardCache.shared
     private let settings = AppSettings.shared
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.displayScale) private var displayScale
 
-    /// @FocusState tracks (and controls) whether the field has the keyboard.
-    @FocusState private var isFocused: Bool
+    /// Whether the field has the keyboard; setting it gives or takes it.
+    @State private var isFocused = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -72,39 +73,16 @@ struct SearchOverlay: View {
                     .accessibilityHidden(true)
             }
 
-            VStack(spacing: 10) {
-                if settings.savesClipboardHistory {
-                    if isShowingClipboard {
-                        ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
-                            .transition(.opacity.combined(with: .offset(y: 12)))
-                    }
+            Group {
+                switch settings.suggestionLook {
+                case .panel: panelLayout
+                case .floating: floatingLayout
                 }
-                if isShowingOtherSuggestions, !otherSuggestions.isEmpty {
-                    otherSuggestionsRow
-                        .transition(.opacity.combined(with: .offset(y: 8)))
-                }
-                HStack(spacing: 0) {
-                    if let provider = suggestedProvider { suggestionChip(provider) }
-                    ClipboardControls(
-                        isOpen: $isShowingClipboard,
-                        showsHistory: settings.savesClipboardHistory,
-                        text: clipboardText,
-                        accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
-                        action: useClipboard
-                    )
-                }
-                if clipboardCache.access == .needsPermission {
-                    pastePermissionChip
-                }
-                if let answer {
-                    SmartAnswerCard(answer: answer, onReplace: replaceText)
-                        .transition(.opacity.combined(with: .offset(y: 12)))
-                }
-                field
             }
                 .animation(.snappy(duration: 0.2), value: isShowingClipboard)
                 .animation(.snappy(duration: 0.2), value: answer)
                 .animation(.snappy(duration: 0.2), value: isShowingOtherSuggestions)
+                .animation(.snappy(duration: 0.2), value: settings.suggestionLook)
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .offset(y: isPresented ? 0 : 24)
@@ -122,6 +100,25 @@ struct SearchOverlay: View {
                     if value.translation.height > 40 { dismiss() }
                 }
         )
+        .task(id: remoteSuggestionRequest) {
+            let request = remoteSuggestionRequest
+            remoteSuggestions = []
+            completedSuggestionRequest = nil
+            guard let request else {
+                await suggestionService.clearCache()
+                return
+            }
+            do {
+                try await Task.sleep(for: .milliseconds(200))
+                let values = try await suggestionService.suggestions(for: request)
+                try Task.checkCancellation()
+                guard remoteSuggestionRequest == request else { return }
+                completedSuggestionRequest = request
+                remoteSuggestions = values
+            } catch {
+                // Offline, cancelled, or changed endpoint: typing still works normally.
+            }
+        }
         .onAppear {
             // Presented at launch: grab the keyboard right away.
             if isPresented {
@@ -129,6 +126,16 @@ struct SearchOverlay: View {
                 isFocused = true
                 clipboardCache.refresh(userInitiated: true)
             }
+            #if DEBUG
+            if let typed = UserDefaults.standard.string(forKey: "debugSearchText") {
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(600))
+                    text = typed
+                    hasEditedText = true
+                }
+            }
+            Task { await DebugKeys.replay() }
+            #endif
         }
         .onChange(of: isPresented) { _, nowPresented in
             if nowPresented {
@@ -149,32 +156,16 @@ struct SearchOverlay: View {
             updateAnswer()
             // Typing on means the other matches are no longer what was held.
             if otherSuggestions.isEmpty { isShowingOtherSuggestions = false }
-            if let offset = pendingCursorOffset {
-                pendingCursorOffset = nil
-                let shown = shownText
-                selection = TextSelection(insertionPoint: Self.index(offset, in: shown))
-            }
             guard shouldMatchShortcut else { return }
             shouldMatchShortcut = false
-            // Let TextField finish its edit before replacing the shortcut with
+            // Let the field finish its edit before replacing the shortcut with
             // a chip, so UIKit never inserts subsequent characters at a stale cursor.
             activateShortcutIfNeeded()
         }
         .onChange(of: isFocused) { _, focused in
             if focused, selectInitialText, !text.isEmpty || activeProvider != nil {
                 // The chip is part of what's selected, so typing starts over without it.
-                selectEverything()
-                // The field takes its text in the same pass; once it has, select again.
-                Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(60))
-                    // SwiftUI can't place a selection in text with accented letters
-                    // (its positions count bytes), so ask the field itself too.
-                    if isFocused, isPresented, !hasEditedText {
-                        UIApplication.shared.sendAction(#selector(UIResponder.selectAll(_:)), to: nil, from: nil, for: nil)
-                    }
-                }
-            } else if !focused {
-                selection = nil
+                selectionRequest = .all
             }
         }
         .task(id: isPresented && scenePhase == .active) {
@@ -189,55 +180,192 @@ struct SearchOverlay: View {
                 }
             }
         }
-        .onChange(of: selection) { _, new in
-            guard activeProvider != nil, let new, case .selection(let range) = new.indices else {
-                isChipSelected = false
-                return
-            }
-            let shown = shownText
-            // The positions came from the field and may be for text that has since changed.
-            guard range.lowerBound >= shown.startIndex, range.upperBound <= shown.endIndex else {
-                isChipSelected = false
-                return
-            }
-            isChipSelected = range.lowerBound.utf16Offset(in: shown) == 0
-                && range.upperBound.utf16Offset(in: shown) == shown.utf16.count
-        }
-        .onChange(of: activeProvider?.id) { _, id in
+        .onChange(of: activeProvider?.id) { _, _ in
             updateAnswer()
-            if id == nil { isChipSelected = false }
         }
     }
 
-    /// Stands in for the chip inside the text field. It is invisible and has no
-    /// width, but it is a real character (a plain ASCII one, because the field
-    /// only places selections correctly in text where bytes and characters line up), so pressing delete with the cursor
-    /// right after the chip removes it, and that is how we notice.
-    private static let chipMarker = "\u{1}"
-
-    private var shownText: String {
-        activeProvider == nil ? text : Self.chipMarker + text
+    private var showsRemoteSuggestions: Bool {
+        !visibleRemoteSuggestions.isEmpty && !isShowingClipboard
     }
 
-    private func selectEverything() {
-        let shown = shownText
-        selection = TextSelection(range: Self.index(0, in: shown)..<Self.index(shown.utf16.count, in: shown))
+    /// What sits above every layout: clipboard history, other sites, the
+    /// paste permission prompt and a calculation's answer.
+    @ViewBuilder private var extras: some View {
+        if settings.savesClipboardHistory, isShowingClipboard {
+            ClipboardPanel(onSelect: insertFromHistory, onShowAll: ClipboardOverlay.shared.showAll)
+                .transition(.opacity.combined(with: .offset(y: 12)))
+        }
+        if isShowingOtherSuggestions, !otherSuggestions.isEmpty {
+            otherSuggestionsRow
+                .transition(.opacity.combined(with: .offset(y: 8)))
+        }
+        if needsPastePermission {
+            pastePermissionChip
+        }
+        if let answer {
+            SmartAnswerCard(answer: answer, onReplace: replaceText)
+                .transition(.opacity.combined(with: .offset(y: 12)))
+        }
     }
 
-    /// Builds a cursor position in the text field's UTF-16 units; the ASCII
-    /// chip marker occupies one unit, and queries can contain multibyte text.
-    private static func index(_ offset: Int, in string: String) -> String.Index {
-        String.Index(utf16Offset: min(max(0, offset), string.utf16.count), in: string)
+    /// Suggestions, the clipboard and the field share one panel.
+    private var panelLayout: some View {
+        VStack(spacing: 10) {
+            extras
+            VStack(spacing: 0) {
+                if showsRemoteSuggestions {
+                    suggestionRows
+                    Divider().padding(.horizontal, 16)
+                }
+                if suggestedProvider != nil || !clipboardText.isEmpty || settings.savesClipboardHistory {
+                    HStack(spacing: 4) {
+                        if let provider = suggestedProvider { suggestionChip(provider, height: 26) }
+                        if clipboardText.isEmpty {
+                            Spacer(minLength: 0)
+                        } else {
+                            ClipboardSuggestionRow(text: clipboardText, navigates: shouldNavigateClipboard, action: useClipboard)
+                        }
+                        if settings.savesClipboardHistory {
+                            InlineClipboardButton(isOpen: $isShowingClipboard)
+                        }
+                    }
+                    .padding(.leading, suggestedProvider == nil ? 22 : 12)
+                    .padding(.trailing, 6)
+                    Divider().padding(.horizontal, 16)
+                }
+                field(hasBackground: false)
+            }
+            .background(.regularMaterial, in: .rect(cornerRadius: 26))
+            .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        }
+    }
+
+    /// No card behind the suggestions; everything lines up with the field's text.
+    private var floatingLayout: some View {
+        VStack(spacing: 6) {
+            extras
+            if showsRemoteSuggestions {
+                suggestionRows
+            }
+            floatingClipboardBar
+            field(hasBackground: true)
+                .padding(.top, 4)
+        }
+    }
+
+    /// The clipboard chip sits centered, the same gap from the clipboard button
+    /// as from the site chip (or, without one, from the edge).
+    private var floatingClipboardBar: some View {
+        let buttonWidth: CGFloat = settings.savesClipboardHistory ? 40 : 0
+        return HStack(spacing: 0) {
+            if let provider = suggestedProvider {
+                suggestionChip(provider, height: 30)
+            } else {
+                Color.clear.frame(width: buttonWidth, height: 1)
+            }
+            if clipboardText.isEmpty {
+                // Nothing copied: the site chip stays left, the button right.
+                Spacer(minLength: 12)
+            } else {
+                ClipboardChip(
+                    text: clipboardText,
+                    accessibilityText: shouldNavigateClipboard ? "Go to copied text" : "Paste copied text",
+                    action: useClipboard
+                )
+                .clipboardHitRegion()
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+            }
+            if settings.savesClipboardHistory {
+                ClipboardButton(isOpen: $isShowingClipboard)
+                    .clipboardHitRegion()
+            }
+        }
+        .frame(minHeight: 40)
+    }
+
+    /// One line each, best match nearest the field (the thumb). Never more
+    /// than five, so no scrolling (which would also hide grey text on the blur).
+    private var suggestionRows: some View {
+        let suggestions = Array(visibleRemoteSuggestions.prefix(5).reversed())
+        return VStack(spacing: 0) {
+                ForEach(suggestions, id: \.self) { suggestion in
+                    HStack(spacing: 0) {
+                        Button {
+                            searchSuggestion(suggestion)
+                        } label: {
+                            SuggestionRowLabel(suggestion: suggestion, typed: text)
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(.rect)
+                        }
+                        .accessibilityLabel("Search for \(suggestion)")
+                        Button {
+                            editSuggestion(suggestion)
+                        } label: {
+                            Image(systemName: "arrow.up.left")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 44, height: 44)
+                                .contentShape(.rect)
+                        }
+                        .accessibilityLabel("Edit suggestion: \(suggestion)")
+                    }
+                    .padding(.leading, 22)
+                    .padding(.trailing, 4)
+                }
+        }
+        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("search-query-suggestions")
+    }
+
+    private func searchSuggestion(_ suggestion: String) {
+        // Explicitly search: a completion must never become a URL.
+        let url = activeProvider?.url(for: suggestion) ?? Destination.searchURL(for: suggestion)
+        onSubmit(SearchSubmission(text: suggestion, url: url, providerID: activeProvider?.id))
+    }
+
+    private func editSuggestion(_ suggestion: String) {
+        suppressActivation = true
+        shouldMatchShortcut = false
+        hasEditedText = true
+        text = suggestion
+        isFocused = true
+        moveCaretToEnd()
+    }
+
+    private var remoteSuggestionRequest: SearchSuggestionRequest? {
+        SearchSuggestionRequest.make(
+            text: text, provider: activeProvider, enabled: settings.searchSuggestions,
+            isPresented: isPresented && scenePhase == .active,
+            isEditing: isFocused && hasEditedText,
+            isIncognito: isIncognito || isInIncognitoWindow,
+            inEnglish: settings.googleInEnglish
+        )
+    }
+
+    private var visibleRemoteSuggestions: [String] {
+        guard let request = remoteSuggestionRequest,
+              request == completedSuggestionRequest else { return [] }
+        return remoteSuggestions
+    }
+
+    /// The chip is one character in the field, before the text.
+    private var shownLength: Int {
+        text.utf16.count + (activeProvider == nil ? 0 : 1)
+    }
+
+    private func moveCaretToEnd() {
+        selectionRequest = .caret(shownLength)
     }
 
     /// Restores the remembered query and enabled provider without interpreting an ordinary query as a shortcut.
     private func resetInput() {
         suppressActivation = false
         shouldMatchShortcut = false
-        pendingCursorOffset = nil
         hasEditedText = false
         isShowingOtherSuggestions = false
-        isChipSelected = false
         activeProvider = settings.searchProviders.first { $0.id == initialProviderID && $0.isEnabled }
         typedShortcut = nil
         // Restoring a remembered ordinary query must not reinterpret it as a shortcut.
@@ -251,8 +379,7 @@ struct SearchOverlay: View {
         activeProvider = match.provider
         typedShortcut = String(text.drop(while: \.isWhitespace).prefix(while: { !$0.isWhitespace }))
         text = match.query
-        pendingCursorOffset = text.utf16.count + 1
-        selection = TextSelection(insertionPoint: Self.index(shownText.utf16.count, in: shownText))
+        moveCaretToEnd()
     }
 
     /// The chip turns back into the word it came from, and the cursor sits
@@ -265,8 +392,7 @@ struct SearchOverlay: View {
         shouldMatchShortcut = false
         suppressActivation = !query.isEmpty
         text = query.isEmpty ? word : word + " " + query
-        pendingCursorOffset = word.utf16.count
-        selection = TextSelection(insertionPoint: Self.index(word.utf16.count, in: text))
+        selectionRequest = .caret(word.utf16.count)
     }
 
     private var suggestedProvider: SearchProvider? {
@@ -274,8 +400,19 @@ struct SearchOverlay: View {
         return SearchProvider.bestSuggestion(for: text, in: settings.searchProviders)
     }
 
+    private var needsPastePermission: Bool {
+        #if DEBUG
+        if UserDefaults.standard.string(forKey: "debugClipboardText") != nil { return false }
+        #endif
+        return clipboardCache.access == .needsPermission
+    }
+
     private var clipboardText: String {
-        clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        #if DEBUG
+        // The simulator refuses pastes; screenshots can supply one.
+        if let fake = UserDefaults.standard.string(forKey: "debugClipboardText") { return fake }
+        #endif
+        return clipboardCache.text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Every site the first word could mean, best first.
@@ -288,8 +425,8 @@ struct SearchOverlay: View {
 
     /// Offers the site the first word could mean, at the left of the clipboard
     /// row. Tap to use it; hold to see the other sites that match.
-    private func suggestionChip(_ provider: SearchProvider) -> some View {
-        SearchProviderChip(provider: provider)
+    private func suggestionChip(_ provider: SearchProvider, height: CGFloat = 22) -> some View {
+        SearchProviderChip(provider: provider, height: height)
             // Raw touches, like the back button: SwiftUI's long press waits too long.
             .overlay {
                 TouchSurface(
@@ -362,8 +499,7 @@ struct SearchOverlay: View {
         isShowingOtherSuggestions = false
         suppressActivation = false
         isFocused = true
-        pendingCursorOffset = text.utf16.count + 1
-        selection = TextSelection(insertionPoint: Self.index(shownText.utf16.count, in: shownText))
+        moveCaretToEnd()
     }
 
     private var shouldNavigateClipboard: Bool {
@@ -402,22 +538,9 @@ struct SearchOverlay: View {
         .accessibilityHint("Opens Settings so the clipboard can be read without asking each time")
     }
 
-    private var field: some View {
+    private func field(hasBackground: Bool) -> some View {
         HStack(spacing: 8) {
-            if let provider = activeProvider {
-                // Part of the text: delete or its × turns it back into what was typed.
-                Button { dissolveProvider(keeping: text) } label: {
-                    SearchProviderChip(provider: provider, showsClose: true, isSelected: isChipSelected)
-                }
-                .buttonStyle(.plain)
-                .fixedSize(horizontal: true, vertical: false)
-                .transition(.scale(scale: 0.6, anchor: .leading).combined(with: .opacity))
-                .accessibilityLabel("\(provider.name) search")
-                .accessibilityHint("Turns it back into the text you typed")
-                .accessibilityIdentifier("search-provider-active")
-            } else {
-                appendButton
-            }
+            appendButton
 
             queryField
                 .frame(minWidth: 64)
@@ -431,8 +554,16 @@ struct SearchOverlay: View {
         .animation(.snappy(duration: 0.18), value: activeProvider?.id)
         .padding(.horizontal, 10)
         .frame(minHeight: 52)
-        .background(.regularMaterial, in: .capsule)
-        .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+        // Inside the panel there is no layer of its own: even a clear one
+        // would stop grey text drawing on the panel's blur.
+        .background {
+            if hasBackground {
+                // A capsule at one line; long text wraps without stretching the ends.
+                RoundedRectangle(cornerRadius: 26)
+                    .fill(.regularMaterial)
+                    .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+            }
+        }
     }
 
     private var appendButton: some View {
@@ -447,41 +578,48 @@ struct SearchOverlay: View {
         .accessibilityHint("Moves the cursor to the end with a space ready for more text")
     }
 
+    private var chipImage: UIImage? {
+        activeProvider.flatMap { ChipImages.image(for: $0, scale: displayScale) }
+    }
+
     private var queryField: some View {
-        TextField(activeProvider.map { "Search \($0.name)" } ?? "Search or enter address", text: Binding(
-            get: { shownText },
-            set: { newValue in
-                if activeProvider != nil {
-                    guard newValue.hasPrefix(Self.chipMarker) else {
-                        if isChipSelected {
-                            // Typed over a selection that included the chip: start over.
-                            isChipSelected = false
-                            activeProvider = nil
-                            typedShortcut = nil
-                            suppressActivation = false
-                            text = newValue.replacingOccurrences(of: Self.chipMarker, with: "")
-                            shouldMatchShortcut = true
-                            return
-                        }
-                        // The delete key reached the chip.
-                        dissolveProvider(keeping: newValue.replacingOccurrences(of: Self.chipMarker, with: ""))
-                        return
-                    }
-                    text = newValue.replacingOccurrences(of: Self.chipMarker, with: "")
-                } else {
-                    text = newValue
-                }
+        ChipTextField(
+            placeholder: activeProvider.map { "Search \($0.name)" } ?? "Search or enter address",
+            text: $text,
+            chip: chipImage,
+            chipID: activeProvider?.id,
+            chipWord: activeProvider.map { typedShortcut ?? $0.shortcuts.first ?? "" } ?? "",
+            isFocused: $isFocused,
+            selectionRequest: selectionRequest,
+            onDeleteChip: { query in dissolveProvider(keeping: query) },
+            onReplaceChip: { newText, caret in
+                // Typed over a selection that included the chip: start over without it.
+                activeProvider = nil
+                typedShortcut = nil
+                suppressActivation = false
+                text = newText
+                shouldMatchShortcut = true
+                selectionRequest = .caret(caret)
+            },
+            onTapChip: { dissolveProvider(keeping: text) },
+            onEdit: {
                 if text.isEmpty { suppressActivation = false }
                 shouldMatchShortcut = true
+            },
+            onSubmit: submit
+        )
+        // The field has no placeholder of its own; this one sits after the chip, if any.
+        .overlay(alignment: .topLeading) {
+            if text.isEmpty {
+                Text(activeProvider.map { "Search \($0.name)" } ?? "Search or enter address")
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .padding(.leading, chipImage?.size.width ?? 0)
+                    .padding(.top, ChipTextField.verticalInset)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
-        ), selection: $selection)
-            .focused($isFocused)
-            .keyboardType(.webSearch)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .submitLabel(.go)
-            .onSubmit(submit)
-            .accessibilityIdentifier("search-query")
+        }
     }
 
     private var clearButton: some View {
@@ -558,7 +696,7 @@ struct SearchOverlay: View {
         if !text.isEmpty { text.append(" ") }
         activateShortcutIfNeeded()
         isFocused = true
-        selection = TextSelection(insertionPoint: Self.index(shownText.utf16.count, in: shownText))
+        moveCaretToEnd()
     }
 
     /// Searching inside a site (a chip is showing) is never a calculation.
@@ -572,7 +710,7 @@ struct SearchOverlay: View {
     private func replaceText(with newText: String) {
         text = newText
         isFocused = true
-        selection = TextSelection(insertionPoint: text.endIndex)
+        moveCaretToEnd()
     }
 
     /// Types the item where the cursor is, without submitting, and puts it

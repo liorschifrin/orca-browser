@@ -62,6 +62,12 @@ struct BrowserView: View {
         let store = BrowserStore()
         _store = State(initialValue: store)
         _isSearching = State(initialValue: false)
+        #if DEBUG
+        // Simulator screenshots: `-debugSearchText "…"` opens search already typed into.
+        if UserDefaults.standard.string(forKey: "debugSearchText") != nil {
+            _isSearching = State(initialValue: true)
+        }
+        #endif
         _searchIsIncognito = State(initialValue: store.selectedTab?.isIncognito ?? false)
     }
 
@@ -220,9 +226,12 @@ struct BrowserView: View {
         .onChange(of: isSearching, initial: true) {
             InteractionBudget.shared.isSearching = isSearching
             ClipboardOverlay.shared.isSuppressed = isSearching
+            store.updatePagesOnScreen(pagesAreShowing: pagesAreShowing)
         }
         .onChange(of: isSwitching) { InteractionBudget.shared.isSwitching = isSwitching }
+        .onChange(of: store.selectedTabID) { store.updatePagesOnScreen(pagesAreShowing: pagesAreShowing) }
         .onChange(of: scenePhase) {
+            store.updatePagesOnScreen(pagesAreShowing: pagesAreShowing)
             // The switch can be decided while the app is still coming forward
             // from the picture in picture window; slide once it's on screen.
             startSlideIfVisible()
@@ -236,6 +245,8 @@ struct BrowserView: View {
                 // Opening the app with this tab's video in picture in picture
                 // brings the video back into the page.
                 store.selectedTab?.exitPictureInPicture()
+                // Its page may have been closed to free memory while away.
+                store.selectedTab?.reloadAfterCrashIfVisible()
                 ClipboardCache.shared.refresh()
                 Translation.forgetChromeAvailability()
             } else {
@@ -261,6 +272,9 @@ struct BrowserView: View {
         }
         .onChange(of: settings.opensShortsAsVideos) {
             store.applyOpensShortsAsVideosSetting(settings.opensShortsAsVideos)
+        }
+        .onChange(of: settings.speedBumpsInPage) {
+            store.applySpeedBumpSettings(settings.speedBumpsInPage)
         }
         .onChange(of: settings.blockRedditPrompt) {
             store.applyRedditPromptSetting(settings.blockRedditPrompt)
@@ -396,6 +410,9 @@ struct BrowserView: View {
     }
 
     /// An Incognito tab or an Incognito search is what's on screen.
+    /// The app is open and search isn't covering the pages.
+    private var pagesAreShowing: Bool { scenePhase == .active && !isSearching }
+
     private var isShowingPrivately: Bool {
         isSearching ? searchIsIncognito : store.selectedTab?.isIncognito == true
     }
@@ -453,7 +470,10 @@ struct BrowserView: View {
                         guard tab.id == store.selectedTabID else { return }
                         tab.openPeek(url)
                     },
-                    onVisible: tab.finishRestoringIfVisible
+                    onVisible: {
+                        tab.finishRestoringIfVisible()
+                        tab.reloadAfterCrashIfVisible()
+                    }
                 )
                 // Sit between the status bar and the floating bar (and the
                 // playback bar above it), so nothing on the page (header
@@ -493,7 +513,7 @@ struct BrowserView: View {
                     StartView()
                         .padding(.bottom, barHeight)
                 } else if let error = tab.loadError {
-                    ErrorView(error: error, retry: tab.reload)
+                    ErrorView(error: error, retry: tab.retryFailedLoad)
                         .padding(.bottom, barHeight)
                 }
 
@@ -512,6 +532,22 @@ struct BrowserView: View {
                     .accessibilityLabel("Translate in Chrome")
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .padding(.leading, 12)
+                    .padding(.bottom, barHeight + 12)
+                }
+
+                if settings.showsArchiveButton, tab.isArticle, !isSwitching, let url = tab.url,
+                   let archived = ArchivePage.url(for: url) {
+                    Button { tab.load(archived) } label: {
+                        Image(systemName: "building.columns")
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.2), radius: 6, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open in archive.ph")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .padding(.trailing, 12)
                     .padding(.bottom, barHeight + 12)
                 }
             }
@@ -630,8 +666,11 @@ struct BrowserView: View {
             TextField("", text: $dialogText)
             Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
             Button("OK") { dialogTab?.answerDialog(.ok(text: dialogText)) }
+        case .openApp:
+            Button("Cancel", role: .cancel) { dialogTab?.answerDialog(.cancel) }
+            Button("Open") { dialogTab?.answerDialog(.ok(text: nil)) }
         }
-        if let site = dialog.site {
+        if dialog.isFromPage, let site = dialog.site {
             Button("Block Dialogs from This Site", role: .destructive) {
                 if let rules = dialogTab?.privateRules {
                     rules.setAllowsDialogs(false, on: site)

@@ -1,7 +1,7 @@
 import WebKit
 
-/// Facts about the page showing in a web view: its icon, and whether it's in
-/// a language the user reads.
+/// Facts about the page showing in a web view: its icon, whether it's in
+/// a language the user reads, and whether it's an article.
 enum PageMetadata {
     /// Where the page's icon is. The page itself says (a <link> tag); if it
     /// doesn't, the conventional /favicon.ico. nil for non-web pages.
@@ -50,5 +50,44 @@ enum PageMetadata {
         return await Task.detached(priority: .utility) {
             Translation.isForeign(declared: declared, text: text)
         }.value
+    }
+
+    /// Whether the page is an article (see `ArchivePage`). nil if it couldn't be read.
+    static func isArticle(_ view: WKWebView) async -> Bool? {
+        guard let pageURL = view.url, ArchivePage.isArchivable(pageURL) else { return nil }
+        let script = """
+        (function () {
+          var og = document.querySelector('meta[property="og:type"]');
+          var types = [];
+          function collect(node) {
+            if (!node || typeof node !== 'object') { return; }
+            if (Array.isArray(node)) { node.forEach(collect); return; }
+            var type = node['@type'];
+            if (typeof type === 'string') { types.push(type); }
+            else if (Array.isArray(type)) { type.forEach(function (t) { if (typeof t === 'string') { types.push(t); } }); }
+            collect(node['@graph']);
+          }
+          document.querySelectorAll('script[type="application/ld+json"]').forEach(function (script) {
+            try { collect(JSON.parse(script.textContent)); } catch (e) {}
+          });
+          var articles = document.querySelectorAll('article');
+          var words = articles.length === 1
+            ? (articles[0].innerText || '').split(/\\s+/).filter(Boolean).length : 0;
+          return {
+            ogType: og ? (og.content || '') : '',
+            types: types,
+            published: !!document.querySelector('meta[property="article:published_time"]'),
+            words: words
+          };
+        })()
+        """
+        guard let result = (try? await view.evaluateJavaScript(script)) as? [String: Any] else { return nil }
+        let signals = ArchivePage.ArticleSignals(
+            ogType: result["ogType"] as? String ?? "",
+            schemaTypes: result["types"] as? [String] ?? [],
+            hasPublishedTime: result["published"] as? Bool ?? false,
+            articleWords: (result["words"] as? NSNumber)?.intValue ?? 0
+        )
+        return ArchivePage.isArticle(pageURL, signals: signals)
     }
 }

@@ -66,7 +66,7 @@ struct XNavigationTests {
         defer { tab.teardown() }
         tab.pageWillNavigate(to: URL(string: "https://www.google.com/search?q=NASA")!)
         tab.pageDidFail(NSError(domain: NSURLErrorDomain, code: NSURLErrorUnsupportedURL,
-            userInfo: [NSURLErrorFailingURLErrorKey: URL(string: "x-safari-https://redirect.x.com/NASA/status/123?ct=rw-null")!]))
+            userInfo: [NSURLErrorFailingURLErrorKey: URL(string: "x-safari-https://redirect.x.com/NASA/status/123?ct=rw-null")!]), beforeCommit: true)
         #expect(tab.loadError?.failedURL?.absoluteString == "https://x.com/NASA/status/123?ct=rw-null")
         #expect(tab.loadError?.symbol == "exclamationmark.triangle")
     }
@@ -78,7 +78,7 @@ struct XNavigationTests {
         tab.pageWillNavigate(to: destination)
         tab.pageWillNavigate(to: URL(string: "unknown-app://post/123")!)
         tab.pageDidFail(NSError(domain: NSURLErrorDomain, code: NSURLErrorUnsupportedURL,
-            userInfo: [NSURLErrorFailingURLErrorKey: URL(string: "unknown-app://post/123")!]))
+            userInfo: [NSURLErrorFailingURLErrorKey: URL(string: "unknown-app://post/123")!]), beforeCommit: true)
         #expect(tab.loadError?.failedURL == destination)
     }
 
@@ -88,7 +88,7 @@ struct XNavigationTests {
         let destination = URL(string: "https://example.com/offline")!
         tab.pageWillNavigate(to: URL(string: "https://x.com/NASA")!)
         tab.pageDidFail(NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet,
-            userInfo: [NSURLErrorFailingURLErrorKey: destination]))
+            userInfo: [NSURLErrorFailingURLErrorKey: destination]), beforeCommit: true)
         #expect(tab.loadError?.failedURL == destination)
         #expect(tab.loadError?.symbol == "wifi.exclamationmark")
     }

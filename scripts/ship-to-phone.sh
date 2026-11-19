@@ -70,6 +70,7 @@ while [[ $# -gt 0 ]]; do
         --as-main) mode=asmain ;;
         --release) mode=release ;;
         --status) mode=status ;;
+        --queue-check) mode=queuecheck ;;
         --build-only) build_only=1 ;;
         --configuration) configuration="$2"; shift ;;
         --device) device="$2"; shift ;;
@@ -310,6 +311,17 @@ EOF
 }
 
 case "$mode" in
+    queuecheck)
+        # Readiness probe for the queue: do not reserve or replace a slot.
+        with_lock
+        if find_slot_for_this_checkout >/dev/null; then exit 0; fi
+        for n in $(seq 1 "$SLOT_COUNT"); do
+            if [[ ! -f "$(slot_file "$n")" ]] || slot_is_stale "$n" || slot_pr_is_done "$n"; then
+                exit 0
+            fi
+        done
+        exit 3
+        ;;
     status)
         print_status
         exit 0

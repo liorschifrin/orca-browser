@@ -52,8 +52,13 @@ final class Tab: Identifiable {
     private(set) var title: String?
     private(set) var progress: Double = 0
     private(set) var isLoading = false
-    private(set) var canGoBack = false
+    /// WebKit's own answer; see `canGoBack`.
+    private var historyCanGoBack = false
     private(set) var canGoForward = false
+
+    /// True if Back does something: there's an earlier page, or an error is
+    /// covering a page that is still loaded underneath.
+    var canGoBack: Bool { historyCanGoBack || loadError?.coversPage == true }
 
     @ObservationIgnored private var lastRecordedURL: URL?
 
@@ -98,11 +103,23 @@ final class Tab: Identifiable {
     /// read (see `Translation`). Cleared when the next page starts arriving.
     private(set) var isForeignLanguage = false
 
+    /// True when the loaded page looks like an article (see `ArchivePage`).
+    /// Cleared when the next page starts arriving.
+    private(set) var isArticle = false
+
     /// A dialog the page is waiting on, shown by the browser as an alert.
     private(set) var dialog: PageDialog?
 
     /// Set when a navigation fails; cleared when the next page starts showing.
     private(set) var loadError: LoadError?
+
+    /// The page's process quit and the page hasn't been brought back yet.
+    @ObservationIgnored private var pageCrashed = false
+    @ObservationIgnored private var lastCrashReload: Date?
+    /// The page quit again soon after it was brought back: it's stuck.
+    @ObservationIgnored private var crashedRepeatedly = false
+    /// This web view has shown a page, which stays behind a failed load.
+    @ObservationIgnored private var hasCommittedPage = false
 
     /// True from the moment a web view is re-created for an unloaded tab until
     /// its page shows up. The browser covers the gap with the card's picture.
@@ -127,7 +144,10 @@ final class Tab: Identifiable {
     struct LoadError {
         let message: String
         let failedURL: URL?
-        let symbol: String
+        var symbol = "exclamationmark.triangle"
+        /// The load failed before replacing the page, which is still there
+        /// behind the error. Back and Reload return to it.
+        var coversPage = false
     }
 
     @ObservationIgnored private var requestedWebURL: URL?
@@ -380,7 +400,7 @@ final class Tab: Identifiable {
         // The check after "finished" gives up while the page is still loading;
         // try again once it stops.
         if isRestoring, !view.isLoading { finishRestoringIfVisible() }
-        if view.canGoBack != canGoBack { canGoBack = view.canGoBack }
+        if view.canGoBack != historyCanGoBack { historyCanGoBack = view.canGoBack }
         if view.canGoForward != canGoForward { canGoForward = view.canGoForward }
     }
 
@@ -489,18 +509,45 @@ final class Tab: Identifiable {
     }
 
     func goBack() {
+        // The page before the error is the one behind it.
+        if loadError?.coversPage == true {
+            loadError = nil
+            return
+        }
         webView?.goBack()
     }
 
+    /// Tries the failed address again, for the error's Try Again button.
+    func retryFailedLoad() {
+        if let failedURL = loadError?.failedURL { load(failedURL) } else { reload() }
+    }
+
     func reload() {
+        // Go back to the page the address bar shows: the one behind the
+        // error, still loaded, not the address that failed and would likely
+        // fail again. Reloading it could fail the same way.
+        if loadError?.coversPage == true {
+            loadError = nil
         // After a failed first load there's no page to reload, so retry the
         // URL that failed instead.
-        if let failedURL = loadError?.failedURL {
+        } else if let failedURL = loadError?.failedURL {
             load(failedURL)
         } else if let view = webView {
             // Reloading is the user's way out of a restore that went wrong.
             if isRestoring { endRestoring() }
             if view.url == nil, let url { view.load(URLRequest(url: url)) } else { view.reload() }
+        }
+    }
+
+    /// Reloads the page that's loaded, even with an error over it, so a
+    /// changed site setting applies to it. With nothing loaded behind the
+    /// error, retries the failed address like `reload()`.
+    func reloadLoadedPage() {
+        if loadError?.coversPage == true, let view = webView {
+            loadError = nil
+            view.reload()
+        } else {
+            reload()
         }
     }
 
@@ -552,6 +599,12 @@ final class Tab: Identifiable {
         if view === webView { isForeignLanguage = foreign }
     }
 
+    /// Decides whether the page is an article, for the archive button.
+    private func detectArticle() async {
+        guard let view = webView, let article = await PageMetadata.isArticle(view) else { return }
+        if view === webView { isArticle = article }
+    }
+
     /// Called when the tab is closed, so the page stops loading and playing.
     func teardown() {
         isClosed = true
@@ -585,6 +638,9 @@ final class Tab: Identifiable {
     }
 
     private func detachWebView() {
+        pageCrashed = false
+        crashedRepeatedly = false
+        hasCommittedPage = false
         answerDialog(.cancel)
         restoreLoadTask?.cancel()
         metadataTask?.cancel()
@@ -685,6 +741,10 @@ final class Tab: Identifiable {
                 try Task.checkCancellation()
                 try await InteractionBudget.shared.waitForIdle()
                 await detectLanguage()
+                if AppSettings.shared.showsArchiveButton {
+                    try Task.checkCancellation()
+                    await detectArticle()
+                }
             } catch { }
         }
         snapshotIsStale = true
@@ -695,6 +755,7 @@ final class Tab: Identifiable {
     /// The first bytes of a new page arrived, i.e. the old page is about to
     /// be replaced. A good moment to drop any old error.
     func pageDidCommit() {
+        hasCommittedPage = true
         playback = PlaybackControl.State()
         snapshotsStarted += 1
         scrollSnapshotTask?.cancel()
@@ -705,6 +766,7 @@ final class Tab: Identifiable {
         bannersBlocked = 0
         countedBlockedURLs.removeAll()
         isForeignLanguage = false
+        isArticle = false
     }
 
     /// Shows a dialog the page asked for, unless one is already up, in which
@@ -743,12 +805,70 @@ final class Tab: Identifiable {
         webView?.evaluateJavaScript(ShortsFilter.setScript(enabled: enabled))
     }
 
+    /// Tells the page whether it's on screen, so YouTube countdowns wait
+    /// while it isn't.
+    func setOnScreen(_ onScreen: Bool) {
+        webView?.evaluateJavaScript(YouTubeSpeedBumps.onScreenScript(onScreen), in: nil, in: YouTubeSpeedBumps.world)
+    }
+
+    /// Applies the YouTube countdown settings to a page that is already open.
+    func setSpeedBumps(_ settings: YouTubeSpeedBumps.Settings?) {
+        webView?.evaluateJavaScript(YouTubeSpeedBumps.setScript(settings), in: nil, in: YouTubeSpeedBumps.world)
+    }
+
     /// Applies the "open Shorts as videos" setting to a page that is already open.
     func setOpensShortsAsVideos(_ enabled: Bool) {
         webView?.evaluateJavaScript(ShortsFilter.setRedirectScript(enabled: enabled))
     }
 
-    func pageDidFail(_ error: Error) {
+    /// The page's process quit, usually because iOS needed the memory. Like
+    /// Safari, bring the page back, but only once it's on screen.
+    func pageProcessDidTerminate() {
+        // Timed from the crash itself, not from when the tab is next seen.
+        if let lastCrashReload, Date.now.timeIntervalSince(lastCrashReload) < Self.crashLoopWindow {
+            crashedRepeatedly = true
+        }
+        pageCrashed = true
+        // The page is gone, so an error now has nothing behind it, and one
+        // already over it can't go back to it.
+        hasCommittedPage = false
+        if loadError?.coversPage == true { loadError = nil }
+        reloadAfterCrashIfVisible()
+    }
+
+    /// Reloads a page whose process quit, if it's on screen with the app in
+    /// front. Safe to call often; does nothing otherwise.
+    func reloadAfterCrashIfVisible() {
+        guard pageCrashed else { return }
+        // Called while views update; change what they show afterwards.
+        Task { [weak self] in
+            guard let self, pageCrashed, InteractionBudget.shared.isForeground,
+                  let view = webView, !view.isHidden, view.window != nil else { return }
+            pageCrashed = false
+            // A page that quits again right after coming back would keep
+            // reloading; stop and say what happened instead.
+            if crashedRepeatedly {
+                crashedRepeatedly = false
+                lastCrashReload = nil
+                endRestoring()
+                loadError = LoadError(
+                    message: "This page stopped working, possibly because it used too much memory.",
+                    failedURL: view.url ?? url
+                )
+                return
+            }
+            lastCrashReload = .now
+            // WebKit forgets the address when the process quits but keeps the
+            // history entry, and reloading that keeps a form's POST a POST.
+            if view.backForwardList.currentItem == nil, let url { view.load(URLRequest(url: url)) } else { view.reload() }
+        }
+    }
+
+    private static let crashLoopWindow: TimeInterval = 15
+
+    /// `beforeCommit` is true when the failure came before the new page
+    /// started arriving, so the old one wasn't replaced.
+    func pageDidFail(_ error: Error, beforeCommit: Bool) {
         let nsError = error as NSError
 
         // Not real failures: the user (or a link tap) cancelled a load, or the
@@ -769,7 +889,8 @@ final class Tab: Identifiable {
             symbol: nsError.domain == NSURLErrorDomain && [NSURLErrorNotConnectedToInternet,
                 NSURLErrorNetworkConnectionLost, NSURLErrorCannotConnectToHost,
                 NSURLErrorCannotFindHost, NSURLErrorDNSLookupFailed].contains(nsError.code)
-                ? "wifi.exclamationmark" : "exclamationmark.triangle"
+                ? "wifi.exclamationmark" : "exclamationmark.triangle",
+            coversPage: beforeCommit && hasCommittedPage
         )
     }
 

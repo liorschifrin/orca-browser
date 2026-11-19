@@ -66,6 +66,8 @@ enum ShortsFilter {
       const watchURL = (address) => {
         try {
           const url = new URL(address, location.href);
+          // youtube:// and other app links go to their app.
+          if (url.protocol !== "https:" && url.protocol !== "http:") return null;
           const match = url.pathname.match(/^\\/shorts\\/([^\\/]+)/);
           if (!match || !isYouTube(url.hostname)) return null;
           return location.origin + "/watch?v=" + encodeURIComponent(match[1]);
@@ -130,7 +132,9 @@ enum ShortsFilter {
     /// For a youtube.com/shorts/ID address, the matching watch address
     /// (youtube.com/watch?v=ID). Returns nil for any other address.
     static func watchURL(forShorts url: URL) -> URL? {
-        guard let host = url.host()?.lowercased(),
+        // Only web addresses: a youtube:// link belongs to the YouTube app.
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              let host = url.host()?.lowercased(),
               host == "youtube.com" || host.hasSuffix(".youtube.com")
         else { return nil }
 

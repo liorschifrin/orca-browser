@@ -22,6 +22,8 @@ final class AppSettings {
     private static let showsPlaybackBarKey = "showsPlaybackBar"
     private static let hidesOpenAppKey = "hidesOpenApp"
     private static let showsHeaderToolsKey = "showsHeaderTools"
+    private static let slowsDownYouTubeKey = "slowsDownYouTube"
+    private static let speedBumpsKey = "speedBumps.v1"
     private static let blockAdsKey = "blockAds"
     private static let blockTrackersKey = "blockTrackers"
     private static let blockCookieBannersKey = "blockCookieBanners"
@@ -33,7 +35,27 @@ final class AppSettings {
     private static let showDebugStatsKey = "showDebugStats"
     private static let autoArchiveTabsKey = "autoArchiveTabs"
     private static let autoArchiveDaysKey = "autoArchiveDays"
+    private static let searchSuggestionsKey = "searchSuggestions"
+
+    var searchSuggestions: Bool {
+        didSet { defaults.set(searchSuggestions, forKey: Self.searchSuggestionsKey) }
+    }
+
+    private static let suggestionLookKey = "suggestionLook"
+
+    /// Which layout the search screen uses: One panel or Floating.
+    var suggestionLook: SuggestionLook {
+        didSet { defaults.set(suggestionLook.rawValue, forKey: Self.suggestionLookKey) }
+    }
+
     private static let savesClipboardHistoryKey = "savesClipboardHistory"
+    private static let showsArchiveButtonKey = "showsArchiveButton"
+
+    /// Shows the archive.ph button on pages that look like articles. On by
+    /// default; the site menu offers archive.ph on every page either way.
+    var showsArchiveButton: Bool {
+        didSet { defaults.set(showsArchiveButton, forKey: Self.showsArchiveButtonKey) }
+    }
 
     /// Remembers everything copied in the app and whatever is on the
     /// clipboard when it opens. On by default.
@@ -103,6 +125,26 @@ final class AppSettings {
         didSet { defaults.set(showsHeaderTools, forKey: Self.showsHeaderToolsKey) }
     }
 
+    /// Locks YouTube's home recommendations, each video and the videos under
+    /// it behind a countdown (`YouTubeSpeedBumps`). On by default.
+    var slowsDownYouTube: Bool {
+        didSet { defaults.set(slowsDownYouTube, forKey: Self.slowsDownYouTubeKey) }
+    }
+
+    /// How long each YouTube countdown is, by day and at night.
+    var speedBumps: YouTubeSpeedBumps.Settings {
+        didSet {
+            if let data = try? JSONEncoder().encode(speedBumps) {
+                defaults.set(data, forKey: Self.speedBumpsKey)
+            }
+        }
+    }
+
+    /// What YouTube pages are given: the countdowns, or nil when switched off.
+    var speedBumpsInPage: YouTubeSpeedBumps.Settings? {
+        slowsDownYouTube ? speedBumps : nil
+    }
+
     /// Blocks ads in every tab. On by default.
     var blockAds: Bool {
         didSet { defaults.set(blockAds, forKey: Self.blockAdsKey) }
@@ -153,6 +195,8 @@ final class AppSettings {
                 voice: defaults.data(forKey: Self.voiceQueryOptionsKey)
             )
         }
+        searchSuggestions = defaults.object(forKey: Self.searchSuggestionsKey) as? Bool ?? true
+        suggestionLook = SuggestionLook(rawValue: defaults.string(forKey: Self.suggestionLookKey) ?? "") ?? .panel
         savesClipboardHistory = defaults.object(forKey: Self.savesClipboardHistoryKey) as? Bool ?? true
         autoArchiveTabs = defaults.bool(forKey: Self.autoArchiveTabsKey)
         autoArchiveDays = max(1, defaults.object(forKey: Self.autoArchiveDaysKey) as? Int ?? 30)
@@ -164,6 +208,10 @@ final class AppSettings {
         showsPlaybackBar = defaults.object(forKey: Self.showsPlaybackBarKey) as? Bool ?? true
         hidesOpenApp = defaults.object(forKey: Self.hidesOpenAppKey) as? Bool ?? true
         showsHeaderTools = defaults.object(forKey: Self.showsHeaderToolsKey) as? Bool ?? true
+        slowsDownYouTube = defaults.object(forKey: Self.slowsDownYouTubeKey) as? Bool ?? true
+        speedBumps = defaults.data(forKey: Self.speedBumpsKey)
+            .flatMap { try? JSONDecoder().decode(YouTubeSpeedBumps.Settings.self, from: $0) }
+            ?? YouTubeSpeedBumps.Settings()
         blockAds = defaults.object(forKey: Self.blockAdsKey) as? Bool ?? true
         blockTrackers = defaults.object(forKey: Self.blockTrackersKey) as? Bool ?? true
         blockCookieBanners = defaults.object(forKey: Self.blockCookieBannersKey) as? Bool ?? true
@@ -175,5 +223,6 @@ final class AppSettings {
             rawValue: defaults.string(forKey: Self.voiceSearchProviderKey) ?? ""
         ) ?? .apple
         showDebugStats = defaults.object(forKey: Self.showDebugStatsKey) as? Bool ?? true
+        showsArchiveButton = defaults.object(forKey: Self.showsArchiveButtonKey) as? Bool ?? true
     }
 }

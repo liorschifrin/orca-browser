@@ -30,6 +30,16 @@ struct SettingsView: View {
                     Text("Sites you can search directly by typing a shortcut, or by voice.")
                 }
                 Section {
+                    Toggle("Search suggestions", isOn: $settings.searchSuggestions)
+                    Picker("Look", selection: $settings.suggestionLook) {
+                        ForEach(SuggestionLook.allCases) { look in
+                            Text(look.title).tag(look)
+                        }
+                    }
+                } footer: {
+                    Text("Sends what you type to Google for suggestions, or to the site whose chip is showing if it has a suggestions URL. Suggestions are off in Incognito.")
+                }
+                Section {
                     Toggle("Auto-archive tabs", isOn: $settings.autoArchiveTabs)
                     Stepper(value: $settings.autoArchiveDays, in: 1...365) {
                         Text("After \(settings.autoArchiveDays) days")
@@ -53,6 +63,11 @@ struct SettingsView: View {
                     Toggle("Google in English", isOn: $settings.googleInEnglish)
                 } footer: {
                     Text("Opens Google Search and Google's home page in English, which helps when you're abroad or in an incognito tab. Searches you type here and ones you start from Google's own page both get it.")
+                }
+                Section {
+                    Toggle("Archive button on articles", isOn: $settings.showsArchiveButton)
+                } footer: {
+                    Text("Shows a button on news and blog articles that opens the page in archive.ph, which often has a copy without the paywall. Every page can also be opened there from the site menu.")
                 }
                 Section {
                     Toggle("Block Reddit app pop-up", isOn: $settings.blockRedditPrompt)
