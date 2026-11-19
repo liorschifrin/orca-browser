@@ -148,7 +148,8 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         }
         // Which frame asked. WebKit leaves it out for loads the app starts.
         let isFromPage = (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true
-        if action.navigationType == .linkActivated, isFromPage { lastLinkTap = .now }
+        // A tap in a frame (an ad) takes back an earlier tap in the page.
+        if action.navigationType == .linkActivated { lastLinkTap = isFromPage ? .now : nil }
         // Phone, email, App Store and other app links go to their app. Only
         // the page itself: an ad in a frame mustn't be able to switch apps
         // without asking, even by loading the link into the whole page.
@@ -279,8 +280,15 @@ final class TabWebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKSc
         if action.targetFrame == nil {
             // Pages can't open windows on their own (WebKit's default), so
             // this always comes from a tap, even when the page's script asks.
-            // A tap in a frame (an ad) doesn't count.
-            if (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true { lastLinkTap = .now }
+            // A tap in a frame (an ad) doesn't count, and takes back an
+            // earlier tap in the page.
+            let isFromPage = (action.sourceFrame as WKFrameInfo?)?.isMainFrame ?? true
+            lastLinkTap = isFromPage ? .now : nil
+            // Loading the request here would lose which frame asked.
+            if let url = action.request.url, let appURL = AppLink.appURL(for: url) {
+                openInApp(appURL, isFromPage: isFromPage)
+                return nil
+            }
             webView.load(action.request)
         }
         return nil
